@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { completeGate } from '../../lib/enterpriseGate';
 import { useLocation } from 'wouter';
+import { GateProgress } from './Signup';
 
 export function CheckoutGate() {
   const [, navigate] = useLocation();
@@ -23,16 +24,14 @@ export function CheckoutGate() {
           <div className="inline-flex items-center gap-2 bg-[var(--mint)]/10 border border-[var(--mint)]/30 px-4 py-1.5 rounded-full text-xs font-mono text-[var(--mint)] uppercase tracking-widest mb-6">
             Enterprise Access · Gate 4 of 4
           </div>
-          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Subscribe to Enterprise</h1>
-          <p className="text-sm text-[var(--muted)]">
-            Secure checkout. Cancel anytime. Your Venus AI dashboard activates instantly.
-          </p>
+          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Subscribe to Venus AI</h1>
+          <p className="text-sm text-[var(--muted)]">Secure checkout. Cancel anytime. Access activates instantly.</p>
         </div>
 
         <div className="bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-4 mb-6 flex items-center justify-between">
           <div>
-            <div className="text-sm font-bold text-white">Venus AI · Growth Plan</div>
-            <div className="text-xs text-[var(--muted)] font-mono">Unlimited simulations · 20 users</div>
+            <div className="text-sm font-bold text-white">Venus AI · Max Plan</div>
+            <div className="text-xs text-[var(--muted)] font-mono">Unlimited · 18-month roadmaps · Priority queue</div>
           </div>
           <div className="text-2xl font-syne font-extrabold text-[var(--mint)]">$299<span className="text-sm font-normal text-[var(--muted)]">/mo</span></div>
         </div>
@@ -104,13 +103,7 @@ export function CheckoutGate() {
           </p>
         </form>
 
-        <div className="flex justify-center gap-2 mt-8">
-          {['Gate 1', 'Gate 2', 'Gate 3', 'Gate 4'].map((g, i) => (
-            <div key={g} className={`text-[10px] font-mono px-2 py-1 rounded ${i <= 3 ? 'bg-[var(--indigo)] text-white' : 'bg-[var(--surface)] text-[var(--dim)] border border-[var(--border)]'}`}>
-              {g}
-            </div>
-          ))}
-        </div>
+        <GateProgress current={3} />
       </div>
     </div>
   );

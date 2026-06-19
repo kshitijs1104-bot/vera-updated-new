@@ -12,9 +12,10 @@ export interface SignupData {
 
 export interface OnboardingData {
   companyName: string;
-  stage: 'pre-seed' | 'seed' | 'series-a' | 'series-b+';
+  revenue: string;
+  headcount: string;
   role: string;
-  useCase: 'risk-analysis' | 'roadmap' | 'fundraising' | 'mentorship';
+  referralSource: string;
 }
 
 export function getGateStage(): GateStage | null {

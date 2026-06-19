@@ -1,36 +1,36 @@
 import { useState } from 'react';
-import { saveOnboardingData, type OnboardingData } from '../../lib/enterpriseGate';
+import { saveOnboardingData } from '../../lib/enterpriseGate';
 import { useLocation } from 'wouter';
+import { GateProgress } from './Signup';
 
-const STAGES = [
-  { value: 'pre-seed', label: 'Pre-Seed' },
-  { value: 'seed', label: 'Seed' },
-  { value: 'series-a', label: 'Series A' },
-  { value: 'series-b+', label: 'Series B+' },
-];
-
-const USE_CASES = [
-  { value: 'risk-analysis', label: 'Risk Analysis', desc: 'Identify what could go wrong before it does' },
-  { value: 'roadmap', label: 'Roadmap Simulation', desc: 'Stress-test your product and growth plans' },
-  { value: 'fundraising', label: 'Fundraising Intelligence', desc: 'Prepare for investor conversations with data' },
-  { value: 'mentorship', label: 'Strategic Mentorship', desc: 'Get advisory-level direction on key decisions' },
-];
+const ROLES = ['Founder / CEO', 'Co-founder', 'CTO', 'COO', 'Product Lead', 'Other'];
+const REFERRAL_SOURCES = ['Twitter / X', 'LinkedIn', 'Friend / Referral', 'Search', 'Product Hunt', 'Investor / Advisor', 'Other'];
 
 export function OnboardingGate() {
   const [, navigate] = useLocation();
-  const [form, setForm] = useState<Omit<OnboardingData, 'stage' | 'useCase'> & { stage: string; useCase: string }>({
+  const [form, setForm] = useState({
     companyName: '',
-    stage: '',
+    revenue: '',
+    headcount: '',
     role: '',
-    useCase: '',
+    roleOther: '',
+    referralSource: '',
   });
+  const [error, setError] = useState('');
 
-  const isValid = form.companyName && form.stage && form.role && form.useCase;
+  const effectiveRole = form.role === 'Other' ? form.roleOther : form.role;
+  const isValid = form.companyName.trim() && form.role && effectiveRole.trim() && form.referralSource && form.headcount;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid) return;
-    saveOnboardingData(form as OnboardingData);
+    if (!isValid) { setError('Please fill in all required fields.'); return; }
+    saveOnboardingData({
+      companyName: form.companyName,
+      revenue: form.revenue || '0',
+      headcount: form.headcount,
+      role: effectiveRole,
+      referralSource: form.referralSource,
+    } as any);
     navigate('/enterprise/plan');
   };
 
@@ -42,92 +42,95 @@ export function OnboardingGate() {
             Enterprise Access · Gate 2 of 4
           </div>
           <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Tell Venus About You</h1>
-          <p className="text-sm text-[var(--muted)]">
-            Venus AI calibrates every response to your company stage, role, and goals.
-          </p>
+          <p className="text-sm text-[var(--muted)]">Venus calibrates every analysis to your company, stage, and goals.</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-8 space-y-6">
+        <form onSubmit={handleSubmit} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-8 space-y-5">
+          {error && (
+            <div className="bg-[var(--red)]/10 border border-[var(--red)]/30 text-[var(--red)] text-sm p-3 rounded font-mono">{error}</div>
+          )}
+
+          <div>
+            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Company Name <span className="text-[var(--red)]">*</span></label>
+            <input
+              type="text"
+              value={form.companyName}
+              onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))}
+              placeholder="Acme AI"
+              className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Company Name</label>
-              <input
-                type="text"
-                value={form.companyName}
-                onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))}
-                placeholder="Acme AI"
-                className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
-              />
+              <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Monthly Revenue</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--dim)] text-sm font-mono">$</span>
+                <input
+                  type="text"
+                  value={form.revenue}
+                  onChange={e => setForm(f => ({ ...f, revenue: e.target.value }))}
+                  placeholder="0 (pre-revenue)"
+                  className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg pl-7 pr-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
+                />
+              </div>
             </div>
             <div>
-              <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Your Role</label>
+              <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Team Size <span className="text-[var(--red)]">*</span></label>
               <input
-                type="text"
-                value={form.role}
-                onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                placeholder="Founder / CEO / CFO"
+                type="number"
+                min="1"
+                value={form.headcount}
+                onChange={e => setForm(f => ({ ...f, headcount: e.target.value }))}
+                placeholder="e.g. 12"
                 className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-3">Company Stage</label>
-            <div className="grid grid-cols-4 gap-2">
-              {STAGES.map(s => (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, stage: s.value }))}
-                  className={`py-2 text-xs font-bold rounded-lg border transition-all uppercase tracking-wide ${
-                    form.stage === s.value
-                      ? 'bg-[var(--indigo)] border-[var(--indigo)] text-white'
-                      : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--indigo)]/50 hover:text-white'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Your Role <span className="text-[var(--red)]">*</span></label>
+            <select
+              value={form.role}
+              onChange={e => setForm(f => ({ ...f, role: e.target.value, roleOther: '' }))}
+              className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--indigo)] transition-colors appearance-none"
+            >
+              <option value="" disabled>Select your role…</option>
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {form.role === 'Other' && (
+              <input
+                type="text"
+                value={form.roleOther}
+                onChange={e => setForm(f => ({ ...f, roleOther: e.target.value }))}
+                placeholder="Enter your role"
+                className="mt-2 w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
+              />
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-3">Primary Use Case</label>
-            <div className="grid grid-cols-2 gap-3">
-              {USE_CASES.map(uc => (
-                <button
-                  key={uc.value}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, useCase: uc.value }))}
-                  className={`p-4 text-left rounded-lg border transition-all ${
-                    form.useCase === uc.value
-                      ? 'bg-[var(--indigo)]/20 border-[var(--indigo)] text-white'
-                      : 'border-[var(--border)] text-[var(--muted)] hover:border-[var(--border2)] hover:text-white bg-[var(--surface2)]'
-                  }`}
-                >
-                  <div className="text-sm font-bold mb-1">{uc.label}</div>
-                  <div className="text-[11px] opacity-70 leading-relaxed">{uc.desc}</div>
-                </button>
-              ))}
-            </div>
+            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">How did you hear about Venus AI? <span className="text-[var(--red)]">*</span></label>
+            <select
+              value={form.referralSource}
+              onChange={e => setForm(f => ({ ...f, referralSource: e.target.value }))}
+              className="w-full bg-[var(--surface2)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--indigo)] transition-colors appearance-none"
+            >
+              <option value="" disabled>Select source…</option>
+              {REFERRAL_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
 
           <button
             type="submit"
             disabled={!isValid}
-            className="w-full bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors text-sm uppercase tracking-wider"
+            className="w-full bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors text-sm uppercase tracking-wider mt-2"
           >
-            Continue to Plan →
+            Continue to Plan Selection →
           </button>
         </form>
 
-        <div className="flex justify-center gap-2 mt-8">
-          {['Gate 1', 'Gate 2', 'Gate 3', 'Gate 4'].map((g, i) => (
-            <div key={g} className={`text-[10px] font-mono px-2 py-1 rounded ${i <= 1 ? 'bg-[var(--indigo)] text-white' : 'bg-[var(--surface)] text-[var(--dim)] border border-[var(--border)]'}`}>
-              {g}
-            </div>
-          ))}
-        </div>
+        <GateProgress current={1} />
       </div>
     </div>
   );

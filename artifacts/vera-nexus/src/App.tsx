@@ -30,13 +30,16 @@ function VenusProtected() {
 function Router() {
   return (
     <Switch>
-      {/* Enterprise gate flow — full screen, no Layout */}
+      {/* Enterprise gate flow — full screen, no Layout, no Vera Nexus chrome */}
       <Route path="/enterprise/signup" component={SignupGate} />
       <Route path="/enterprise/onboarding" component={OnboardingGate} />
       <Route path="/enterprise/plan" component={PlanGate} />
       <Route path="/enterprise/checkout" component={CheckoutGate} />
 
-      {/* Main app with Layout */}
+      {/* Venus AI — standalone, no Vera Nexus Layout */}
+      <Route path="/venus" component={VenusProtected} />
+
+      {/* Vera Nexus app with Layout */}
       <Route>
         <Layout>
           <Switch>
@@ -44,7 +47,6 @@ function Router() {
             <Route path="/line" component={LinePage} />
             <Route path="/sight" component={SightPage} />
             <Route path="/crypt" component={CryptPage} />
-            <Route path="/venus" component={VenusProtected} />
             <Route path="/settings" component={SettingsPage} />
             <Route component={NotFound} />
           </Switch>

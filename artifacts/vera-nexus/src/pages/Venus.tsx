@@ -1,350 +1,482 @@
-import { useVenusAnalyze, useListThoughts } from '@workspace/api-client-react';
-import { useState, useRef, useEffect } from 'react';
-import { resetGate } from '../lib/enterpriseGate';
+import { useVenusAnalyze } from '@workspace/api-client-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
+import {
+  getSessions, saveSession, deleteSession, createSession,
+  getSavedAnalyses, saveAnalysis, deleteSavedAnalysis,
+  detectAnalysisType, typeLabel, titleFromMessage,
+  type ChatSession, type ChatMessage, type SavedAnalysisType,
+} from '../lib/venusHistory';
+import { Settings, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 
-const VENUS_FEATURES = [
-  {
-    id: 'market-cause',
-    label: 'Market Cause Mapping',
-    icon: '◎',
-    desc: 'Trace second and third-order effects of any market event on your sector',
-    primer: 'Map the causal chain for my business from the most significant market shifts happening right now. Be specific to my sector and stage.',
-  },
-  {
-    id: 'decision-simulator',
-    label: 'Decision Simulator',
-    icon: '⚡',
-    desc: 'Stress-test your next strategic decision against historical failure patterns',
-    primer: 'Simulate the downstream risks and opportunities of my next major strategic decision. Ask me what the decision is, then give a structured analysis.',
-  },
-  {
-    id: 'failure-pattern',
-    label: 'Failure Pattern Matching',
-    icon: '◈',
-    desc: 'Match your current situation against precedent failures in your space',
-    primer: 'Analyze my company situation and surface the top 3 historical failure patterns that most closely match our current trajectory. What should I watch for?',
-  },
-  {
-    id: 'fundraising',
-    label: 'Fundraising Intelligence',
-    icon: '◆',
-    desc: 'Investor readiness, narrative stress-test, and capital efficiency audit',
-    primer: 'Run a full fundraising readiness analysis for my company. Cover investor narrative gaps, capital efficiency, and the most likely objections from institutional investors.',
-  },
-  {
-    id: 'competitive-radar',
-    label: 'Competitive Causal Radar',
-    icon: '◐',
-    desc: 'Identify which competitor moves will have causal knock-on effects on you',
-    primer: 'Identify which competitor moves in my space will have the highest causal impact on our trajectory over the next 12 months. Prioritize by probability and severity.',
-  },
+const EXAMPLE_PROMPTS = [
+  "Map the causal chain for my business from the most significant market shifts right now",
+  "What's my biggest risk right now and how do I fix it?",
+  "Build me a 6-month roadmap based on similar companies at my stage",
+  "Find 3 failed companies most similar to mine and why they failed",
+  "Run an investor-fit analysis — which VCs are most likely to fund us?",
 ];
 
-type TabId = 'market-cause' | 'decision-simulator' | 'failure-pattern' | 'fundraising' | 'competitive-radar' | 'forum';
+const SAVED_TYPE_COLORS: Record<SavedAnalysisType, string> = {
+  risk: 'var(--red)',
+  roadmap: 'var(--mint)',
+  pattern: 'var(--amber)',
+  fundraising: 'var(--indigo-light)',
+  competitive: 'var(--green)',
+  analysis: 'var(--dim)',
+};
 
-interface ChatMessage {
-  role: 'user' | 'venus';
-  content?: string;
-  cards?: any[];
+function groupSavedByType(saved: ReturnType<typeof getSavedAnalyses>) {
+  const groups: Partial<Record<SavedAnalysisType, typeof saved>> = {};
+  for (const s of saved) {
+    if (!groups[s.type]) groups[s.type] = [];
+    groups[s.type]!.push(s);
+  }
+  return groups;
 }
 
 export function VenusPage() {
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<TabId>('market-cause');
-  const [chatsByTab, setChatsByTab] = useState<Record<string, ChatMessage[]>>({});
+  const [sessions, setSessions] = useState<ChatSession[]>(getSessions);
+  const [currentSession, setCurrentSession] = useState<ChatSession>(() => {
+    const existing = getSessions();
+    return existing.length > 0 ? existing[0] : createSession();
+  });
+  const [saved, setSaved] = useState(getSavedAnalyses);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [showSettings, setShowSettings] = useState(false);
+  const [groqKey, setGroqKey] = useState(() => localStorage.getItem('ve_groq_key') || '');
   const [input, setInput] = useState('');
+  const endRef = useRef<HTMLDivElement | null>(null);
   const analyzeMutation = useVenusAnalyze();
-  const endRef = useRef<HTMLDivElement>(null);
 
-  const { data: thoughts = [] } = useListThoughts();
-
-  const messages = chatsByTab[activeTab] ?? [];
+  const messages = currentSession.messages;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, analyzeMutation.isPending, activeTab]);
+  }, [messages, analyzeMutation.isPending]);
+
+  const persistSession = useCallback((session: ChatSession) => {
+    saveSession(session);
+    setSessions(getSessions());
+  }, []);
+
+  const handleNewChat = () => {
+    const s = createSession();
+    setCurrentSession(s);
+  };
+
+  const handleSelectSession = (s: ChatSession) => {
+    setCurrentSession(s);
+    setInput('');
+  };
+
+  const handleDeleteSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteSession(id);
+    setSessions(getSessions());
+    if (currentSession.id === id) setCurrentSession(createSession());
+  };
 
   const handleSend = (preset?: string) => {
-    const text = preset || input;
-    if (!text.trim() || activeTab === 'forum') return;
-    const newMsgs: ChatMessage[] = [...messages, { role: 'user', content: text }];
-    setChatsByTab(prev => ({ ...prev, [activeTab]: newMsgs }));
+    const text = (preset || input).trim();
+    if (!text) return;
     setInput('');
+
+    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: text }];
+    const updatedTitle = messages.length === 0 ? titleFromMessage(text) : currentSession.title;
+    const updated: ChatSession = { ...currentSession, messages: newMessages, title: updatedTitle };
+    setCurrentSession(updated);
+    persistSession(updated);
 
     analyzeMutation.mutate(
       { data: { message: text, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
       {
         onSuccess: (res) => {
-          setChatsByTab(prev => ({
-            ...prev,
-            [activeTab]: [...(prev[activeTab] ?? []), { role: 'venus', content: res.summary, cards: res.cards }],
-          }));
+          const venusMsg: ChatMessage = { role: 'venus', content: res.summary, cards: res.cards };
+          const withVenus: ChatSession = { ...updated, messages: [...newMessages, venusMsg] };
+          setCurrentSession(withVenus);
+          persistSession(withVenus);
         },
       }
     );
   };
 
-  const handleFeatureStart = (feature: typeof VENUS_FEATURES[0]) => {
-    setActiveTab(feature.id as TabId);
-    if (!chatsByTab[feature.id]?.length) {
-      setTimeout(() => handleSend(feature.primer), 50);
-    }
+  const handleSaveResponse = (msg: ChatMessage) => {
+    const type = detectAnalysisType(msg.content ?? '', msg.cards);
+    const title = typeLabel(type) + ' — ' + new Date().toLocaleDateString();
+    saveAnalysis({ type, title, summary: msg.content ?? '' });
+    setSaved(getSavedAnalyses());
   };
 
-  const handleSignOut = () => {
-    resetGate();
-    navigate('/line');
+  const handleDeleteSaved = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteSavedAnalysis(id);
+    setSaved(getSavedAnalyses());
   };
+
+  const toggleGroup = (type: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return next;
+    });
+  };
+
+  const savedGroups = groupSavedByType(saved);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden">
-      {/* Left nav */}
-      <nav className="w-[220px] border-r border-[var(--border)] bg-[var(--surface)] flex flex-col shrink-0">
+    <div className="flex h-screen w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
+      {/* Left Sidebar */}
+      <aside className="w-[240px] border-r border-[var(--border)] flex flex-col shrink-0 bg-[var(--surface)]">
+        {/* Back link */}
         <div className="p-4 border-b border-[var(--border)]">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[8px] font-bold text-black">V</div>
-            <span className="text-sm font-syne font-bold text-white">Venus AI</span>
-          </div>
-          <div className="text-[10px] font-mono text-[var(--mint)] uppercase tracking-widest">Enterprise</div>
-        </div>
-
-        <div className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {VENUS_FEATURES.map(f => (
-            <button
-              key={f.id}
-              onClick={() => setActiveTab(f.id as TabId)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all group text-sm ${
-                activeTab === f.id
-                  ? 'bg-[var(--indigo)]/20 border border-[var(--indigo)]/40 text-white'
-                  : 'text-[var(--muted)] hover:text-white hover:bg-[var(--surface2)] border border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-[var(--indigo-light)] text-xs">{f.icon}</span>
-                <span className="font-medium text-xs">{f.label}</span>
-              </div>
-            </button>
-          ))}
-
-          <div className="pt-2 border-t border-[var(--border)] mt-2">
-            <button
-              onClick={() => setActiveTab('forum')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all text-sm ${
-                activeTab === 'forum'
-                  ? 'bg-[var(--mint)]/10 border border-[var(--mint)]/30 text-[var(--mint)]'
-                  : 'text-[var(--muted)] hover:text-white hover:bg-[var(--surface2)] border border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xs">◉</span>
-                <span className="font-medium text-xs">Aurelian Forum</span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div className="p-3 border-t border-[var(--border)]">
           <button
-            onClick={handleSignOut}
-            className="w-full text-[10px] font-mono text-[var(--dim)] hover:text-[var(--red)] transition-colors text-left px-2 py-1"
+            onClick={() => navigate('/line')}
+            className="text-xs font-mono text-[var(--dim)] hover:text-white transition-colors flex items-center gap-1.5"
           >
-            ← Exit Enterprise
+            ← Back to Vera Nexus
           </button>
         </div>
-      </nav>
 
-      {/* Main content */}
-      {activeTab === 'forum' ? (
-        <AurelianForum thoughts={thoughts} />
-      ) : (
-        <ChatPane
-          feature={VENUS_FEATURES.find(f => f.id === activeTab)!}
-          messages={messages}
-          input={input}
-          setInput={setInput}
-          onSend={handleSend}
-          onFeatureStart={handleFeatureStart}
-          isPending={analyzeMutation.isPending}
-          endRef={endRef}
-        />
-      )}
-    </div>
-  );
-}
-
-function ChatPane({
-  feature, messages, input, setInput, onSend, onFeatureStart, isPending, endRef
-}: {
-  feature: typeof VENUS_FEATURES[0];
-  messages: ChatMessage[];
-  input: string;
-  setInput: (v: string) => void;
-  onSend: (preset?: string) => void;
-  onFeatureStart: (f: typeof VENUS_FEATURES[0]) => void;
-  isPending: boolean;
-  endRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  return (
-    <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden">
-      {messages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in fade-in">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
-            <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center">
-              <span className="text-2xl">{feature.icon}</span>
-            </div>
-          </div>
-          <h2 className="text-2xl font-syne font-extrabold text-white mb-2">{feature.label}</h2>
-          <p className="text-sm text-[var(--muted)] max-w-sm mb-8 leading-relaxed">{feature.desc}</p>
+        {/* New Chat + History */}
+        <div className="p-3 border-b border-[var(--border)]">
           <button
-            onClick={() => onFeatureStart(feature)}
-            className="bg-[var(--indigo)] hover:bg-[var(--indigo-light)] text-white font-bold px-8 py-3 rounded-lg text-sm uppercase tracking-wider transition-colors"
+            onClick={handleNewChat}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--indigo)]/20 border border-[var(--indigo)]/40 text-[var(--indigo-light)] hover:bg-[var(--indigo)]/30 transition-all text-sm font-medium"
           >
-            Start Analysis →
+            <Plus className="w-4 h-4" />
+            New Chat
           </button>
         </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto p-8 space-y-8">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {msg.role === 'user' ? (
-                <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-white rounded-2xl rounded-tr-none px-6 py-4 text-sm leading-relaxed">
-                  {msg.content}
-                </div>
-              ) : (
-                <div className="max-w-[85%] space-y-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[8px] font-bold text-black">V</div>
-                    <span className="text-xs font-mono uppercase text-[var(--muted)]">Venus</span>
-                  </div>
-                  {msg.content && (
-                    <p className="text-[var(--text)] text-sm leading-relaxed font-medium">{msg.content}</p>
-                  )}
-                  {msg.cards && msg.cards.length > 0 && (
-                    <div className="grid grid-cols-1 gap-4 mt-6">
-                      {msg.cards.map((card: any, ci: number) => (
-                        <div key={ci} className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5">
-                          <h4 className="text-xs font-mono uppercase text-[var(--mint)] mb-4">{card.title}</h4>
-                          {card.type === 'analysis' && (
-                            <ul className="space-y-2">
-                              {(card.content?.points ?? []).map((pt: any, pi: number) => (
-                                <li key={pi} className="flex justify-between items-center text-sm border-b border-[var(--border)] border-dashed pb-2 last:border-0">
-                                  <span className="text-[var(--muted)]">{pt.label}</span>
-                                  <span className="font-mono text-white">{pt.value}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                          {card.type === 'risk' && (
-                            <div className="space-y-4">
-                              {(card.content?.risks ?? []).map((risk: any, ri: number) => (
-                                <div key={ri} className="bg-[var(--surface)] p-3 rounded border border-[var(--border)]">
-                                  <div className="flex justify-between items-center mb-2">
-                                    <span className="text-sm font-bold text-[var(--amber)]">{risk.name}</span>
-                                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--red)]/20 text-[var(--red)]">{risk.impact} Impact</span>
-                                  </div>
-                                  <p className="text-xs text-[var(--muted)]">{risk.mitigation}</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {['market', 'roadmap', 'decision'].includes(card.type) && (
-                            <pre className="text-xs text-[var(--muted)] font-mono whitespace-pre-wrap">{JSON.stringify(card.content, null, 2)}</pre>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
 
-          {isPending && (
-            <div className="flex justify-start">
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[8px] font-bold text-black animate-pulse">V</div>
-                <div className="flex gap-1">
-                  {[0, 150, 300].map(delay => (
-                    <span key={delay} className="w-1.5 h-1.5 bg-[var(--mint)] rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }}></span>
-                  ))}
-                </div>
-              </div>
+        <div className="flex-1 overflow-y-auto py-2">
+          {/* Chat History */}
+          {sessions.length > 0 && (
+            <div className="px-2 mb-4">
+              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider px-2 mb-2">Recent</div>
+              {sessions.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => handleSelectSession(s)}
+                  className={`w-full group flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors text-xs mb-0.5 ${
+                    currentSession.id === s.id
+                      ? 'bg-[var(--surface2)] text-white'
+                      : 'text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white'
+                  }`}
+                >
+                  <span className="truncate flex-1">{s.title}</span>
+                  <Trash2
+                    className="w-3 h-3 shrink-0 ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[var(--red)] transition-opacity"
+                    onClick={(e) => handleDeleteSession(s.id, e)}
+                  />
+                </button>
+              ))}
             </div>
           )}
-          <div ref={endRef} />
-        </div>
-      )}
 
-      <div className="p-4 border-t border-[var(--border)] bg-[var(--bg)]">
-        <form
-          onSubmit={e => { e.preventDefault(); onSend(); }}
-          className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors"
-        >
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }}
-            placeholder={`Ask Venus about ${feature.label.toLowerCase()}...`}
-            className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
-          />
+          {/* Saved Analyses */}
+          {Object.keys(savedGroups).length > 0 && (
+            <div className="px-2">
+              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider px-2 mb-2">Saved</div>
+              {(Object.entries(savedGroups) as [SavedAnalysisType, typeof saved][]).map(([type, items]) => (
+                <div key={type} className="mb-2">
+                  <button
+                    onClick={() => toggleGroup(type)}
+                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider hover:text-white transition-colors"
+                    style={{ color: SAVED_TYPE_COLORS[type] }}
+                  >
+                    {collapsedGroups.has(type) ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {typeLabel(type)}s ({items.length})
+                  </button>
+                  {!collapsedGroups.has(type) && items.map(item => (
+                    <div
+                      key={item.id}
+                      className="group flex items-center justify-between px-3 py-1.5 rounded text-xs text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white transition-colors cursor-default mb-0.5"
+                    >
+                      <span className="truncate flex-1">{item.title}</span>
+                      <Trash2
+                        className="w-3 h-3 shrink-0 ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[var(--red)] transition-opacity cursor-pointer"
+                        onClick={(e) => handleDeleteSaved(item.id, e)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Settings */}
+        <div className="border-t border-[var(--border)] p-3">
           <button
-            type="submit"
-            disabled={!input.trim() || isPending}
-            className="w-11 h-11 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-50 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+            onClick={() => setShowSettings(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-[var(--muted)] hover:text-white hover:bg-[var(--surface2)] transition-colors"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-            </svg>
+            <Settings className="w-4 h-4" />
+            Settings
           </button>
-        </form>
+
+          {showSettings && (
+            <div className="mt-2 p-3 bg-[var(--surface2)] border border-[var(--border)] rounded-lg">
+              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Groq API Key</div>
+              <input
+                type="password"
+                value={groqKey}
+                onChange={e => {
+                  setGroqKey(e.target.value);
+                  localStorage.setItem('ve_groq_key', e.target.value);
+                }}
+                placeholder="gsk_..."
+                className="w-full bg-[var(--surface)] border border-[var(--border)] rounded px-2.5 py-2 text-xs font-mono text-white placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
+              />
+              <p className="text-[9px] font-mono text-[var(--dim)] mt-1.5 leading-relaxed">
+                Get a free key at console.groq.com
+              </p>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="h-12 border-b border-[var(--border)] flex items-center px-6 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[8px] font-bold text-black">V</div>
+            <span className="text-sm font-syne font-bold text-white">Venus AI</span>
+            <span className="text-[10px] font-mono text-[var(--mint)] uppercase ml-2">Enterprise</span>
+          </div>
+        </div>
+
+        {/* Messages */}
+        {messages.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
+              <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
+                <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
+              </div>
+            </div>
+            <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
+            <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
+              Elite business intelligence. No hedging. Pure signal.
+            </p>
+
+            <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
+              {EXAMPLE_PROMPTS.map(prompt => (
+                <button
+                  key={prompt}
+                  onClick={() => handleSend(prompt)}
+                  className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+                >
+                  <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-8 space-y-8 max-w-4xl mx-auto w-full">
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'user' ? (
+                  <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-white rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
+                    {msg.content}
+                  </div>
+                ) : (
+                  <div className="max-w-[90%] space-y-3 group">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black">V</div>
+                      <span className="text-[10px] font-mono uppercase text-[var(--muted)]">Venus</span>
+                    </div>
+
+                    {msg.content && <VenusMessage content={msg.content} />}
+
+                    {msg.cards && msg.cards.length > 0 && (
+                      <div className="grid grid-cols-1 gap-3 mt-4">
+                        {msg.cards.map((card: any, ci: number) => (
+                          <VenusCard key={ci} card={card} />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Save button */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity pt-1">
+                      <button
+                        onClick={() => handleSaveResponse(msg)}
+                        className="text-[10px] font-mono text-[var(--dim)] hover:text-[var(--mint)] transition-colors border border-[var(--border)] hover:border-[var(--mint)]/40 px-2.5 py-1 rounded"
+                      >
+                        Save as {typeLabel(detectAnalysisType(msg.content ?? '', msg.cards))} →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {analyzeMutation.isPending && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black animate-pulse">V</div>
+                  <div className="flex gap-1">
+                    {[0, 150, 300].map(delay => (
+                      <span key={delay} className="w-1.5 h-1.5 bg-[var(--mint)] rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="p-4 border-t border-[var(--border)] bg-[var(--bg)] shrink-0">
+          <form
+            onSubmit={e => { e.preventDefault(); handleSend(); }}
+            className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-4xl mx-auto"
+          >
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder="Ask Venus for unvarnished analysis…"
+              rows={1}
+              className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || analyzeMutation.isPending}
+              className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              </svg>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
 
-function AurelianForum({ thoughts }: { thoughts: any[] }) {
+/* Render Venus response with basic markdown-like formatting */
+function VenusMessage({ content }: { content: string }) {
+  const lines = content.split('\n');
   return (
-    <div className="flex-1 overflow-y-auto p-8">
-      <header className="mb-8 border-b border-[var(--border)] pb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-[var(--mint)]">◉</span>
-          <h1 className="text-2xl font-syne font-extrabold text-white">Aurelian Forum</h1>
-        </div>
-        <p className="text-sm text-[var(--muted)]">
-          Signal-dense intelligence from operators, founders, and investors in the Venus AI ecosystem.
-        </p>
-      </header>
-
-      <div className="space-y-4 max-w-3xl">
-        {thoughts.length === 0 ? (
-          <div className="text-center py-20 text-[var(--dim)] font-mono text-sm">No forum posts yet.</div>
-        ) : (
-          thoughts.map((thought: any) => (
-            <div key={thought.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 hover:border-[var(--border2)] transition-colors">
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--indigo)]/40 to-[var(--mint)]/40 border border-[var(--border)] flex items-center justify-center text-xs font-bold text-white">
-                    {(thought.author ?? 'A')[0]}
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-white">{thought.author ?? 'Anonymous'}</div>
-                    <div className="text-[10px] font-mono text-[var(--dim)] uppercase">{thought.category}</div>
-                  </div>
-                </div>
-                <div className="flex gap-1.5 flex-wrap">
-                  {(thought.tags ?? []).slice(0, 2).map((tag: string) => (
-                    <span key={tag} className="text-[10px] font-mono text-[var(--dim)] bg-[var(--surface2)] border border-[var(--border)] px-2 py-0.5 rounded">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <p className="text-sm text-[var(--text)] leading-relaxed">{thought.content}</p>
+    <div className="space-y-1.5 text-sm text-[var(--text)] leading-relaxed">
+      {lines.map((line, i) => {
+        if (line.startsWith('### ')) {
+          return <h3 key={i} className="text-xs font-mono text-[var(--mint)] uppercase tracking-wider pt-3 first:pt-0">{line.slice(4)}</h3>;
+        }
+        if (line.startsWith('## ')) {
+          return <h2 key={i} className="text-sm font-syne font-bold text-white pt-3 first:pt-0">{line.slice(3)}</h2>;
+        }
+        if (line.startsWith('# ')) {
+          return <h1 key={i} className="text-base font-syne font-extrabold text-white pt-2 first:pt-0">{line.slice(2)}</h1>;
+        }
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-[var(--mint)] mt-0.5 text-xs shrink-0">•</span>
+              <span>{renderInline(line.slice(2))}</span>
             </div>
-          ))
-        )}
+          );
+        }
+        if (/^\d+\.\s/.test(line)) {
+          const num = line.match(/^(\d+)\.\s/)![1];
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-[var(--dim)] font-mono text-xs shrink-0 pt-0.5">{num}.</span>
+              <span>{renderInline(line.replace(/^\d+\.\s/, ''))}</span>
+            </div>
+          );
+        }
+        if (line.trim() === '') return <div key={i} className="h-1" />;
+        return <p key={i}>{renderInline(line)}</p>;
+      })}
+    </div>
+  );
+}
+
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function VenusCard({ card }: { card: any }) {
+  const typeColors: Record<string, string> = {
+    analysis: 'var(--indigo-light)',
+    market: 'var(--mint)',
+    risk: 'var(--red)',
+    roadmap: 'var(--amber)',
+    decision: 'var(--green)',
+  };
+  const color = typeColors[card.type] ?? 'var(--dim)';
+
+  return (
+    <div className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+        <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
       </div>
+
+      {card.type === 'analysis' && (
+        <ul className="space-y-2">
+          {(card.content?.points ?? []).map((pt: any, i: number) => (
+            <li key={i} className="flex justify-between items-center text-sm border-b border-[var(--border)] border-dashed pb-2 last:border-0">
+              <span className="text-[var(--muted)]">{pt.label}</span>
+              <span className="font-mono text-white">{pt.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {card.type === 'risk' && (
+        <div className="space-y-3">
+          {(card.content?.risks ?? []).map((risk: any, i: number) => (
+            <div key={i} className="bg-[var(--surface)] p-3 rounded border border-[var(--border)]">
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-sm font-bold text-[var(--amber)]">{risk.name}</span>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--red)]/20 text-[var(--red)]">{risk.impact}</span>
+              </div>
+              <p className="text-xs text-[var(--muted)]">{risk.mitigation}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.type === 'roadmap' && (
+        <div className="space-y-3">
+          {(card.content?.milestones ?? card.content?.phases ?? []).map((m: any, i: number) => (
+            <div key={i} className="flex gap-3">
+              <div className="font-mono text-[var(--amber)] opacity-60 text-xs pt-0.5 shrink-0">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
+              <div className="text-sm text-[var(--muted)]">{m.goal ?? m.description ?? JSON.stringify(m)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {['market', 'decision'].includes(card.type) && (
+        <div className="space-y-2">
+          {(card.content?.points ?? card.content?.factors ?? []).map((p: any, i: number) => (
+            <div key={i} className="text-sm text-[var(--muted)] flex items-start gap-2">
+              <span className="text-[var(--mint)] mt-0.5">•</span>
+              <span>{typeof p === 'string' ? p : p.label ?? p.factor ?? JSON.stringify(p)}</span>
+            </div>
+          ))}
+          {/* Fallback */}
+          {!card.content?.points && !card.content?.factors && (
+            <pre className="text-xs text-[var(--muted)] font-mono whitespace-pre-wrap">{JSON.stringify(card.content, null, 2)}</pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }
