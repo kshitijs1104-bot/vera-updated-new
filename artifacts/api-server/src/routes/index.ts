@@ -7,6 +7,7 @@ import signalsRouter from "./signals";
 import thoughtsRouter from "./thoughts";
 import aiRouter from "./ai";
 import settingsRouter from "./settings";
+import stocksRouter from "./stocks";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(signalsRouter);
 router.use(thoughtsRouter);
 router.use(aiRouter);
 router.use(settingsRouter);
+router.use(stocksRouter);
 
 export default router;

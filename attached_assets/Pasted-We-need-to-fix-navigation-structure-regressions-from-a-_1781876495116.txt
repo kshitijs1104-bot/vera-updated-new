@@ -1,0 +1,123 @@
+We need to fix navigation/structure regressions from a recent rebuild. Do NOT redesign 
+visual style (keep the dark, glowing, data-dense aesthetic) — this is an architecture 
+and content fix.
+
+=== 1. SEPARATE VENUS AI FROM VERA NEXUS ===
+Venus AI is currently showing as a top-nav item inside Vera Nexus (consumer product). 
+This is wrong. Venus AI is a SEPARATE B2B product that only lives inside the 
+ENTERPRISE section.
+
+* Remove "Venus AI" from Vera Nexus's top navigation entirely.
+* Vera Nexus top nav should ONLY contain: Line, Sight, Crypt (see section 3).
+* Remove the standalone "Thoughts Hub" nav item too — Aurelian Forum is a 
+  Venus AI feature, not a Vera Nexus feature, and should not appear here.
+* The PERSONAL / ENTERPRISE toggle stays in the top bar. When a user switches to 
+  ENTERPRISE, that's where Venus AI (with its 5 features: Market Cause Mapping, 
+  Decision Simulator, Failure Pattern Matching, Fundraising Intelligence, 
+  Competitive Causal Radar, plus Aurelian Forum) lives.
+
+=== 2. FIX ENTERPRISE GATING (4-GATE FLOW) ===
+Enterprise currently skips straight to the product with no gating. Restore the 
+4-gate flow before a user can access Venus AI features:
+
+Gate 1 — Sign Up / Auth: Clerk-based signup/login, enterprise-flagged user.
+Gate 2 — Onboarding Form: Short form capturing company name, stage 
+  (pre-seed/seed/Series A+), founder role, and primary use case 
+  (risk analysis / roadmap / fundraising / mentorship). Store this in Supabase 
+  against the user.
+Gate 3 — Usage / Plan Selection: Show what's included (e.g. number of 
+  simulations/month) before granting access — this is the upsell moment, 
+  not optional.
+Gate 4 — Subscription: Stripe checkout (or placeholder if Stripe isn't wired 
+  yet) for the $199-299/mo tier before unlocking the actual Venus AI dashboard.
+
+If any gate is incomplete, redirect back to that gate — don't let users land on 
+the product directly via URL.
+
+=== 3. RESTRUCTURE VERA NEXUS TO 3 MODULES ONLY ===
+Vera Nexus (the free B2C product) should have exactly three sections in nav: 
+Line, Sight, Crypt. Remove anything else (Thoughts Hub, Venus AI, Crypt etc. 
+mislabeled).
+
+--- SIGHT: Rebuild as NSE-style market news page ---
+Reference: NSE India's news/quotes page + Zerodha Pulse + Bloomberg terminal feel.
+
+Layout:
+* LEFT panel: category filter (All Topics, Technology, Finance, Markets, Health, 
+  etc.) — this already exists, keep it.
+* REMOVE the "FINANCE" sector dropdown from the top nav bar — it's redundant 
+  with the left panel category filter. Top nav should just be Line / Sight / Crypt 
+  + Personal/Enterprise toggle + sign in.
+* CENTER: News feed, Bloomberg-style — headline, 1-2 line summary, timestamp, 
+  source tag, causal annotation badge (keep the existing "causal chain" green 
+  tagging — that's the differentiator). Dense, scannable, not card-bloated.
+* RIGHT panel "Watchlist" (replace/extend the current generic "Signals" panel): 
+  - Let the user pick a custom basket of up to 10 stocks/tickers to track.
+  - Show each ticker with daily % change, color-coded green/red, live or 
+    last-close price.
+  - Add a "+ Add to watchlist" / "Manage basket" control — store the user's 
+    chosen basket in Supabase keyed to their account (or localStorage if 
+    not logged in).
+  - Keep the existing macro signals (AI Index, Compute ETF, Policy Risk, 
+    Safety Sentiment) above or below the personal watchlist — don't replace, 
+    add alongside.
+
+--- LINE: Keep as proper timeline ---
+This should remain the chronological causal-chain timeline view (the "Dot-Com 
+Bubble Bursts" style cards with Impact %, Ripples count, Ripple Analysis link). 
+Don't touch this — it's working as intended, just make sure it's NOT showing 
+Venus AI content.
+
+--- CRYPT (Corporate Graveyard): Fix to a FIXED list of 10 ---
+Currently randomizing companies on every load — this breaks user trust and 
+SEO/shareability. Fix:
+* Hardcode/seed a curated, fixed list of exactly 10 dead/failed companies 
+  in the database or a static config (lib/graveyard.ts), e.g. the original 
+  set you had before (Google Glass, Vine, etc.) plus WeWork, Lehman Brothers, 
+  Theranos, Quibi, MoviePass, Webvan, Pets.com — pick 10 final ones and lock them.
+* Same "ENTER AUTOPSY" interaction stays.
+* This list should NOT change on reload/refresh. If you want variety later, 
+  make it editorial (manually curated rotation, e.g. monthly), not random 
+  per-session.
+
+=== 4. SUMMARY OF NAV AFTER FIX ===
+Top nav (Vera Nexus, logged in or not): Line | Sight | Crypt — [Personal/Enterprise toggle] — Sign in
+Enterprise mode → gated flow (Signup → Onboarding form → Plan/Usage → Subscription) → Venus AI dashboard (5 features + Aurelian Forum)
+
+=== ADDENDUM A: WATCHLIST DATA SOURCE ===
+Use a free API for the Sight watchlist stock data:
+* Alpha Vantage (free tier, 25 requests/day on the free key — fine for MVP, 
+  cache responses server-side to avoid burning the quota) OR
+* Yahoo Finance unofficial endpoint (no key needed, less reliable, but better 
+  for a quick wire-up during dev)
+Recommend: start with Yahoo Finance unofficial endpoint for speed since this is 
+still dev/demo stage, with a clear comment in the code marking it as a temporary 
+data source to swap for Alpha Vantage (or NSE official API) before any real launch.
+Cache prices server-side (e.g. revalidate every 60-120s) so you're not hitting 
+the API on every page load — this matters more for NSE/Indian tickers since 
+free APIs are often US-market-biased; flag if Indian ticker support is unreliable 
+and fall back to global/US tickers (AAPL, TSLA, NVDA etc.) for the MVP basket 
+picker if needed.
+
+=== ADDENDUM B: FINAL LOCKED CRYPT LIST (10 COMPANIES) ===
+Hardcode exactly these 10 in lib/graveyard.ts — do not randomize, do not rotate 
+automatically. This list stays fixed until manually changed:
+
+1. Google Glass (2012-2015) — Consumer Hardware
+2. Vine (2012-2017) — Social
+3. WeWork (2010-2019) — Real Estate / Tech
+4. Theranos (2003-2018) — Healthtech
+5. Quibi (2020) — Streaming / Media
+6. MoviePass (2011-2020) — Subscription / Consumer
+7. Webvan (1999-2001) — Dot-com / Grocery Delivery
+8. Pets.com (1998-2000) — Dot-com / E-commerce
+9. FTX (2019-2022) — Crypto
+10. Juicero (2013-2017) — Consumer Hardware
+
+Each entry should follow the same structure as lib/precedents.ts (causal chain, 
+key metrics, warning signals, tags, lessons) so Crypt's autopsy view can pull 
+from the same shape of data. If an entry already exists in precedents.ts for 
+one of these, reuse it rather than duplicating.
+
+Please implement this without touching the existing dark/glow visual theme, 
+just the structure, nav, gating, and the Sight/Crypt content logic.

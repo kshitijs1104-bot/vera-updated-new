@@ -1,12 +1,21 @@
 import { Link, useLocation } from 'wouter';
+import { Settings, User } from 'lucide-react';
 import { useCategory } from '../../lib/CategoryContext';
-import { Settings, ChevronDown, User } from 'lucide-react';
-
-const CATEGORIES = ['all', 'technology', 'finance', 'markets', 'health'] as const;
+import { isEnterpriseUnlocked, getNextGateRoute } from '../../lib/enterpriseGate';
 
 export function Topbar() {
-  const [location] = useLocation();
-  const { category, setCategory, tier, setTier } = useCategory();
+  const [location, navigate] = useLocation();
+  const { tier, setTier } = useCategory();
+
+  const handleEnterprise = () => {
+    setTier('Enterprise');
+    navigate(isEnterpriseUnlocked() ? '/venus' : getNextGateRoute());
+  };
+
+  const handlePersonal = () => {
+    setTier('Personal');
+    navigate('/line');
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-[var(--bg)]/80 backdrop-blur-md border-b border-[var(--border)] h-16 flex items-center justify-between px-6">
@@ -20,8 +29,6 @@ export function Topbar() {
             { href: '/line', label: 'Line' },
             { href: '/sight', label: 'Sight' },
             { href: '/crypt', label: 'Crypt' },
-            { href: '/thoughts', label: 'Thoughts Hub' },
-            { href: '/venus', label: 'Venus AI' },
           ].map(tab => (
             <Link
               key={tab.href}
@@ -39,34 +46,15 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-6">
-        <div className="relative group cursor-pointer">
-          <div className="flex items-center gap-2 text-sm font-medium text-[var(--muted)] hover:text-white transition-colors bg-[var(--surface)] px-3 py-1.5 rounded border border-[var(--border)]">
-            <span className="w-2 h-2 rounded-full bg-[var(--indigo)]"></span>
-            <span className="uppercase">{category}</span>
-            <ChevronDown className="w-4 h-4" />
-          </div>
-          <div className="absolute top-full mt-2 w-40 bg-[var(--surface2)] border border-[var(--border)] rounded shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity z-50">
-            {CATEGORIES.map(cat => (
-              <div 
-                key={cat}
-                onClick={() => setCategory(cat as any)}
-                className="px-4 py-2 text-sm uppercase cursor-pointer hover:bg-[var(--surface3)] text-[var(--text)] transition-colors"
-              >
-                {cat}
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="flex bg-[var(--surface)] p-1 rounded-lg border border-[var(--border)]">
-          <button 
-            onClick={() => setTier('Personal')}
+          <button
+            onClick={handlePersonal}
             className={`px-3 py-1 text-xs font-bold rounded uppercase transition-colors ${tier === 'Personal' ? 'bg-[var(--indigo)] text-white' : 'text-[var(--muted)] hover:text-white'}`}
           >
             Personal
           </button>
-          <button 
-            onClick={() => setTier('Enterprise')}
+          <button
+            onClick={handleEnterprise}
             className={`px-3 py-1 text-xs font-bold rounded uppercase transition-colors ${tier === 'Enterprise' ? 'bg-[var(--mint)] text-black' : 'text-[var(--muted)] hover:text-white'}`}
           >
             Enterprise

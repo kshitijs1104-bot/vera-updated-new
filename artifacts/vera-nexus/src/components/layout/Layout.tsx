@@ -6,7 +6,7 @@ import { useLocation } from 'wouter';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const showRightSidebar = !['/venus', '/settings'].includes(location);
+  const showRightSidebar = !['/venus', '/settings', '/crypt'].includes(location);
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col dark">
