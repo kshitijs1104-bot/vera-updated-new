@@ -1,0 +1,1 @@
+- [Vera Nexus stack](vera-nexus-stack.md) — key architectural decisions for this project worth remembering across sessions.

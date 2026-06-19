@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Vera Nexus"
+version = "1.0.0"
+id = "artifacts/vera-nexus"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24335
+
+[services.development]
+run = "pnpm --filter @workspace/vera-nexus run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/vera-nexus", "run", "build" ]
+publicDir = "artifacts/vera-nexus/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24335"
+BASE_PATH = "/"
