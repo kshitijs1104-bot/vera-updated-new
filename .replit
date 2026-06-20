@@ -33,3 +33,8 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+groq_api_key = "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"
