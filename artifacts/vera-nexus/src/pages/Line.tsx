@@ -94,7 +94,8 @@ function RippleFlowchart({ flowchart }: { flowchart: Flowchart }) {
 export function LinePage() {
   const { category } = useCategory();
   const params = category && category !== 'all' ? { category } : undefined;
-  const { data: events = [], isLoading, isError } = useListEvents(params as any);
+  const { data: rawEvents, isLoading, isError } = useListEvents(params as any);
+  const events = Array.isArray(rawEvents) ? rawEvents : (rawEvents as any)?.data ?? [];
   const [selectedEventForRipple, setSelectedEventForRipple] = useState<number | null>(null);
 
   const rippleMutation = useRippleAnalysis();
