@@ -1,4 +1,4 @@
-import { useVenusAnalyze, setDefaultHeaders } from '@workspace/api-client-react';
+import { useVenusAnalyze } from '@workspace/api-client-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import {
@@ -55,12 +55,6 @@ export function VenusPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, analyzeMutation.isPending]);
-
-  useEffect(() => {
-    if (groqKey) {
-      setDefaultHeaders({ 'x-groq-api-key': groqKey });
-    }
-  }, []);
 
   const persistSession = useCallback((session: ChatSession) => {
     saveSession(session);
@@ -230,14 +224,8 @@ export function VenusPage() {
                 type="password"
                 value={groqKey}
                 onChange={e => {
-                  const key = e.target.value;
-                  setGroqKey(key);
-                  localStorage.setItem('ve_groq_key', key);
-                  if (key) {
-                    setDefaultHeaders({ 'x-groq-api-key': key });
-                  } else {
-                    setDefaultHeaders({ 'x-groq-api-key': '' });
-                  }
+                  setGroqKey(e.target.value);
+                  localStorage.setItem('ve_groq_key', e.target.value);
                 }}
                 placeholder="gsk_..."
                 className="w-full bg-[var(--surface)] border border-[var(--border)] rounded px-2.5 py-2 text-xs font-mono text-white placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"

@@ -25,7 +25,15 @@ app.use(
     },
   }),
 );
-app.use(cors());
+// TODO: lock down before production — set ALLOWED_ORIGIN to your Vercel deployment URL
+app.use(
+  cors({
+    origin: process.env.ALLOWED_ORIGIN || "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-session-id"],
+    credentials: Boolean(process.env.ALLOWED_ORIGIN),
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
