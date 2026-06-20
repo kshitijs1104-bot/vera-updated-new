@@ -134,54 +134,63 @@ export function NewsFeed({ category, onArticleClick }: NewsFeedProps) {
         </button>
       )}
 
-      {/* Rest of feed: asymmetric grid layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {rest.map(article => {
+      {/* Rest of feed: asymmetric masonry layout with images */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 auto-rows-max">
+        {rest.map((article, idx) => {
           const tagStyle = TAG_STYLES[article.cat] || TAG_STYLES.markets;
           const signal = deriveSignal(article);
-          const borderColor = TAG_BORDER_COLOR[article.cat] || TAG_BORDER_COLOR.markets;
+          
+          // Asymmetric sizing: spread stories across grid intentionally
+          // Every 3rd story is taller (2 rows), some span 2 columns for visual variety
+          const isLargeCard = idx % 5 === 0;
+          const isWideCard = idx % 7 === 0;
+          const colSpan = isWideCard ? 'md:col-span-2' : 'md:col-span-1';
+          const rowSpan = isLargeCard ? 'md:row-span-2' : '';
 
           return (
             <button
               key={article.id}
               onClick={() => onArticleClick(article)}
-              className="group relative overflow-hidden rounded-lg border border-[var(--border)] transition-all hover:border-[var(--indigo-light)]/40 hover:bg-[var(--surface2)] p-4 text-left flex flex-col"
+              className={`group relative overflow-hidden rounded-lg border border-[var(--border)] transition-all hover:border-[var(--indigo-light)]/40 text-left flex flex-col h-full ${colSpan} ${rowSpan}`}
             >
-              {/* Sentiment left border indicator */}
-              <div
-                className="absolute top-0 left-0 bottom-0 w-0.5 transition-all group-hover:w-1"
-                style={{ backgroundColor: TONE_COLOR[signal.tone] }}
-              />
+              {/* Image background */}
+              <div className="relative w-full flex-1 min-h-[200px] md:min-h-[240px] overflow-hidden bg-gradient-to-br from-[var(--surface2)] to-[var(--surface3)]">
+                <img
+                  src={article.img || getPlaceholderImage(article.cat)}
+                  alt={article.title}
+                  className="w-full h-full object-cover opacity-70 group-hover:opacity-90 transition-opacity duration-300"
+                  crossOrigin="anonymous"
+                />
+                
+                {/* Gradient scrim for text readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
 
-              {/* Content with padding to make room for border indicator */}
-              <div className="pl-3 flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`inline-flex items-center justify-center font-mono text-[8.5px] font-semibold tracking-[0.5px] uppercase px-[6px] py-[2px] rounded border ${tagStyle}`}>
-                    {article.tagLabel}
-                  </span>
-                </div>
-
-                <h4 className="font-syne font-semibold text-[13px] leading-[1.3] text-white mb-1 group-hover:text-[var(--indigo-light)] transition-colors line-clamp-2">
-                  {article.title}
-                </h4>
-
-                <p className="text-[11px] text-[var(--dim)] leading-[1.4] line-clamp-2 mb-3">
-                  {article.blurb}
-                </p>
-
-                {/* Footer: source, time, signal */}
-                <div className="flex items-center justify-between font-mono text-[10px]">
-                  <div className="flex items-center gap-2 text-[var(--muted)]">
-                    <span className="truncate">{article.source}</span>
-                    <span className="w-[2px] h-[2px] rounded-full bg-[var(--dim)] shrink-0" />
-                    <span className="shrink-0">{article.time}</span>
+                {/* Content overlay positioned at bottom */}
+                <div className="absolute inset-0 flex flex-col justify-end p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`inline-flex items-center justify-center font-mono text-[8.5px] font-semibold tracking-[0.5px] uppercase px-[6px] py-[2px] rounded border ${tagStyle}`}>
+                      {article.tagLabel}
+                    </span>
                   </div>
-                  <div className={`flex items-center gap-1 whitespace-nowrap font-semibold ${TONE_STYLES[signal.tone]}`}>
-                    <span className="text-[9px]">{signal.label}</span>
-                    <span>{signal.value}</span>
+
+                  {/* One-line hook headline */}
+                  <h4 className="font-syne font-bold text-sm leading-[1.2] text-white mb-2 group-hover:text-[var(--indigo-light)] transition-colors line-clamp-2">
+                    {article.hook || article.title}
+                  </h4>
+
+                  {/* Source + time footer */}
+                  <div className="flex items-center justify-between font-mono text-[10px] text-gray-300">
+                    <span className="truncate">{article.source}</span>
+                    <span>{article.time}</span>
                   </div>
                 </div>
               </div>
+
+              {/* Sentiment indicator: colored left border */}
+              <div
+                className="absolute top-0 left-0 bottom-0 w-1 transition-all group-hover:w-1.5"
+                style={{ backgroundColor: TONE_COLOR[signal.tone] }}
+              />
             </button>
           );
         })}

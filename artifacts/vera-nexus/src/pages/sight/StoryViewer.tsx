@@ -149,33 +149,31 @@ export function StoryViewer({
             ))}
           </div>
 
-          {/* Right navigation */}
+          {/* Right navigation: slides first, then stories */}
           <div className="flex items-center gap-4">
             {slides.length > 0 && (
-              <>
-                <button
-                  onClick={handlePrevSlide}
-                  disabled={slideIndex === 0}
-                  className="p-2 hover:bg-white/10 rounded transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                  aria-label="Previous slide"
-                >
-                  <ChevronLeft className="w-5 h-5 text-white" />
-                </button>
-                <button
-                  onClick={handleNextSlide}
-                  disabled={slideIndex === slides.length - 1}
-                  className="p-2 hover:bg-white/10 rounded transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                  aria-label="Next slide"
-                >
-                  <ChevronRight className="w-5 h-5 text-white" />
-                </button>
-              </>
-            )}
-            {currentIndex < allArticles.length - 1 && (
               <button
-                onClick={handleNextStory}
-                className="p-2 hover:bg-white/10 rounded transition-colors"
-                aria-label="Next story"
+                onClick={handlePrevSlide}
+                disabled={slideIndex === 0}
+                className="p-2 hover:bg-white/10 rounded transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Previous slide"
+              >
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </button>
+            )}
+            {/* Single right arrow: next slide if available, otherwise next story */}
+            {(slides.length > 0 || currentIndex < allArticles.length - 1) && (
+              <button
+                onClick={() => {
+                  if (slides.length > 0 && slideIndex < slides.length - 1) {
+                    handleNextSlide();
+                  } else if (currentIndex < allArticles.length - 1) {
+                    handleNextStory();
+                  }
+                }}
+                disabled={slides.length === 0 && currentIndex >= allArticles.length - 1}
+                className="p-2 hover:bg-white/10 rounded transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label={slides.length > 0 ? 'Next slide' : 'Next story'}
               >
                 <ChevronRight className="w-5 h-5 text-white" />
               </button>
