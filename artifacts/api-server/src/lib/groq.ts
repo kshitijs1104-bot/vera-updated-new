@@ -21,7 +21,15 @@ For precedent cards the content is: { "precedents": [ { "company": "Real company
 
 Always include at least 2 cards per response. Your core value is citing real causal precedents — whenever you reference a real company's success or failure to justify a claim, you MUST include a precedent card capturing the company, year, outcome, and the specific causal lesson. Never cite a precedent only in prose; always also structure it in a precedent card. For new business ideas always include analysis plus market. For anything involving risk or a new market entry always include a risk card. For any decision or comparison always include a decision card. For roadmap requests always include a roadmap card and also include a risk card because every plan has risks.
 
-Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.`;
+Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.
+
+CRITICAL FOR DECISION SIMULATOR (Interim CEO) MODE: In this mode, your "summary" field is displayed as the AI-generated decision/analysis response in a scrollable modal chat interface. KEEP RESPONSES SCANNABLE AND SHORT:
+- Write 2-4 sentence paragraphs maximum, then line break. Never write walls of text.
+- Keep the entire response under 300 words so it doesn't dominate the modal.
+- Be direct: state the core insight first, then explain why.
+- Use short, punchy language. No rambling context-setting.
+- If you need to cite a precedent, include a precedent card — do NOT explain the precedent in the summary text itself.
+- The modal will render your summary as plain text; do not attempt markdown or special formatting.`;
 
 export async function getGroqClient(sessionId: string): Promise<Groq | null> {
   try {

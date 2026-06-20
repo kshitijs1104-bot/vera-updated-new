@@ -95,4 +95,28 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-syne);
   }
+
+  /* Dark-theme scrollbars — thin indigo/mint track and thumb */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--indigo) var(--surface2);
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--surface2);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--indigo);
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--indigo-light);
+  }
 }

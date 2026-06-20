@@ -70,7 +70,7 @@ function CompanyStateBar({ state, attempt }: { state: CompanyState; attempt: num
 
 function CompanyContextPanel({ entry }: { entry: GraveyardEntry }) {
   return (
-    <div className="w-72 shrink-0 border-r border-[var(--border)] flex flex-col overflow-y-auto bg-[var(--surface2)]/30">
+    <div className="w-96 shrink-0 border-r border-[var(--border)] flex flex-col overflow-y-auto bg-[var(--surface2)]/30">
       <div className="px-5 py-5 border-b border-[var(--border)]">
         <div className="text-[9px] font-mono text-[var(--dim)] uppercase tracking-widest mb-1">{entry.sector}</div>
         <h3 className="text-base font-syne font-bold text-[var(--amber)] leading-tight">{entry.name}</h3>
@@ -260,7 +260,7 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
                       CE
                     </div>
                   )}
-                  <div className={`max-w-[75%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`max-w-[65%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className={`text-[9px] font-mono uppercase tracking-wider ${msg.role === 'user' ? 'text-[var(--indigo-light)]' : 'text-[var(--red)]'}`}>
                       {msg.role === 'user' ? 'You (CEO)' : 'Simulator'}
                     </div>
