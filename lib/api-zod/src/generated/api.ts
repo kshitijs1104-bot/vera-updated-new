@@ -71,7 +71,18 @@ export const RippleAnalysisResponse = zod.object({
   "eventId": zod.number(),
   "analysis": zod.string(),
   "causalChain": zod.array(zod.string()).optional(),
-  "affectedSectors": zod.array(zod.string()).optional()
+  "affectedSectors": zod.array(zod.string()).optional(),
+  "flowchart": zod.object({
+  "nodes": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "type": zod.enum(['trigger', 'cause', 'effect', 'consequence'])
+})).optional(),
+  "edges": zod.array(zod.object({
+  "from": zod.string(),
+  "to": zod.string()
+})).optional()
+}).optional()
 })
 
 
@@ -181,6 +192,37 @@ export const CompanyAutopsyResponse = zod.object({
   "lessonsLearned": zod.array(zod.string()),
   "causalChain": zod.array(zod.string()).optional(),
   "analogy": zod.string().nullish()
+})
+
+
+/**
+ * @summary Interim CEO simulation chat — try to save the company
+ */
+export const AutopsyChatParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const autopsyChatBodyAttemptMin = 0;
+export const autopsyChatBodyAttemptMax = 5;
+
+
+
+export const AutopsyChatBody = zod.object({
+  "message": zod.string().min(1),
+  "attempt": zod.number().min(autopsyChatBodyAttemptMin).max(autopsyChatBodyAttemptMax),
+  "history": zod.array(zod.object({
+  "role": zod.string().optional(),
+  "content": zod.string().optional()
+})).optional()
+})
+
+export const AutopsyChatResponse = zod.object({
+  "reply": zod.string(),
+  "companyState": zod.string(),
+  "attempt": zod.number(),
+  "gameOver": zod.boolean(),
+  "outcome": zod.string().nullish()
 })
 
 

@@ -8,6 +8,9 @@
 
 export * from './analyzeInput';
 export * from './analyzeInputSessionHistoryItem';
+export * from './autopsyChatInput';
+export * from './autopsyChatInputHistoryItem';
+export * from './autopsyChatResult';
 export * from './autopsyResult';
 export * from './company';
 export * from './companyCategory';
@@ -37,6 +40,10 @@ export * from './reactionResultAction';
 export * from './report';
 export * from './reportCategory';
 export * from './rippleResult';
+export * from './rippleResultFlowchart';
+export * from './rippleResultFlowchartEdgesItem';
+export * from './rippleResultFlowchartNodesItem';
+export * from './rippleResultFlowchartNodesItemType';
 export * from './signal';
 export * from './signalSentiment';
 export * from './summaryResult';

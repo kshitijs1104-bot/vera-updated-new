@@ -43,11 +43,38 @@ export interface Event {
   tags?: string[];
 }
 
+export type RippleResultFlowchartNodesItemType = typeof RippleResultFlowchartNodesItemType[keyof typeof RippleResultFlowchartNodesItemType];
+
+
+export const RippleResultFlowchartNodesItemType = {
+  trigger: 'trigger',
+  cause: 'cause',
+  effect: 'effect',
+  consequence: 'consequence',
+} as const;
+
+export type RippleResultFlowchartNodesItem = {
+  id: string;
+  label: string;
+  type: RippleResultFlowchartNodesItemType;
+};
+
+export type RippleResultFlowchartEdgesItem = {
+  from: string;
+  to: string;
+};
+
+export type RippleResultFlowchart = {
+  nodes?: RippleResultFlowchartNodesItem[];
+  edges?: RippleResultFlowchartEdgesItem[];
+};
+
 export interface RippleResult {
   eventId: number;
   analysis: string;
   causalChain?: string[];
   affectedSectors?: string[];
+  flowchart?: RippleResultFlowchart;
 }
 
 export type ReportCategory = typeof ReportCategory[keyof typeof ReportCategory];
@@ -108,6 +135,31 @@ export interface AutopsyResult {
   causalChain?: string[];
   /** @nullable */
   analogy?: string | null;
+}
+
+export type AutopsyChatInputHistoryItem = {
+  role?: string;
+  content?: string;
+};
+
+export interface AutopsyChatInput {
+  /** @minLength 1 */
+  message: string;
+  /**
+     * @minimum 0
+     * @maximum 5
+     */
+  attempt: number;
+  history?: AutopsyChatInputHistoryItem[];
+}
+
+export interface AutopsyChatResult {
+  reply: string;
+  companyState: string;
+  attempt: number;
+  gameOver: boolean;
+  /** @nullable */
+  outcome?: string | null;
 }
 
 export type SignalSentiment = typeof SignalSentiment[keyof typeof SignalSentiment];

@@ -92,4 +92,107 @@ Return JSON: { "rootCause": "The single root cause in 1-2 sharp sentences", "tim
   }
 });
 
+router.post("/companies/:id/autopsy/chat", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, id)).limit(1);
+    if (!company) return res.status(404).json({ error: "Company not found" });
+
+    const { message = "", attempt = 0, history = [] } = req.body as {
+      message?: string;
+      attempt?: number;
+      history?: { role: string; content: string }[];
+    };
+
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const groq = await getGroqClient(sessionId);
+
+    if (!groq) {
+      return res.json({
+        reply: `To play as Interim CEO of ${company.name}, you need a Groq API key configured in Settings. Visit console.groq.com for a free key.`,
+        companyState: "Unknown",
+        attempt,
+        gameOver: false,
+        outcome: null,
+      });
+    }
+
+    const isOpening = attempt === 0 && (!history || history.length === 0);
+    const isFinal = attempt >= 5;
+
+    const systemPrompt = `You are simulating ${company.name} (${company.yearRange}) at the moment of its critical failure. The user is playing as the newly appointed Interim CEO who has just taken the helm in a crisis.
+
+Background: ${company.description}
+Known failure reason: ${company.failureReason || "Multiple compounding factors"}
+
+You are the company simulator. You respond to the CEO's decisions with realistic, historically-grounded consequences. Be brutally honest — most decisions have both positive effects and dangerous trade-offs. Reference real competitors, market dynamics, and specific numbers wherever possible.
+
+The CEO has exactly 5 attempts to save the company. Track momentum: early good decisions compound, bad decisions accelerate collapse.
+
+ALWAYS return ONLY valid JSON in this exact shape (no markdown, no backticks):
+{
+  "reply": "2-4 paragraphs describing what happened after their decision. Be specific, dramatic, and realistic. Include board reactions, market responses, and operational consequences.",
+  "companyState": "one of: Critical | Deteriorating | Stable | Recovering | Survived | Collapsed",
+  "gameOver": false,
+  "outcome": null
+}
+
+When attempt reaches 5, set gameOver to true and outcome to either "survived" or "failed" based on the trajectory of decisions made.`;
+
+    const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    if (isOpening) {
+      messages.push({
+        role: "user",
+        content: `Set the scene. I just walked in as Interim CEO. Brief me on the exact crisis state right now — what's on fire, what decisions need to be made in the next 48 hours, and what resources I have left. Make it feel like a war room briefing.`,
+      });
+    } else {
+      // Add conversation history
+      for (const h of history) {
+        messages.push({ role: h.role as "user" | "assistant", content: h.content });
+      }
+      if (isFinal) {
+        messages.push({
+          role: "user",
+          content: `${message}\n\n[This is the 5th and final decision. Resolve the outcome: did we save the company or not? Give a final verdict with specific consequences and what happened in the months after.]`,
+        });
+      } else {
+        messages.push({ role: "user", content: message });
+      }
+    }
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages,
+      temperature: 0.6,
+      max_tokens: 1200,
+    });
+
+    const content = completion.choices[0]?.message?.content || "";
+    try {
+      const parsed = JSON.parse(content);
+      return res.json({
+        reply: parsed.reply,
+        companyState: parsed.companyState || "Critical",
+        attempt,
+        gameOver: isFinal ? true : (parsed.gameOver || false),
+        outcome: isFinal ? (parsed.outcome || "failed") : null,
+      });
+    } catch {
+      return res.json({
+        reply: content.slice(0, 800),
+        companyState: "Critical",
+        attempt,
+        gameOver: isFinal,
+        outcome: isFinal ? "failed" : null,
+      });
+    }
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to process CEO chat" });
+  }
+});
+
 export default router;

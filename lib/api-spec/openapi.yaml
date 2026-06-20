@@ -230,6 +230,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/AutopsyResult"
 
+  /companies/{id}/autopsy/chat:
+    post:
+      operationId: autopsyChat
+      tags: [companies]
+      summary: Interim CEO simulation chat — try to save the company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutopsyChatInput"
+      responses:
+        "200":
+          description: CEO simulation response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopsyChatResult"
+
   # ── SIGNALS ──
   /signals:
     get:
@@ -509,6 +534,32 @@ components:
           type: array
           items:
             type: string
+        flowchart:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                type: object
+                required: [id, label, type]
+                properties:
+                  id:
+                    type: string
+                  label:
+                    type: string
+                  type:
+                    type: string
+                    enum: [trigger, cause, effect, consequence]
+            edges:
+              type: array
+              items:
+                type: object
+                required: [from, to]
+                properties:
+                  from:
+                    type: string
+                  to:
+                    type: string
 
     # ── REPORT ──
     Report:
@@ -592,6 +643,42 @@ components:
           items:
             type: string
         analogy:
+          type: ["string", "null"]
+
+    AutopsyChatInput:
+      type: object
+      required: [message, attempt]
+      properties:
+        message:
+          type: string
+          minLength: 1
+        attempt:
+          type: integer
+          minimum: 0
+          maximum: 5
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+              content:
+                type: string
+
+    AutopsyChatResult:
+      type: object
+      required: [reply, companyState, attempt, gameOver]
+      properties:
+        reply:
+          type: string
+        companyState:
+          type: string
+        attempt:
+          type: integer
+        gameOver:
+          type: boolean
+        outcome:
           type: ["string", "null"]
 
     # ── SIGNAL ──

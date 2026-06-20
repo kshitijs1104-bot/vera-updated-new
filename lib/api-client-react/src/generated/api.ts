@@ -21,6 +21,8 @@ import type {
 
 import type {
   AnalyzeInput,
+  AutopsyChatInput,
+  AutopsyChatResult,
   AutopsyResult,
   Company,
   Event,
@@ -825,6 +827,78 @@ export const useCompanyAutopsy = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCompanyAutopsyMutationOptions(options));
+    }
+
+export const getAutopsyChatUrl = (id: number,) => {
+
+
+
+
+  return `/api/companies/${id}/autopsy/chat`
+}
+
+/**
+ * @summary Interim CEO simulation chat — try to save the company
+ */
+export const autopsyChat = async (id: number,
+    autopsyChatInput: AutopsyChatInput, options?: RequestInit): Promise<AutopsyChatResult> => {
+
+  return customFetch<AutopsyChatResult>(getAutopsyChatUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      autopsyChatInput,)
+  }
+);}
+
+
+
+
+export const getAutopsyChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof autopsyChat>>, TError,{id: number;data: BodyType<AutopsyChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof autopsyChat>>, TError,{id: number;data: BodyType<AutopsyChatInput>}, TContext> => {
+
+const mutationKey = ['autopsyChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof autopsyChat>>, {id: number;data: BodyType<AutopsyChatInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  autopsyChat(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AutopsyChatMutationResult = NonNullable<Awaited<ReturnType<typeof autopsyChat>>>
+    export type AutopsyChatMutationBody = BodyType<AutopsyChatInput>
+    export type AutopsyChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Interim CEO simulation chat — try to save the company
+ */
+export const useAutopsyChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof autopsyChat>>, TError,{id: number;data: BodyType<AutopsyChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof autopsyChat>>,
+        TError,
+        {id: number;data: BodyType<AutopsyChatInput>},
+        TContext
+      > => {
+      return useMutation(getAutopsyChatMutationOptions(options));
     }
 
 export const getGetSignalsUrl = () => {

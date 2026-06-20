@@ -5,10 +5,12 @@
  * Vera Nexus BI Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { RippleResultFlowchart } from './rippleResultFlowchart';
 
 export interface RippleResult {
   eventId: number;
   analysis: string;
   causalChain?: string[];
   affectedSectors?: string[];
+  flowchart?: RippleResultFlowchart;
 }

@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { db, eventsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
-import { ListEventsQueryParams, RippleAnalysisParams } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildRippleFallback } from "../lib/groq";
+import { eq } from "drizzle-orm";
+import { ListEventsQueryParams } from "@workspace/api-zod";
+import { getGroqClient, buildRippleFallback } from "../lib/groq";
 
 const router = Router();
 
@@ -58,21 +58,47 @@ router.post("/events/:id/ripple", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: `You are a causal intelligence analyst. Analyze events and explain their ripple effects in a concise JSON format. Return ONLY valid JSON, no markdown, no backticks.`,
+          content: `You are a causal intelligence analyst. You map cause-and-effect chains for major events with precision and specificity. Return ONLY valid JSON with no markdown or backticks.`,
         },
         {
           role: "user",
-          content: `Analyze the ripple effects of this event:
-Title: ${event.title}
+          content: `Analyze the causal ripple effects of this event and produce a structured flowchart.
+
+Event: ${event.title}
 Year: ${event.year}
 Category: ${event.category}
 Description: ${event.description || "No description"}
 
-Return JSON: { "analysis": "2-3 sharp sentences on why this matters causally", "causalChain": ["cause 1", "effect 1", "effect 2", "long-term consequence"], "affectedSectors": ["sector1", "sector2"] }`,
+Return this exact JSON structure:
+{
+  "analysis": "2-3 sharp sentences on the causal significance of this event",
+  "flowchart": {
+    "nodes": [
+      { "id": "n0", "label": "The event itself in 5-8 words", "type": "trigger" },
+      { "id": "n1", "label": "First immediate cause/mechanism in 6-10 words", "type": "cause" },
+      { "id": "n2", "label": "Second immediate cause/mechanism in 6-10 words", "type": "cause" },
+      { "id": "n3", "label": "First downstream effect in 6-10 words", "type": "effect" },
+      { "id": "n4", "label": "Second downstream effect in 6-10 words", "type": "effect" },
+      { "id": "n5", "label": "Long-term consequence in 6-10 words", "type": "consequence" },
+      { "id": "n6", "label": "Second long-term consequence in 6-10 words", "type": "consequence" }
+    ],
+    "edges": [
+      { "from": "n0", "to": "n1" },
+      { "from": "n0", "to": "n2" },
+      { "from": "n1", "to": "n3" },
+      { "from": "n2", "to": "n4" },
+      { "from": "n3", "to": "n5" },
+      { "from": "n4", "to": "n6" }
+    ]
+  },
+  "affectedSectors": ["sector1", "sector2", "sector3"]
+}
+
+Replace ALL placeholder text with real specific content about this actual event. Node labels must be concrete and specific, not generic.`,
         },
       ],
       temperature: 0.3,
-      max_tokens: 800,
+      max_tokens: 1200,
     });
 
     const content = completion.choices[0]?.message?.content || "";
@@ -80,7 +106,7 @@ Return JSON: { "analysis": "2-3 sharp sentences on why this matters causally", "
       const parsed = JSON.parse(content);
       return res.json({ eventId: id, ...parsed });
     } catch {
-      return res.json({ eventId: id, analysis: content, causalChain: [], affectedSectors: [] });
+      return res.json({ eventId: id, analysis: content, causalChain: [], affectedSectors: [], flowchart: null });
     }
   } catch (err) {
     req.log.error(err);
