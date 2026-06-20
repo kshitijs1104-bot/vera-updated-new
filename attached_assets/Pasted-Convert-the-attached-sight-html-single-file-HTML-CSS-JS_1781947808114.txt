@@ -1,0 +1,69 @@
+Convert the attached sight.html (single-file HTML/CSS/JS prototype) into production React 
+components inside artifacts/vera-nexus/src, matching the existing stack: React 19, Vite 7, 
+TypeScript, Wouter routing, Tailwind CSS, Radix UI, TanStack React Query.
+
+SCOPE: This task only touches the "Sight" module of Vera Nexus. Do not modify Venus AI, 
+Line, or Crypt code, nav structure, or auth.
+
+1. COMPONENT STRUCTURE
+Create components under src/pages/sight/ (or your existing module pattern):
+- SightPage.tsx (top-level layout)
+- TopBar.tsx (logo, search input, live pill, icon buttons)
+- TickerStrip.tsx (auto-scrolling marquee of index data, CSS animation, pause on hover)
+- CategoryPills.tsx (filter state)
+- NewsFeed.tsx (hero card + 2-col grid of NewsCard components)
+- NewsCard.tsx
+- WatchlistPanel.tsx (max 10 stocks, add via search/autocomplete, remove on hover, 
+  sparkline per stock using inline SVG — port the sparklinePath logic from the prototype)
+- ArticleDrawer.tsx (slide-in panel, full article body, close button)
+- AiSummaryPanel.tsx (loading shimmer state -> bullet summary + stat rows; on mobile 
+  becomes a bottom sheet triggered by an "AI Summary" pill, matching the prototype's 
+  responsive behavior)
+- BottomNav.tsx (mobile only, Feed/Sight/Crypt/Saved)
+
+Preserve all visual design exactly: dark theme (bg #0a0c11, surface #13161f, indigo 
+#6366f1, mint #2fe0a8, red #f2546b), Syne for headlines, JetBrains Mono for all numeric/
+ticker data, Inter for body text, the grain texture overlay, staggered card entrance 
+animations, and all responsive breakpoints (sidebar moves above feed under 980px, 
+AI panel becomes bottom sheet on mobile). Pull these into Tailwind config / CSS variables 
+rather than inline styles where the rest of the codebase already does that.
+
+2. DATA LAYER (keep swappable)
+Create src/lib/sight-data.ts with:
+- getMockIndices(): returns the ticker index data
+- getMockStockPrice(symbol: string): returns price/change/sparkline-seed for a symbol — 
+  isolate this in ONE function so it can be swapped for a real market data API call later 
+  without touching any component
+- getNewsArticles(category?: string): returns mock article list (port the article data 
+  from the prototype, keep it realistic but clearly placeholder)
+Use TanStack Query hooks (useIndices, useWatchlistPrices, useNewsArticles) wrapping these 
+functions so swapping mock for real fetches later is a one-line change inside the hook.
+
+3. AI SUMMARIZATION (real, not mocked)
+Create a server route /api/summarize-article (same pattern as the existing /api/simulate 
+route — Groq SDK, JSON mode, graceful fallback if the API call fails).
+- Input: article title + body text
+- Output JSON: { bullets: string[3], stats: {label, value}[3] }
+- System prompt: "Summarize this market news article in exactly 3 concise bullet points 
+  (max 20 words each) for a time-pressed reader, plus 3 key stats extracted from the text 
+  as label/value pairs. Return ONLY valid JSON, no markdown, no preamble."
+- On the frontend, AiSummaryPanel.tsx calls this route when ArticleDrawer opens (not on 
+  every render — cache per article id via React Query), shows the shimmer loading state 
+  until response returns, then renders real bullets/stats instead of the prototype's fake 
+  setTimeout logic.
+- Reuse however the Groq API key is currently read in /api/simulate — do not introduce a 
+  second method of reading the key.
+
+4. WATCHLIST STATE
+Keep watchlist (array of up to 10 symbols, max enforced) in React state for now via a 
+useWatchlist hook in src/hooks/. Do NOT use localStorage yet — leave a clear TODO comment 
+in the hook for swapping in Supabase persistence later, structured so that swap only 
+touches this one hook.
+
+5. VERIFY
+After building, run the app and confirm: Sight loads with no console errors, clicking a 
+news card opens the drawer and triggers a real Groq summarization call (check network tab 
+for /api/summarize-article), watchlist add/remove works and respects the 10-stock cap, and 
+mobile layout (under 980px) shows the bottom sheet AI panel and bottom nav correctly.
+
+Work in a single focused pass. Do not refactor unrelated files. Commit when done.

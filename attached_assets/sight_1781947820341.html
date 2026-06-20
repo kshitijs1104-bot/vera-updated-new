@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sight — Vera Nexus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0a0c11;
+    --bg-2: #0d1016;
+    --surface: #13161f;
+    --surface-2: #181c27;
+    --surface-3: #1f2433;
+    --border: #232838;
+    --border-soft: #1a1e2a;
+    --text: #eef0f6;
+    --text-dim: #8b92a8;
+    --text-faint: #565d72;
+    --indigo: #6366f1;
+    --indigo-bright: #818cf8;
+    --indigo-soft: rgba(99,102,241,.14);
+    --mint: #2fe0a8;
+    --mint-soft: rgba(47,224,168,.14);
+    --red: #f2546b;
+    --red-soft: rgba(242,84,107,.14);
+    --amber: #f2b774;
+    --radius: 14px;
+    --radius-sm: 9px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 85% -10%, rgba(99,102,241,.16), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 0% 0%, rgba(47,224,168,.08), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100%;
+    position:relative;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+    pointer-events:none; z-index:1;
+  }
+  .display{font-family:'Syne', sans-serif;}
+  .mono{font-family:'JetBrains Mono', monospace;}
+  a{color:inherit; text-decoration:none;}
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--surface-3); border-radius:10px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+
+  /* ===== TOP BAR ===== */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    background:rgba(10,12,17,.86);
+    backdrop-filter:blur(16px) saturate(140%);
+    border-bottom:1px solid var(--border-soft);
+  }
+  .brand-row{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 22px 10px;
+    max-width:1320px; margin:0 auto;
+  }
+  .logo{
+    display:flex; align-items:center; gap:8px;
+    font-family:'Syne'; font-weight:800; font-size:19px; letter-spacing:.2px;
+    white-space:nowrap;
+  }
+  .logo .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--mint); box-shadow:0 0 12px var(--mint);
+    flex-shrink:0;
+  }
+  .logo .sub{color:var(--text-faint); font-weight:600; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; margin-left:2px;}
+
+  .search-wrap{
+    flex:1; max-width:480px;
+    position:relative;
+  }
+  .search-wrap input{
+    width:100%;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:9px 16px 9px 38px;
+    color:var(--text);
+    font-family:'Inter'; font-size:13.5px;
+    outline:none;
+    transition:border-color .2s, background .2s;
+  }
+  .search-wrap input:focus{border-color:var(--indigo); background:var(--surface-2);}
+  .search-wrap input::placeholder{color:var(--text-faint);}
+  .search-wrap svg{
+    position:absolute; left:13px; top:50%; transform:translateY(-50%);
+    width:15px; height:15px; stroke:var(--text-faint);
+  }
+
+  .topbar-actions{display:flex; align-items:center; gap:10px; flex-shrink:0;}
+  .icon-btn{
+    width:36px; height:36px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--surface); border:1px solid var(--border);
+    cursor:pointer; transition:background .15s, transform .15s;
+    position:relative;
+  }
+  .icon-btn:hover{background:var(--surface-2); transform:translateY(-1px);}
+  .icon-btn svg{width:16px; height:16px; stroke:var(--text-dim);}
+  .icon-btn .badge{
+    position:absolute; top:-3px; right:-3px;
+    background:var(--mint); color:#06120d;
+    font-size:9px; font-weight:700; font-family:'JetBrains Mono';
+    width:15px; height:15px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .live-pill{
+    display:flex; align-items:center; gap:6px;
+    font-family:'JetBrains Mono'; font-size:10.5px; color:var(--mint);
+    background:var(--mint-soft); border:1px solid rgba(47,224,168,.25);
+    padding:6px 11px; border-radius:999px; white-space:nowrap;
+  }
+  .live-pill .pulse{
+    width:6px; height:6px; border-radius:50%; background:var(--mint);
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1; box-shadow:0 0 0 0 rgba(47,224,168,.5);} 50%{opacity:.55; box-shadow:0 0 0 4px rgba(47,224,168,0);}}
+
+  /* ===== TICKER ===== */
+  .ticker-strip{
+    border-top:1px solid var(--border-soft);
+    overflow:hidden; white-space:nowrap;
+    position:relative;
+    -webkit-mask-image:linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+    mask-image:linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  }
+  .ticker-track{
+    display:inline-flex; gap:0;
+    animation:scroll-left 38s linear infinite;
+    padding:9px 0;
+  }
+  .ticker-strip:hover .ticker-track{animation-play-state:paused;}
+  @keyframes scroll-left{from{transform:translateX(0);} to{transform:translateX(-50%);}}
+  .tick{
+    display:inline-flex; align-items:baseline; gap:7px;
+    padding:0 22px; border-right:1px solid var(--border-soft);
+    font-family:'JetBrains Mono'; font-size:12.5px;
+  }
+  .tick b{font-weight:600; color:var(--text); letter-spacing:.3px;}
+  .tick .val{color:var(--text-dim);}
+  .tick .chg{font-weight:600;}
+  .up{color:var(--mint);} .down{color:var(--red);}
+
+  /* ===== CATEGORY PILLS ===== */
+  .cat-row{
+    display:flex; gap:8px; overflow-x:auto; scrollbar-width:none;
+    padding:14px 22px; max-width:1320px; margin:0 auto;
+  }
+  .cat-row::-webkit-scrollbar{display:none;}
+  .cat-pill{
+    flex-shrink:0; padding:7px 16px; border-radius:999px;
+    font-size:12.5px; font-weight:500; font-family:'Inter';
+    border:1px solid var(--border); background:var(--surface);
+    color:var(--text-dim); cursor:pointer; transition:all .15s;
+  }
+  .cat-pill:hover{color:var(--text); border-color:var(--text-faint);}
+  .cat-pill.active{
+    background:var(--indigo); border-color:var(--indigo); color:#fff;
+    box-shadow:0 0 0 4px var(--indigo-soft);
+  }
+
+  /* ===== LAYOUT ===== */
+  .layout{
+    max-width:1320px; margin:0 auto;
+    display:grid; grid-template-columns:1fr 340px;
+    gap:26px; padding:4px 22px 60px;
+    position:relative; z-index:2;
+  }
+  .feed{display:flex; flex-direction:column; gap:16px;}
+
+  /* ===== HERO CARD ===== */
+  .hero-card{
+    display:grid; grid-template-columns:1.15fr 1fr;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); overflow:hidden;
+    cursor:pointer; transition:border-color .2s, transform .2s;
+    opacity:0; animation:rise .6s ease forwards;
+    animation-delay:.05s;
+  }
+  .hero-card:hover{border-color:var(--indigo); transform:translateY(-2px);}
+  .hero-img{position:relative; min-height:280px; overflow:hidden;}
+  .hero-img img{width:100%; height:100%; object-fit:cover; display:block; transition:transform .5s;}
+  .hero-card:hover .hero-img img{transform:scale(1.04);}
+  .hero-img::after{
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent 60%, var(--surface) 105%);
+  }
+  .hero-body{padding:26px 28px 24px; display:flex; flex-direction:column; gap:12px;}
+  .tag{
+    display:inline-flex; align-items:center; gap:5px; width:fit-content;
+    font-family:'JetBrains Mono'; font-size:10.5px; font-weight:600;
+    letter-spacing:.6px; text-transform:uppercase;
+    padding:4px 9px; border-radius:5px;
+  }
+  .tag.markets{background:var(--indigo-soft); color:var(--indigo-bright);}
+  .tag.macro{background:var(--mint-soft); color:var(--mint);}
+  .tag.earnings{background:rgba(242,183,116,.14); color:var(--amber);}
+  .tag.global{background:rgba(242,84,107,.14); color:var(--red);}
+  .tag.ipo{background:rgba(167,139,250,.14); color:#b9a4ff;}
+  .hero-body h2{font-family:'Syne'; font-weight:700; font-size:25px; line-height:1.25; letter-spacing:-.2px;}
+  .hero-body p{color:var(--text-dim); font-size:14px; line-height:1.6;}
+  .meta-row{display:flex; align-items:center; gap:10px; font-size:11.5px; color:var(--text-faint); font-family:'JetBrains Mono'; margin-top:auto; padding-top:6px;}
+  .meta-row .dotsep{width:3px; height:3px; border-radius:50%; background:var(--text-faint);}
+
+  /* ===== NEWS GRID ===== */
+  .news-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .news-card{
+    display:flex; gap:14px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:14px;
+    cursor:pointer; transition:border-color .2s, transform .2s, background .2s;
+    opacity:0; animation:rise .5s ease forwards;
+  }
+  .news-card:hover{border-color:var(--text-faint); transform:translateY(-2px); background:var(--surface-2);}
+  .news-thumb{width:96px; height:96px; border-radius:var(--radius-sm); overflow:hidden; flex-shrink:0; background:var(--surface-3);}
+  .news-thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+  .news-info{display:flex; flex-direction:column; gap:7px; min-width:0;}
+  .news-info h3{font-family:'Syne'; font-size:14.5px; font-weight:700; line-height:1.32; letter-spacing:-.1px;}
+  .news-info .meta-row{font-size:10.5px; padding-top:0;}
+
+  @keyframes rise{from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);}}
+
+  .section-label{
+    display:flex; align-items:center; gap:10px;
+    font-family:'JetBrains Mono'; font-size:11px; color:var(--text-faint);
+    letter-spacing:1.2px; text-transform:uppercase; margin:10px 0 -2px;
+  }
+  .section-label::after{content:""; flex:1; height:1px; background:var(--border-soft);}
+
+  .load-more{
+    text-align:center; padding:16px; margin-top:6px;
+    border:1px dashed var(--border); border-radius:var(--radius);
+    color:var(--text-dim); font-size:12.5px; cursor:pointer; font-family:'JetBrains Mono';
+    transition:all .15s;
+  }
+  .load-more:hover{border-color:var(--indigo); color:var(--indigo-bright);}
+
+  /* ===== SIDEBAR / WATCHLIST ===== */
+  .sidebar{display:flex; flex-direction:column; gap:16px; align-self:start; position:sticky; top:116px;}
+  .panel{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); overflow:hidden;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:15px 16px 12px; border-bottom:1px solid var(--border-soft);
+  }
+  .panel-head h4{font-family:'Syne'; font-size:14px; font-weight:700; display:flex; align-items:center; gap:7px;}
+  .panel-head h4 .n{color:var(--text-faint); font-family:'JetBrains Mono'; font-weight:500; font-size:11px;}
+  .add-stock-btn{
+    width:25px; height:25px; border-radius:7px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--text-dim); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+    transition:all .15s;
+  }
+  .add-stock-btn:hover{background:var(--indigo); border-color:var(--indigo); color:#fff;}
+
+  .stock-search{padding:10px 12px; border-bottom:1px solid var(--border-soft); display:none; position:relative;}
+  .stock-search.open{display:block;}
+  .stock-search input{
+    width:100%; background:var(--surface-2); border:1px solid var(--border);
+    border-radius:8px; padding:8px 10px; color:var(--text); font-size:12.5px; outline:none;
+  }
+  .stock-search input:focus{border-color:var(--indigo);}
+  .suggestions{margin-top:6px; display:flex; flex-direction:column; gap:2px; max-height:160px; overflow-y:auto;}
+  .sugg-item{
+    display:flex; justify-content:space-between; padding:7px 9px; border-radius:6px;
+    font-size:12px; cursor:pointer; transition:background .12s;
+  }
+  .sugg-item:hover{background:var(--surface-3);}
+  .sugg-item .sym{font-family:'JetBrains Mono'; font-weight:600;}
+  .sugg-item .name{color:var(--text-faint); font-size:11px;}
+
+  .watchlist-items{display:flex; flex-direction:column;}
+  .wl-item{
+    display:flex; align-items:center; gap:10px;
+    padding:11px 16px; border-bottom:1px solid var(--border-soft);
+    transition:background .15s; position:relative; cursor:default;
+  }
+  .wl-item:last-child{border-bottom:none;}
+  .wl-item:hover{background:var(--surface-2);}
+  .wl-item:hover .wl-remove{opacity:1;}
+  .wl-id{flex:1; min-width:0;}
+  .wl-id .sym{font-family:'JetBrains Mono'; font-weight:700; font-size:12.5px; letter-spacing:.2px;}
+  .wl-id .nm{font-size:10.5px; color:var(--text-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .wl-spark{width:60px; height:28px; flex-shrink:0;}
+  .wl-price{text-align:right; flex-shrink:0;}
+  .wl-price .p{font-family:'JetBrains Mono'; font-size:12.5px; font-weight:600;}
+  .wl-price .c{font-family:'JetBrains Mono'; font-size:10.5px; font-weight:600;}
+  .wl-remove{
+    position:absolute; right:6px; top:6px; opacity:0; transition:opacity .15s;
+    width:18px; height:18px; border-radius:50%; background:var(--surface-3);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:11px; color:var(--text-dim);
+  }
+  .wl-empty{padding:24px 16px; text-align:center; color:var(--text-faint); font-size:12px; line-height:1.6;}
+
+  .ask-panel{padding:16px;}
+  .ask-panel p{font-size:12px; color:var(--text-dim); line-height:1.6; margin-bottom:10px;}
+  .ask-input-row{display:flex; gap:8px;}
+  .ask-input-row input{
+    flex:1; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+    padding:9px 11px; color:var(--text); font-size:12px; outline:none;
+  }
+  .ask-input-row input:focus{border-color:var(--indigo);}
+  .ask-send{
+    width:34px; flex-shrink:0; border-radius:8px; border:none; background:var(--indigo);
+    color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .ask-send svg{width:14px; height:14px;}
+
+  /* ===== ARTICLE DRAWER ===== */
+  .overlay{
+    position:fixed; inset:0; background:rgba(5,6,9,.6); backdrop-filter:blur(3px);
+    z-index:90; opacity:0; pointer-events:none; transition:opacity .25s;
+  }
+  .overlay.open{opacity:1; pointer-events:auto;}
+  .drawer{
+    position:fixed; top:0; right:0; height:100%; width:min(880px, 94vw);
+    background:var(--bg-2); border-left:1px solid var(--border);
+    z-index:91; transform:translateX(100%); transition:transform .35s cubic-bezier(.22,1,.36,1);
+    display:flex; overflow:hidden;
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-main{flex:1; overflow-y:auto; min-width:0;}
+  .drawer-close{
+    position:sticky; top:16px; float:right; margin:16px 16px 0 0;
+    width:34px; height:34px; border-radius:50%; background:var(--surface);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; z-index:5; color:var(--text-dim);
+  }
+  .drawer-close:hover{background:var(--surface-2); color:var(--text);}
+  .drawer-hero-img{width:100%; height:280px; object-fit:cover; display:block;}
+  .drawer-content{padding:30px 40px 60px;}
+  .drawer-content .tag{margin-bottom:14px;}
+  .drawer-content h1{font-family:'Syne'; font-size:30px; font-weight:700; line-height:1.25; margin-bottom:14px; letter-spacing:-.3px;}
+  .drawer-content .meta-row{margin-bottom:24px; font-size:12px;}
+  .drawer-content .body-text p{font-size:15px; line-height:1.85; color:#cdd1e0; margin-bottom:18px;}
+  .ai-tab-btn{
+    display:none; align-items:center; gap:7px; margin:0 40px 18px;
+    padding:9px 15px; border-radius:999px; width:fit-content;
+    background:var(--indigo-soft); border:1px solid rgba(99,102,241,.3); color:var(--indigo-bright);
+    font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+
+  .ai-panel{
+    width:300px; flex-shrink:0; border-left:1px solid var(--border);
+    background:var(--surface); overflow-y:auto; padding:24px 20px;
+  }
+  .ai-panel-head{display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+  .ai-panel-head svg{width:16px; height:16px; stroke:var(--mint);}
+  .ai-panel-head h4{font-family:'Syne'; font-size:14.5px; font-weight:700;}
+  .ai-panel .hint{font-size:11.5px; color:var(--text-faint); margin-bottom:16px; line-height:1.5;}
+  .ai-loading{display:flex; flex-direction:column; gap:9px;}
+  .skel{height:11px; border-radius:4px; background:linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%); background-size:200% 100%; animation:shimmer 1.3s infinite;}
+  @keyframes shimmer{from{background-position:200% 0;} to{background-position:-200% 0;}}
+  .ai-summary{display:none; flex-direction:column; gap:11px;}
+  .ai-summary.show{display:flex;}
+  .ai-loading.hide{display:none;}
+  .ai-bullet{display:flex; gap:9px; font-size:12.8px; line-height:1.55; color:#d6d9e6;}
+  .ai-bullet .b-dot{width:5px; height:5px; border-radius:50%; background:var(--mint); margin-top:7px; flex-shrink:0;}
+  .ai-divider{height:1px; background:var(--border-soft); margin:18px 0;}
+  .ai-stat-row{display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--border-soft); font-size:12px;}
+  .ai-stat-row:last-child{border-bottom:none;}
+  .ai-stat-row .lbl{color:var(--text-faint);}
+  .ai-stat-row .v{font-family:'JetBrains Mono'; font-weight:600;}
+
+  /* ===== BOTTOM NAV (mobile) ===== */
+  .bottom-nav{display:none;}
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 980px){
+    .layout{grid-template-columns:1fr; padding-bottom:84px;}
+    .sidebar{position:static; order:-1;}
+    .sidebar .panel:nth-child(2){display:none;} /* hide ask panel on mobile to reduce clutter */
+    .news-grid{grid-template-columns:1fr;}
+    .hero-card{grid-template-columns:1fr;}
+    .hero-img{min-height:190px;}
+    .search-wrap{display:none;}
+    .live-pill{display:none;}
+    .brand-row{padding:12px 16px 8px;}
+    .cat-row{padding:10px 16px;}
+    .drawer{width:100vw;}
+    .drawer-main{width:100%;}
+    .ai-panel{
+      position:fixed; bottom:0; left:0; right:0; width:100%; height:0; max-height:78vh;
+      border-left:none; border-top:1px solid var(--border);
+      border-radius:18px 18px 0 0; transition:height .3s ease; padding:0; overflow:hidden;
+      z-index:6; box-shadow:0 -10px 40px rgba(0,0,0,.5);
+    }
+    .ai-panel.open{height:60vh; padding:20px;}
+    .ai-tab-btn{display:flex; position:sticky; top:60px; z-index:4; background:var(--bg-2);}
+    .drawer-content{padding:20px 18px 100px;}
+    .drawer-content h1{font-size:23px;}
+    .bottom-nav{
+      display:flex; position:fixed; bottom:0; left:0; right:0; z-index:60;
+      background:rgba(13,16,22,.92); backdrop-filter:blur(14px);
+      border-top:1px solid var(--border-soft); padding:8px 10px 12px;
+      justify-content:space-around;
+    }
+    .bn-item{display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--text-faint); font-size:10px; font-family:'JetBrains Mono';}
+    .bn-item.active{color:var(--mint);}
+    .bn-item svg{width:18px; height:18px; stroke:currentColor;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand-row">
+    <div class="logo"><span class="dot"></span>SIGHT<span class="sub">· vera nexus</span></div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" type="text" placeholder="Search news, tickers, sectors…">
+    </div>
+    <div class="topbar-actions">
+      <span class="live-pill"><span class="pulse"></span>LIVE</span>
+      <div class="icon-btn" title="Saved"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg><span class="badge">3</span></div>
+      <div class="icon-btn" title="Profile"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+    </div>
+  </div>
+  <div class="ticker-strip">
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+  <div class="cat-row" id="catRow">
+    <div class="cat-pill active" data-cat="all">For You</div>
+    <div class="cat-pill" data-cat="markets">Markets</div>
+    <div class="cat-pill" data-cat="macro">Macro</div>
+    <div class="cat-pill" data-cat="earnings">Earnings</div>
+    <div class="cat-pill" data-cat="global">Global</div>
+    <div class="cat-pill" data-cat="ipo">IPO</div>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="feed" id="feed"></div>
+
+  <div class="sidebar">
+    <div class="panel" id="watchlistPanel">
+      <div class="panel-head">
+        <h4>Watchlist <span class="n" id="wlCount">0/10</span></h4>
+        <div class="add-stock-btn" id="addStockBtn">+</div>
+      </div>
+      <div class="stock-search" id="stockSearch">
+        <input type="text" id="stockSearchInput" placeholder="Add ticker e.g. TATASTEEL">
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+      <div class="watchlist-items" id="watchlistItems"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h4>Ask Vera</h4></div>
+      <div class="ask-panel">
+        <p>Quick questions about today's market, a stock, or a headline — answered with cited precedent.</p>
+        <div class="ask-input-row">
+          <input type="text" placeholder="e.g. Why did Bank Nifty fall today?">
+          <button class="ask-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="bn-item active"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>Feed</div>
+  <div class="bn-item"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="3 17 9 11 13 15 21 6"/></svg>Sight</div>
+  <div class="bn-item"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 2a9 9 0 0 1 0 18"/></svg>Crypt</div>
+  <div class="bn-item"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Saved</div>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-main">
+    <div class="drawer-close" id="drawerClose">&#10005;</div>
+    <img class="drawer-hero-img" id="drawerImg" src="" alt="">
+    <div class="ai-tab-btn" id="aiTabBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      AI Summary
+    </div>
+    <div class="drawer-content">
+      <div class="tag" id="drawerTag">Markets</div>
+      <h1 id="drawerTitle"></h1>
+      <div class="meta-row"><span id="drawerSource"></span><span class="dotsep"></span><span id="drawerTime"></span><span class="dotsep"></span><span>4 min read</span></div>
+      <div class="body-text" id="drawerBody"></div>
+    </div>
+  </div>
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-panel-head">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      <h4>AI Summary</h4>
+    </div>
+    <p class="hint">Condensed in seconds. Always verify against the full article for trading decisions.</p>
+    <div class="ai-loading" id="aiLoading">
+      <div class="skel" style="width:92%"></div>
+      <div class="skel" style="width:76%"></div>
+      <div class="skel" style="width:85%"></div>
+      <div class="skel" style="width:60%"></div>
+    </div>
+    <div class="ai-summary" id="aiSummary"></div>
+    <div class="ai-divider"></div>
+    <div id="aiStats"></div>
+  </div>
+</div>
+
+<script>
+/* ================= MOCK DATA ================= */
+const indices = [
+  {n:'SENSEX', v:'76,802.90', c:-0.78},
+  {n:'NIFTY 50', v:'24,013.10', c:-0.64},
+  {n:'NIFTY BANK', v:'57,685.75', c:-0.48},
+  {n:'NIFTY MIDCAP', v:'62,517.30', c:0.22},
+  {n:'INDIA VIX', v:'13.42', c:1.85},
+  {n:'NIFTY IT', v:'41,205.6', c:-1.12},
+];
+
+const articles = [
+  {
+    id:1, cat:'markets', tagLabel:'Markets', hero:true,
+    title:'Nifty slips below 24,050 as financials drag; midcaps buck the trend',
+    blurb:'Banking and energy stocks weighed on the benchmark even as broader markets stayed resilient on domestic fund inflows.',
+    img:'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop',
+    source:'Market Desk', time:'18 min ago',
+    body:[
+      'Indian equity benchmarks closed lower on Friday, with the Nifty 50 slipping under the 24,050 mark as heavyweight private banks and energy counters dragged the index down through the final hour of trade.',
+      'Foreign portfolio investors trimmed positions in financials ahead of the weekend, while domestic institutional buying provided a partial cushion. The Nifty Midcap 100 bucked the broader trend, closing in the green on continued retail participation in select industrial and capital goods names.',
+      'Traders pointed to elevated volatility heading into the next derivatives expiry, with the India VIX up sharply during the session. Analysts expect a stock-specific market next week as earnings season picks up pace.',
+      'Sectorally, IT shed further ground on a stronger rupee, while metals found support on firmer global commodity prices.'
+    ],
+    stat1:'Sentiment', stat1v:'Cautious', stat2:'Key driver', stat2v:'Bank Nifty', stat3:'FII flow', stat3v:'-₹1,025 Cr'
+  },
+  {
+    id:2, cat:'macro', tagLabel:'Macro',
+    title:'RBI likely to hold rates in August as inflation stays within band',
+    blurb:'Economists expect the central bank to maintain its current stance given steady food price trends and a stable currency.',
+    img:'https://images.unsplash.com/photo-1518186285589-2f7649de83e0?q=80&w=800&auto=format&fit=crop',
+    source:'Macro Desk', time:'42 min ago',
+    body:[
+      'A majority of economists surveyed expect the Reserve Bank of India to keep the repo rate unchanged at its upcoming policy meeting, citing inflation readings that have stayed comfortably within the central bank\'s tolerance band for three consecutive months.',
+      'Food price pressures have eased meaningfully since the start of the year, while core inflation has remained sticky but manageable. The rupee has traded in a relatively narrow range against the dollar, reducing the urgency for a defensive rate move.',
+      'Bond markets are pricing in a largely neutral outcome, with yields on the 10-year benchmark holding steady ahead of the announcement.'
+    ],
+    stat1:'Expected move', stat1v:'No change', stat2:'Inflation trend', stat2v:'Easing', stat3:'10Y yield', stat3v:'7.02%'
+  },
+  {
+    id:3, cat:'earnings', tagLabel:'Earnings',
+    title:'Mid-tier IT firm beats estimates on deal wins, guides cautiously for H2',
+    blurb:'Management flagged continued softness in discretionary tech spend from US clients despite a strong order book.',
+    img:'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=800&auto=format&fit=crop',
+    source:'Earnings Wire', time:'1 hr ago',
+    body:[
+      'The company reported quarterly revenue ahead of street estimates, driven by a string of large deal wins in BFSI and healthcare verticals, even as management struck a cautious tone on near-term demand from North American clients.',
+      'Operating margins expanded modestly on the back of cost discipline and a richer mix of fixed-price contracts, though the firm flagged continued pressure on discretionary technology spending heading into the back half of the fiscal year.',
+      'The stock saw volatile trade in the immediate aftermath of the print as investors weighed the strong order book against the softer guidance.'
+    ],
+    stat1:'Revenue', stat1v:'Beat', stat2:'Margin', stat2v:'+40 bps QoQ', stat3:'Guidance', stat3v:'Cautious'
+  },
+  {
+    id:4, cat:'global', tagLabel:'Global',
+    title:'US yields tick higher after stronger-than-expected jobs data',
+    blurb:'Treasury yields rose as traders pared back bets on near-term rate cuts from the Federal Reserve.',
+    img:'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=800&auto=format&fit=crop',
+    source:'Global Desk', time:'2 hr ago',
+    body:[
+      'Treasury yields climbed after a stronger-than-expected payrolls report led traders to scale back expectations of an imminent rate cut from the Federal Reserve, with the probability of action at the next meeting falling sharply.',
+      'Asian and European equity markets traded mixed in response, with rate-sensitive sectors underperforming broader benchmarks. The dollar index firmed against a basket of major currencies.',
+      'Emerging market assets, including Indian equities, are likely to take cues from the move as global risk appetite resets heading into next week.'
+    ],
+    stat1:'10Y UST', stat1v:'4.38%', stat2:'Dollar index', stat2v:'+0.4%', stat3:'Rate cut odds', stat3v:'Lower'
+  },
+  {
+    id:5, cat:'ipo', tagLabel:'IPO',
+    title:'Logistics-tech startup files draft papers for ₹2,400 Cr IPO',
+    blurb:'The issue will be a mix of fresh shares and an offer for sale by early investors, per the draft filing.',
+    img:'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=800&auto=format&fit=crop',
+    source:'IPO Desk', time:'3 hr ago',
+    body:[
+      'A logistics-technology platform has filed draft papers with market regulators for an initial public offering worth approximately ₹2,400 crore, comprising a fresh issue and an offer for sale by existing shareholders.',
+      'The company, which provides supply-chain software to mid-market manufacturers, has grown revenue at a compounded rate of over 40% over the past three years, though it remains lossmaking on an adjusted basis.',
+      'Proceeds from the fresh issue are earmarked for technology investment, working capital, and inorganic growth opportunities.'
+    ],
+    stat1:'Issue size', stat1v:'₹2,400 Cr', stat2:'Type', stat2v:'Fresh + OFS', stat3:'Revenue CAGR', stat3v:'40%+'
+  },
+  {
+    id:6, cat:'markets', tagLabel:'Markets',
+    title:'Auto stocks rally on strong monthly dispatch numbers',
+    blurb:'Two-wheeler makers led gains as rural demand showed signs of a durable recovery heading into festive season.',
+    img:'https://images.unsplash.com/photo-1502877338535-766e1452684a?q=80&w=800&auto=format&fit=crop',
+    source:'Sector Watch', time:'4 hr ago',
+    body:[
+      'Automobile manufacturers posted robust wholesale dispatch numbers for the month, with two-wheeler makers leading the rally on the back of a sustained recovery in rural demand.',
+      'Passenger vehicle makers also reported healthy growth, aided by a strong order book for recently launched SUV models. Commercial vehicle sales remained comparatively muted amid soft infrastructure spending.',
+      'Analysts at several brokerages upgraded earnings estimates for the sector citing improving margin trends on softer input costs.'
+    ],
+    stat1:'2W growth', stat1v:'+18% YoY', stat2:'PV growth', stat2v:'+9% YoY', stat3:'CV growth', stat3v:'+2% YoY'
+  },
+  {
+    id:7, cat:'macro', tagLabel:'Macro',
+    title:'Core sector output growth slows to four-month low',
+    blurb:'A slowdown in coal and cement output weighed on the index, even as steel and electricity stayed resilient.',
+    img:'https://images.unsplash.com/photo-1496307653780-42ee777d4833?q=80&w=800&auto=format&fit=crop',
+    source:'Macro Desk', time:'5 hr ago',
+    body:[
+      'Growth in India\'s eight core infrastructure sectors slowed to a four-month low, dragged down by weaker output in coal and cement even as steel and electricity generation held up.',
+      'The core sector data, which feeds into the broader index of industrial production, suggests some moderation in momentum after a strong start to the fiscal year.',
+      'Economists expect the slowdown to be temporary, attributing part of the weakness to seasonal factors and an early onset of monsoon disruptions in key mining regions.'
+    ],
+    stat1:'Core growth', stat1v:'3.1% YoY', stat2:'Weak spot', stat2v:'Coal, Cement', stat3:'Strong spot', stat3v:'Steel, Power'
+  },
+  {
+    id:8, cat:'global', tagLabel:'Global',
+    title:'Crude prices ease as supply concerns ebb after ceasefire talks',
+    blurb:'Brent crude fell over a percent in early trade as geopolitical risk premium continued to unwind.',
+    img:'https://images.unsplash.com/photo-1605101100539-3473f53dbd72?q=80&w=800&auto=format&fit=crop',
+    source:'Commodities Desk', time:'6 hr ago',
+    body:[
+      'Crude oil prices eased in early trade as the geopolitical risk premium continued to unwind following reports of progress in ceasefire negotiations in a key producing region.',
+      'Brent crude futures slipped over a percent, while US benchmark WTI saw a similar move, as traders reassessed supply disruption risks that had pushed prices higher earlier in the month.',
+      'Lower crude prices, if sustained, would be a tailwind for India\'s import bill and could ease pressure on downstream inflation in the coming months.'
+    ],
+    stat1:'Brent', stat1v:'-1.3%', stat2:'WTI', stat2v:'-1.1%', stat3:'INR impact', stat3v:'Mildly positive'
+  },
+];
+
+const allStocks = [
+  {sym:'RELIANCE', name:'Reliance Industries', price:2945.6, chg:1.2},
+  {sym:'TCS', name:'Tata Consultancy Services', price:3812.1, chg:-0.8},
+  {sym:'HDFCBANK', name:'HDFC Bank', price:1654.3, chg:-1.4},
+  {sym:'INFY', name:'Infosys', price:1498.9, chg:-1.9},
+  {sym:'ICICIBANK', name:'ICICI Bank', price:1212.5, chg:0.6},
+  {sym:'TATASTEEL', name:'Tata Steel', price:168.4, chg:2.3},
+  {sym:'ADANIENT', name:'Adani Enterprises', price:3105.0, chg:3.1},
+  {sym:'ITC', name:'ITC Ltd', price:432.8, chg:0.3},
+  {sym:'BAJFINANCE', name:'Bajaj Finance', price:7142.0, chg:-0.5},
+  {sym:'SUNPHARMA', name:'Sun Pharma', price:1789.2, chg:1.0},
+  {sym:'MARUTI', name:'Maruti Suzuki', price:12480.0, chg:1.8},
+  {sym:'WIPRO', name:'Wipro', price:268.5, chg:-2.1},
+];
+
+let watchlist = ['RELIANCE','TCS','TATASTEEL','ADANIENT'];
+
+/* ================= TICKER ================= */
+function renderTicker(){
+  const track = document.getElementById('tickerTrack');
+  const set = indices.map(i=>`
+    <span class="tick"><b>${i.n}</b><span class="val">${i.v}</span><span class="chg ${i.c>=0?'up':'down'}">${i.c>=0?'▲':'▼'} ${Math.abs(i.c)}%</span></span>
+  `).join('');
+  track.innerHTML = set + set; // duplicate for seamless loop
+}
+
+/* ================= SPARKLINE ================= */
+function sparklinePath(seed, w, h){
+  let val = 50, pts = [];
+  let s = seed;
+  const rand = ()=>{ s = (s*9301+49297)%233280; return s/233280; };
+  for(let i=0;i<14;i++){
+    val += (rand()-0.48)*14;
+    val = Math.max(8, Math.min(92,val));
+    pts.push(val);
+  }
+  const step = w/(pts.length-1);
+  const d = pts.map((p,i)=>`${i===0?'M':'L'} ${i*step} ${h - (p/100*h)}`).join(' ');
+  return {d, up: pts[pts.length-1] >= pts[0]};
+}
+function sparkSVG(seed, positive){
+  const {d, up} = sparklinePath(seed, 60, 28);
+  const color = positive ? 'var(--mint)' : 'var(--red)';
+  return `<svg class="wl-spark" viewBox="0 0 60 28"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/* ================= WATCHLIST ================= */
+function renderWatchlist(){
+  const wrap = document.getElementById('watchlistItems');
+  document.getElementById('wlCount').textContent = watchlist.length + '/10';
+  if(watchlist.length === 0){
+    wrap.innerHTML = `<div class="wl-empty">No stocks yet.<br>Tap + to build your watchlist (max 10).</div>`;
+    return;
+  }
+  wrap.innerHTML = watchlist.map((sym, idx)=>{
+    const s = allStocks.find(x=>x.sym===sym);
+    if(!s) return '';
+    const positive = s.chg >= 0;
+    return `
+      <div class="wl-item">
+        <div class="wl-id">
+          <div class="sym">${s.sym}</div>
+          <div class="nm">${s.name}</div>
+        </div>
+        ${sparkSVG(idx*37+11, positive)}
+        <div class="wl-price">
+          <div class="p">${s.price.toLocaleString('en-IN',{minimumFractionDigits:1,maximumFractionDigits:1})}</div>
+          <div class="c ${positive?'up':'down'}">${positive?'+':''}${s.chg}%</div>
+        </div>
+        <div class="wl-remove" data-sym="${s.sym}">&#10005;</div>
+      </div>`;
+  }).join('');
+  wrap.querySelectorAll('.wl-remove').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      watchlist = watchlist.filter(s=>s!==btn.dataset.sym);
+      renderWatchlist();
+    });
+  });
+}
+
+document.getElementById('addStockBtn').addEventListener('click', ()=>{
+  document.getElementById('stockSearch').classList.toggle('open');
+  document.getElementById('stockSearchInput').focus();
+});
+
+document.getElementById('stockSearchInput').addEventListener('input', e=>{
+  const q = e.target.value.trim().toUpperCase();
+  const sugBox = document.getElementById('suggestions');
+  if(!q){ sugBox.innerHTML=''; return; }
+  const matches = allStocks.filter(s => !watchlist.includes(s.sym) && (s.sym.includes(q) || s.name.toUpperCase().includes(q))).slice(0,6);
+  sugBox.innerHTML = matches.map(s=>`<div class="sugg-item" data-sym="${s.sym}"><span class="sym">${s.sym}</span><span class="name">${s.name}</span></div>`).join('') || `<div class="sugg-item" style="color:var(--text-faint)">No matches</div>`;
+  sugBox.querySelectorAll('.sugg-item[data-sym]').forEach(it=>{
+    it.addEventListener('click', ()=>{
+      if(watchlist.length >= 10){ alert('Watchlist limit reached (10 stocks). Remove one to add another.'); return; }
+      watchlist.push(it.dataset.sym);
+      renderWatchlist();
+      document.getElementById('stockSearchInput').value='';
+      sugBox.innerHTML='';
+    });
+  });
+});
+
+/* ================= FEED ================= */
+let currentCat = 'all';
+function renderFeed(){
+  const feed = document.getElementById('feed');
+  const filtered = articles.filter(a => currentCat==='all' || a.cat===currentCat);
+  const hero = filtered.find(a=>a.hero) || filtered[0];
+  const rest = filtered.filter(a=>a !== hero);
+
+  let html = '';
+  if(hero){
+    html += `
+    <div class="hero-card" data-id="${hero.id}">
+      <div class="hero-img"><img src="${hero.img}" alt=""></div>
+      <div class="hero-body">
+        <div class="tag ${hero.cat}">${hero.tagLabel}</div>
+        <h2>${hero.title}</h2>
+        <p>${hero.blurb}</p>
+        <div class="meta-row"><span>${hero.source}</span><span class="dotsep"></span><span>${hero.time}</span></div>
+      </div>
+    </div>`;
+  }
+
+  html += `<div class="section-label">Latest</div><div class="news-grid">`;
+  rest.forEach((a,i)=>{
+    html += `
+    <div class="news-card" data-id="${a.id}" style="animation-delay:${0.08+i*0.05}s">
+      <div class="news-thumb"><img src="${a.img}" alt=""></div>
+      <div class="news-info">
+        <div class="tag ${a.cat}">${a.tagLabel}</div>
+        <h3>${a.title}</h3>
+        <div class="meta-row"><span>${a.source}</span><span class="dotsep"></span><span>${a.time}</span></div>
+      </div>
+    </div>`;
+  });
+  html += `</div><div class="load-more">Load more stories</div>`;
+  feed.innerHTML = html;
+
+  feed.querySelectorAll('[data-id]').forEach(el=>{
+    el.addEventListener('click', ()=> openArticle(parseInt(el.dataset.id)));
+  });
+}
+
+document.getElementById('catRow').addEventListener('click', e=>{
+  const pill = e.target.closest('.cat-pill');
+  if(!pill) return;
+  document.querySelectorAll('.cat-pill').forEach(p=>p.classList.remove('active'));
+  pill.classList.add('active');
+  currentCat = pill.dataset.cat;
+  renderFeed();
+});
+
+document.getElementById('searchInput').addEventListener('input', e=>{
+  const q = e.target.value.trim().toLowerCase();
+  const feed = document.getElementById('feed');
+  if(!q){ renderFeed(); return; }
+  const matches = articles.filter(a => a.title.toLowerCase().includes(q) || a.blurb.toLowerCase().includes(q));
+  let html = `<div class="section-label">Results for "${e.target.value}"</div><div class="news-grid">`;
+  if(matches.length===0){ html += `<div style="grid-column:1/-1; padding:30px; text-align:center; color:var(--text-faint); font-size:13px;">No stories match your search.</div>`; }
+  matches.forEach((a,i)=>{
+    html += `
+    <div class="news-card" data-id="${a.id}" style="animation-delay:${i*0.04}s">
+      <div class="news-thumb"><img src="${a.img}" alt=""></div>
+      <div class="news-info">
+        <div class="tag ${a.cat}">${a.tagLabel}</div>
+        <h3>${a.title}</h3>
+        <div class="meta-row"><span>${a.source}</span><span class="dotsep"></span><span>${a.time}</span></div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  feed.innerHTML = html;
+  feed.querySelectorAll('[data-id]').forEach(el=>{
+    el.addEventListener('click', ()=> openArticle(parseInt(el.dataset.id)));
+  });
+});
+
+/* ================= ARTICLE DRAWER ================= */
+const overlay = document.getElementById('overlay');
+const drawer = document.getElementById('drawer');
+
+function openArticle(id){
+  const a = articles.find(x=>x.id===id);
+  if(!a) return;
+  document.getElementById('drawerImg').src = a.img;
+  document.getElementById('drawerTag').textContent = a.tagLabel;
+  document.getElementById('drawerTag').className = 'tag ' + a.cat;
+  document.getElementById('drawerTitle').textContent = a.title;
+  document.getElementById('drawerSource').textContent = a.source;
+  document.getElementById('drawerTime').textContent = a.time;
+  document.getElementById('drawerBody').innerHTML = a.body.map(p=>`<p>${p}</p>`).join('');
+
+  // reset AI panel
+  document.getElementById('aiLoading').classList.remove('hide');
+  document.getElementById('aiSummary').classList.remove('show');
+  document.getElementById('aiSummary').innerHTML = '';
+  document.getElementById('aiPanel').classList.remove('open');
+
+  overlay.classList.add('open');
+  drawer.classList.add('open');
+  document.body.style.overflow='hidden';
+
+  // simulate AI summarization
+  setTimeout(()=>{
+    const bullets = [
+      a.body[0].split('.')[0] + '.',
+      'Key number: ' + a.stat1v + ' (' + a.stat1 + ').',
+      'Watch next: follow-through depends on ' + a.stat2.toLowerCase() + ' trends into the next session.'
+    ];
+    const sumEl = document.getElementById('aiSummary');
+    sumEl.innerHTML = bullets.map(b=>`<div class="ai-bullet"><span class="b-dot"></span><span>${b}</span></div>`).join('');
+    document.getElementById('aiLoading').classList.add('hide');
+    sumEl.classList.add('show');
+
+    document.getElementById('aiStats').innerHTML = `
+      <div class="ai-stat-row"><span class="lbl">${a.stat1}</span><span class="v">${a.stat1v}</span></div>
+      <div class="ai-stat-row"><span class="lbl">${a.stat2}</span><span class="v">${a.stat2v}</span></div>
+      <div class="ai-stat-row"><span class="lbl">${a.stat3}</span><span class="v">${a.stat3v}</span></div>
+    `;
+  }, 900);
+}
+
+function closeDrawer(){
+  overlay.classList.remove('open');
+  drawer.classList.remove('open');
+  document.getElementById('aiPanel').classList.remove('open');
+  document.body.style.overflow='';
+}
+overlay.addEventListener('click', closeDrawer);
+document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+document.getElementById('aiTabBtn').addEventListener('click', ()=>{
+  document.getElementById('aiPanel').classList.toggle('open');
+});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeDrawer(); });
+
+/* ================= INIT ================= */
+renderTicker();
+renderWatchlist();
+renderFeed();
+</script>
+</body>
+</html>
