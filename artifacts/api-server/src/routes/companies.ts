@@ -131,13 +131,13 @@ The CEO has exactly 5 attempts to save the company. Track momentum: early good d
 
 ALWAYS return ONLY valid JSON in this exact shape (no markdown, no backticks):
 {
-  "reply": "2-4 paragraphs describing what happened after their decision. Be specific, dramatic, and realistic. Include board reactions, market responses, and operational consequences.",
+  "reply": "3-5 SHORT sentences maximum. One sentence on the immediate effect, one on the board/market reaction, one on what changed. Be sharp and specific — no padding.",
   "companyState": "one of: Critical | Deteriorating | Stable | Recovering | Survived | Collapsed",
   "gameOver": false,
   "outcome": null
 }
 
-When attempt reaches 5, set gameOver to true and outcome to either "survived" or "failed" based on the trajectory of decisions made.`;
+Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver to true and outcome to either "survived" or "failed" based on the trajectory of decisions made.`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -146,7 +146,7 @@ When attempt reaches 5, set gameOver to true and outcome to either "survived" or
     if (isOpening) {
       messages.push({
         role: "user",
-        content: `Set the scene. I just walked in as Interim CEO. Brief me on the exact crisis state right now — what's on fire, what decisions need to be made in the next 48 hours, and what resources I have left. Make it feel like a war room briefing.`,
+        content: `Set the scene in 4-5 sentences maximum. I just walked in as Interim CEO. What is on fire right now, what is the single biggest decision I need to make, and what resources do I have left. Be sharp — no lengthy preamble.`,
       });
     } else {
       // Add conversation history
@@ -167,7 +167,7 @@ When attempt reaches 5, set gameOver to true and outcome to either "survived" or
       model: "llama-3.3-70b-versatile",
       messages,
       temperature: 0.6,
-      max_tokens: 1200,
+      max_tokens: 400,
     });
 
     const content = completion.choices[0]?.message?.content || "";
