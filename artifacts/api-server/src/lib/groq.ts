@@ -22,8 +22,17 @@ Always include at least 2 cards per response. For new business ideas always incl
 
 Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.`;
 
-export async function getGroqClient(sessionId: string): Promise<Groq | null> {
+export async function getGroqClient(sessionId: string, requestHeaders?: Record<string, string | string[] | undefined>): Promise<Groq | null> {
   try {
+    // First check if API key is provided in request header (from frontend)
+    if (requestHeaders) {
+      const headerKey = requestHeaders['x-groq-api-key'];
+      if (typeof headerKey === 'string' && headerKey) {
+        return new Groq({ apiKey: headerKey });
+      }
+    }
+
+    // Fall back to database settings
     const [settings] = await db
       .select()
       .from(settingsTable)
@@ -35,6 +44,14 @@ export async function getGroqClient(sessionId: string): Promise<Groq | null> {
 
     return new Groq({ apiKey });
   } catch {
+    // Last resort: check environment variable
+    if (requestHeaders) {
+      const headerKey = requestHeaders['x-groq-api-key'];
+      if (typeof headerKey === 'string' && headerKey) {
+        return new Groq({ apiKey: headerKey });
+      }
+    }
+    
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return null;
     return new Groq({ apiKey });

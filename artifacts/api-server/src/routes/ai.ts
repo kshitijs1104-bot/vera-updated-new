@@ -12,7 +12,7 @@ router.post("/ai/analyze", async (req, res) => {
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const groq = await getGroqClient(sessionId, req.headers as Record<string, string | string[] | undefined>);
 
     if (!groq) {
       return res.json(buildFallbackVenusResponse(body.data.message));
@@ -74,7 +74,7 @@ router.post("/ai/idea-review", async (req, res) => {
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const groq = await getGroqClient(sessionId, req.headers as Record<string, string | string[] | undefined>);
 
     if (!groq) {
       return res.json(buildFallbackVenusResponse(body.data.idea));
