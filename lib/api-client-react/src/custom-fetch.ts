@@ -17,6 +17,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _defaultHeaders: Record<string, string> = {};
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -27,6 +28,10 @@ let _authTokenGetter: AuthTokenGetter | null = null;
  */
 export function setBaseUrl(url: string | null): void {
   _baseUrl = url ? url.replace(/\/+$/, "") : null;
+}
+
+export function setDefaultHeaders(headers: Record<string, string> | null): void {
+  _defaultHeaders = headers || {};
 }
 
 /**
@@ -347,6 +352,13 @@ export async function customFetch<T = unknown>(
 
   if (responseType === "json" && !headers.has("accept")) {
     headers.set("accept", DEFAULT_JSON_ACCEPT);
+  }
+
+  // Attach default headers (e.g., x-session-id) when not explicitly provided.
+  for (const [key, value] of Object.entries(_defaultHeaders)) {
+    if (!headers.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
   }
 
   // Attach bearer token when an auth getter is configured and no

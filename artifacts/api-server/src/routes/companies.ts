@@ -49,7 +49,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
     const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, id)).limit(1);
     if (!company) return res.status(404).json({ error: "Company not found" });
 
-    const sessionId = req.headers["x-session-id"] as string || "default";
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const groq = await getGroqClient(sessionId);
 
     if (!groq) {

@@ -11,7 +11,7 @@ router.post("/ai/analyze", async (req, res) => {
     const body = VenusAnalyzeBody.safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
-    const sessionId = req.headers["x-session-id"] as string || "default";
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const groq = await getGroqClient(sessionId);
 
     if (!groq) {
@@ -73,7 +73,7 @@ router.post("/ai/idea-review", async (req, res) => {
     const body = IdeaReviewBody.safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
-    const sessionId = req.headers["x-session-id"] as string || "default";
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const groq = await getGroqClient(sessionId);
 
     if (!groq) {

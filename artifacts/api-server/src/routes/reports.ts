@@ -42,7 +42,7 @@ router.post("/reports/:id/summary", async (req, res) => {
     const [report] = await db.select().from(reportsTable).where(eq(reportsTable.id, id)).limit(1);
     if (!report) return res.status(404).json({ error: "Report not found" });
 
-    const sessionId = req.headers["x-session-id"] as string || "default";
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const groq = await getGroqClient(sessionId);
 
     if (!groq) {
