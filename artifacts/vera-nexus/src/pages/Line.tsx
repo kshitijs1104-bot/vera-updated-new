@@ -93,7 +93,9 @@ function RippleFlowchart({ flowchart }: { flowchart: Flowchart }) {
 
 export function LinePage() {
   const { category } = useCategory();
-  const { data: events = [], isLoading } = useListEvents({ category: category !== 'all' ? category : undefined } as any);
+  const params = category && category !== 'all' ? { category } : undefined;
+  const { data: rawEvents, isLoading, isError } = useListEvents(params as any);
+  const events = Array.isArray(rawEvents) ? rawEvents : (rawEvents as any)?.data ?? [];
   const [selectedEventForRipple, setSelectedEventForRipple] = useState<number | null>(null);
 
   const rippleMutation = useRippleAnalysis();
@@ -101,7 +103,7 @@ export function LinePage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <header className="flex items-center justify-between mb-8 border-b border-[var(--border)] pb-4">
-        <h1 className="text-sm font-mono text-[var(--muted)]">{events.length} events · chronological</h1>
+        <h1 className="text-sm font-mono text-[var(--muted)]">{isLoading ? '—' : events.length} events · chronological</h1>
         <button className="flex items-center gap-2 text-sm text-[var(--muted)] hover:text-white transition-colors px-3 py-1.5 bg-[var(--surface2)] rounded border border-[var(--border)]">
           <Filter className="w-4 h-4" />
           Filter
@@ -110,9 +112,19 @@ export function LinePage() {
 
       <div className="relative border-l border-[var(--border2)] ml-4 space-y-12 pb-12">
         {isLoading ? (
-          <div className="pl-8 space-y-4">
-            <div className="h-32 bg-[var(--surface2)] rounded-lg animate-pulse w-full"></div>
-            <div className="h-32 bg-[var(--surface2)] rounded-lg animate-pulse w-full"></div>
+          <div className="pl-8 space-y-6">
+            {[1,2,3].map(i => (
+              <div key={i} className="h-48 bg-[var(--surface2)] rounded-lg animate-pulse w-full"></div>
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="pl-8 py-16 text-center">
+            <div className="text-[var(--red)] font-mono text-sm mb-2">Failed to load events</div>
+            <div className="text-[var(--dim)] text-xs font-mono">Check that the API server is reachable at VITE_API_BASE_URL</div>
+          </div>
+        ) : events.length === 0 ? (
+          <div className="pl-8 py-16 text-center">
+            <div className="text-[var(--muted)] font-mono text-sm">No events found for this category</div>
           </div>
         ) : events.map(event => {
           const isPos = event.sentiment === 'positive';

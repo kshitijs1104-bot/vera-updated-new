@@ -6,7 +6,11 @@ import { useLocation } from 'wouter';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const showRightSidebar = !['/venus', '/settings', '/crypt'].includes(location);
+  // Sight is a self-contained, full-width terminal view with its own watchlist —
+  // collapse both global sidebars there so the feed uses the entire screen width.
+  const isSight = location === '/sight';
+  const showLeftSidebar = !isSight;
+  const showRightSidebar = !['/venus', '/settings', '/crypt', '/sight'].includes(location);
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col dark">
@@ -22,7 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <LeftSidebar />
+        {showLeftSidebar && <LeftSidebar />}
         <main className="flex-1 overflow-y-auto relative">
           {children}
         </main>

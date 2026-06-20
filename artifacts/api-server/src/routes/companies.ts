@@ -105,7 +105,10 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
     };
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+    const groq = headerKey
+      ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
+      : await getGroqClient(sessionId);
 
     if (!groq) {
       return res.json({
@@ -131,13 +134,13 @@ The CEO has exactly 5 attempts to save the company. Track momentum: early good d
 
 ALWAYS return ONLY valid JSON in this exact shape (no markdown, no backticks):
 {
-  "reply": "2-4 paragraphs describing what happened after their decision. Be specific, dramatic, and realistic. Include board reactions, market responses, and operational consequences.",
+  "reply": "3-5 SHORT sentences maximum. One sentence on the immediate effect, one on the board/market reaction, one on what changed. Be sharp and specific — no padding.",
   "companyState": "one of: Critical | Deteriorating | Stable | Recovering | Survived | Collapsed",
   "gameOver": false,
   "outcome": null
 }
 
-When attempt reaches 5, set gameOver to true and outcome to either "survived" or "failed" based on the trajectory of decisions made.`;
+Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver to true and outcome to either "survived" or "failed" based on the trajectory of decisions made.`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -146,7 +149,7 @@ When attempt reaches 5, set gameOver to true and outcome to either "survived" or
     if (isOpening) {
       messages.push({
         role: "user",
-        content: `Set the scene. I just walked in as Interim CEO. Brief me on the exact crisis state right now — what's on fire, what decisions need to be made in the next 48 hours, and what resources I have left. Make it feel like a war room briefing.`,
+        content: `Set the scene in 4-5 sentences maximum. I just walked in as Interim CEO. What is on fire right now, what is the single biggest decision I need to make, and what resources do I have left. Be sharp — no lengthy preamble.`,
       });
     } else {
       // Add conversation history
@@ -167,12 +170,18 @@ When attempt reaches 5, set gameOver to true and outcome to either "survived" or
       model: "llama-3.3-70b-versatile",
       messages,
       temperature: 0.6,
-      max_tokens: 1200,
+      max_tokens: 400,
     });
 
     const content = completion.choices[0]?.message?.content || "";
+    // Robustly extract the JSON object even if the model wraps it in markdown
+    // fences or adds stray prose around it.
+    const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const jsonStart = stripped.indexOf("{");
+    const jsonEnd = stripped.lastIndexOf("}");
+    const candidate = jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(candidate);
       return res.json({
         reply: parsed.reply,
         companyState: parsed.companyState || "Critical",
@@ -181,8 +190,13 @@ When attempt reaches 5, set gameOver to true and outcome to either "survived" or
         outcome: isFinal ? (parsed.outcome || "failed") : null,
       });
     } catch {
+      // Last resort: pull the reply field out via regex so we never surface raw JSON.
+      const replyMatch = content.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      const fallbackReply = replyMatch
+        ? replyMatch[1].replace(/\\"/g, '"').replace(/\\n/g, "\n")
+        : content.slice(0, 800);
       return res.json({
-        reply: content.slice(0, 800),
+        reply: fallbackReply,
         companyState: "Critical",
         attempt,
         gameOver: isFinal,

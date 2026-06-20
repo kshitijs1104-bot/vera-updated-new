@@ -7,7 +7,7 @@ import {
   detectAnalysisType, typeLabel, titleFromMessage,
   type ChatSession, type ChatMessage, type SavedAnalysisType,
 } from '../lib/venusHistory';
-import { Settings, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check } from 'lucide-react';
 
 const EXAMPLE_PROMPTS = [
   "Map the causal chain for my business from the most significant market shifts right now",
@@ -301,15 +301,8 @@ export function VenusPage() {
                       </div>
                     )}
 
-                    {/* Save button */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity pt-1">
-                      <button
-                        onClick={() => handleSaveResponse(msg)}
-                        className="text-[10px] font-mono text-[var(--dim)] hover:text-[var(--mint)] transition-colors border border-[var(--border)] hover:border-[var(--mint)]/40 px-2.5 py-1 rounded"
-                      >
-                        Save as {typeLabel(detectAnalysisType(msg.content ?? '', msg.cards))} →
-                      </button>
-                    </div>
+                    {/* Response actions: copy markdown, download .md, save */}
+                    <VenusResponseActions msg={msg} onSave={() => handleSaveResponse(msg)} />
                   </div>
                 )}
               </div>
@@ -400,13 +393,27 @@ function VenusMessage({ content }: { content: string }) {
   );
 }
 
+const FIGURE_SPLIT_RE = /(\$\d[\d,.]*\s?[KMBT]?|\d[\d,.]*\s?%|\b\d[\d,.]*x\b|\b(?:19|20)\d{2}\b)/g;
+const FIGURE_TEST_RE = /^(\$\d[\d,.]*\s?[KMBT]?|\d[\d,.]*\s?%|\d[\d,.]*x|(?:19|20)\d{2})$/;
+
+function highlightFigures(text: string): React.ReactNode {
+  const parts = text.split(FIGURE_SPLIT_RE);
+  return parts.map((p, i) =>
+    p && FIGURE_TEST_RE.test(p) ? (
+      <span key={i} className="font-mono text-[var(--mint)] font-medium">{p}</span>
+    ) : (
+      p
+    ),
+  );
+}
+
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
     }
-    return part;
+    return <span key={i}>{highlightFigures(part)}</span>;
   });
 }
 
@@ -417,6 +424,7 @@ function VenusCard({ card }: { card: any }) {
     risk: 'var(--red)',
     roadmap: 'var(--amber)',
     decision: 'var(--green)',
+    precedent: 'var(--mint)',
   };
   const color = typeColors[card.type] ?? 'var(--dim)';
 
@@ -463,6 +471,31 @@ function VenusCard({ card }: { card: any }) {
         </div>
       )}
 
+      {card.type === 'precedent' && (
+        <div className="space-y-3">
+          {(card.content?.precedents ?? []).map((p: any, i: number) => (
+            <div
+              key={i}
+              className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]"
+            >
+              <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
+                  <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
+                </div>
+                {p.outcome && (
+                  <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
+                    {p.outcome}
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
+              <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {['market', 'decision'].includes(card.type) && (
         <div className="space-y-2">
           {(card.content?.points ?? card.content?.factors ?? []).map((p: any, i: number) => (
@@ -477,6 +510,114 @@ function VenusCard({ card }: { card: any }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---- Markdown export ---------------------------------------------------- */
+
+function cardToMarkdown(card: any): string {
+  const c = card?.content ?? {};
+  const lines: string[] = [`### ${card.title ?? 'Card'}`];
+
+  switch (card.type) {
+    case 'analysis':
+      (c.points ?? []).forEach((p: any) => lines.push(`- **${p.label}:** ${p.value}`));
+      break;
+    case 'risk':
+      (c.risks ?? []).forEach((r: any) =>
+        lines.push(`- **${r.name}** (${r.impact}${r.probability != null ? `, ${r.probability}%` : ''}) — ${r.mitigation}`),
+      );
+      break;
+    case 'roadmap':
+      (c.milestones ?? c.phases ?? []).forEach((m: any) => {
+        const head = m.period ?? m.phase ?? '';
+        const title = m.title ? ` — ${m.title}` : '';
+        lines.push(`- **${head}${title}:** ${m.goal ?? m.description ?? ''}`);
+        (m.actions ?? []).forEach((a: string) => lines.push(`  - ${a}`));
+        if (m.metric) lines.push(`  - _Success metric: ${m.metric}_`);
+      });
+      break;
+    case 'market':
+      if (c.tam || c.sam || c.som || c.growth)
+        lines.push(`- TAM ${c.tam ?? '—'} · SAM ${c.sam ?? '—'} · SOM ${c.som ?? '—'} · Growth ${c.growth ?? '—'}`);
+      (c.competitors ?? []).forEach((x: string) => lines.push(`- ${x}`));
+      if (c.whitespace) lines.push(`- **Whitespace:** ${c.whitespace}`);
+      break;
+    case 'decision':
+      (c.options ?? []).forEach((o: any) => lines.push(`- **${o.name}:** ${o.verdict ?? ''}`));
+      if (c.recommendation) lines.push(`- **Recommendation:** ${c.recommendation}`);
+      break;
+    case 'precedent':
+      (c.precedents ?? []).forEach((p: any) =>
+        lines.push(`- **${p.company}** (${p.year}${p.outcome ? `, ${p.outcome}` : ''}): ${p.lesson}`),
+      );
+      break;
+    default:
+      lines.push('```json', JSON.stringify(c, null, 2), '```');
+  }
+  return lines.join('\n');
+}
+
+function messageToMarkdown(msg: ChatMessage): string {
+  const parts: string[] = ['# Venus AI Analysis', ''];
+  if (msg.content) parts.push(msg.content, '');
+  (msg.cards ?? []).forEach((card: any) => {
+    parts.push(cardToMarkdown(card), '');
+  });
+  parts.push(`---`, `_Generated by Venus AI · ${new Date().toLocaleString()}_`);
+  return parts.join('\n');
+}
+
+function VenusResponseActions({ msg, onSave }: { msg: ChatMessage; onSave: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(messageToMarkdown(msg));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([messageToMarkdown(msg)], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `venus-analysis-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSave = () => {
+    onSave();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1600);
+  };
+
+  const btn =
+    'flex items-center gap-1.5 text-[10px] font-mono text-[var(--dim)] hover:text-[var(--mint)] transition-colors border border-[var(--border)] hover:border-[var(--mint)]/40 px-2.5 py-1 rounded';
+
+  return (
+    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
+      <button onClick={handleCopy} className={btn} title="Copy as Markdown">
+        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        {copied ? 'Copied' : 'Copy MD'}
+      </button>
+      <button onClick={handleDownload} className={btn} title="Download as .md report">
+        <Download className="w-3 h-3" />
+        .md
+      </button>
+      <button onClick={handleSave} className={btn} title="Save to library">
+        <Check className={`w-3 h-3 ${saved ? 'text-[var(--mint)]' : ''}`} />
+        {saved ? 'Saved' : `Save as ${typeLabel(detectAnalysisType(msg.content ?? '', msg.cards))}`}
+      </button>
     </div>
   );
 }

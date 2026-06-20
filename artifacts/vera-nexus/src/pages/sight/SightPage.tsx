@@ -4,12 +4,17 @@ import { CategoryPills } from './CategoryPills';
 import { NewsFeed } from './NewsFeed';
 import { WatchlistPanel } from './WatchlistPanel';
 import { ArticleDrawer } from './ArticleDrawer';
+import { StoryRail } from './StoryRail';
+import { StoryViewer } from './StoryViewer';
 import type { NewsArticle } from '../../lib/sight-data';
+import { useNewsArticles } from '../../lib/sight-data';
 
 export function SightPage() {
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null);
+  const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
+  const { data: allArticles = [] } = useNewsArticles(category === 'all' ? undefined : category);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -65,16 +70,29 @@ export function SightPage() {
 
         {/* Category pills */}
         <CategoryPills active={category} onChange={setCategory} />
+
+        {/* Story rail */}
+        <StoryRail
+          articles={allArticles}
+          onSelectStory={(index) => setSelectedStoryIndex(index)}
+          activeIndex={selectedStoryIndex ?? undefined}
+        />
       </div>
 
-      {/* Main scrollable area */}
+      {/* Main scrollable area — full width terminal layout */}
       <div className="flex-1 overflow-y-auto">
         <div
-          className="grid gap-[26px] px-[22px] py-[4px] pb-[60px] max-w-[1320px] mx-auto max-[980px]:grid-cols-1 max-[640px]:px-4"
-          style={{ gridTemplateColumns: '1fr 340px' }}
+          className="grid gap-[18px] px-[22px] py-[14px] pb-[60px] max-w-none mx-auto max-[980px]:grid-cols-1 max-[640px]:px-4"
+          style={{ gridTemplateColumns: '1fr 320px' }}
         >
           {/* Feed */}
-          <main>
+          <main className="min-w-0">
+            <div className="flex items-center justify-between mb-[10px]">
+              <h2 className="font-mono text-[11px] uppercase tracking-[1.4px] text-[var(--dim)]">
+                Live Newswire
+              </h2>
+              <span className="font-mono text-[10.5px] text-[var(--dim)]">Real-time · chronological</span>
+            </div>
             <NewsFeed category={category} onArticleClick={setOpenArticle} />
           </main>
 
@@ -131,6 +149,17 @@ export function SightPage() {
 
       {/* Article drawer */}
       <ArticleDrawer article={openArticle} onClose={() => setOpenArticle(null)} />
+
+      {/* Story Viewer modal */}
+      {selectedStoryIndex !== null && allArticles[selectedStoryIndex] && (
+        <StoryViewer
+          article={allArticles[selectedStoryIndex]}
+          onClose={() => setSelectedStoryIndex(null)}
+          allArticles={allArticles}
+          currentIndex={selectedStoryIndex}
+          onNavigate={(index) => setSelectedStoryIndex(index)}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useGetSignals } from '@workspace/api-client-react';
 
 export function RightSidebar() {
-  const { data: signals = [], isLoading } = useGetSignals();
+  const { data: rawSignals, isLoading } = useGetSignals();
+  const signals = Array.isArray(rawSignals) ? rawSignals : (rawSignals as any)?.data ?? [];
 
   return (
     <aside className="w-[220px] border-l border-[var(--border)] bg-[var(--surface)] p-4 flex flex-col shrink-0 overflow-y-auto">
