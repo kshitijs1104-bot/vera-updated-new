@@ -12,7 +12,10 @@ router.post("/ai/analyze", async (req, res) => {
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+    const groq = headerKey
+      ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
+      : await getGroqClient(sessionId);
 
     if (!groq) {
       return res.json(buildFallbackVenusResponse(body.data.message));
@@ -74,7 +77,10 @@ router.post("/ai/idea-review", async (req, res) => {
     if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+    const groq = headerKey
+      ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
+      : await getGroqClient(sessionId);
 
     if (!groq) {
       return res.json(buildFallbackVenusResponse(body.data.idea));

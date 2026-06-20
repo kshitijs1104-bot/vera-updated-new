@@ -47,7 +47,10 @@ router.post("/events/:id/ripple", async (req, res) => {
     if (!event) return res.status(404).json({ error: "Event not found" });
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+    const groq = headerKey
+      ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
+      : await getGroqClient(sessionId);
 
     if (!groq) {
       return res.json({ eventId: id, ...buildRippleFallback(event.title) });

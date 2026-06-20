@@ -19,6 +19,10 @@ function getSessionId(): string {
   }
   return id;
 }
-setDefaultHeaders({ "x-session-id": getSessionId() });
+const storedGroqKey = localStorage.getItem("ve_groq_key");
+setDefaultHeaders({
+  "x-session-id": getSessionId(),
+  ...(storedGroqKey ? { "x-groq-api-key": storedGroqKey } : {}),
+});
 
 createRoot(document.getElementById("root")!).render(<App />);

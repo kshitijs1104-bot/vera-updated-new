@@ -105,7 +105,10 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
     };
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
-    const groq = await getGroqClient(sessionId);
+    const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+    const groq = headerKey
+      ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
+      : await getGroqClient(sessionId);
 
     if (!groq) {
       return res.json({
