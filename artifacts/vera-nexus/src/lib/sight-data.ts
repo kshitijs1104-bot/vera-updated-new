@@ -6,18 +6,25 @@ export interface IndexTick {
   change: number;
 }
 
+export interface NewsSlide {
+  title: string;
+  body: string;
+}
+
 export interface NewsArticle {
   id: number;
   cat: string;
   tagLabel: string;
   hero?: boolean;
   title: string;
+  hook?: string; // One-line punchy hook for story rail
   blurb: string;
   img: string;
   source: string;
   time: string;
   body: string[];
   stats: { label: string; value: string }[];
+  slides?: NewsSlide[]; // 2-3 mini-sections for story viewer
 }
 
 export interface StockInfo {
@@ -44,6 +51,7 @@ const MOCK_ARTICLES: NewsArticle[] = [
   {
     id: 1, cat: 'markets', tagLabel: 'Markets', hero: true,
     title: 'Nifty slips below 24,050 as financials drag; midcaps buck the trend',
+    hook: 'Banks pull benchmark down; midcaps shine on retail bets',
     blurb: 'Banking and energy stocks weighed on the benchmark even as broader markets stayed resilient on domestic fund inflows.',
     img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=1200&auto=format&fit=crop',
     source: 'Market Desk', time: '18 min ago',
@@ -54,10 +62,16 @@ const MOCK_ARTICLES: NewsArticle[] = [
       'Sectorally, IT shed further ground on a stronger rupee, while metals found support on firmer global commodity prices.',
     ],
     stats: [{ label: 'Sentiment', value: 'Cautious' }, { label: 'Key driver', value: 'Bank Nifty' }, { label: 'FII flow', value: '-₹1,025 Cr' }],
+    slides: [
+      { title: 'The Selloff', body: 'FPIs trimmed positions in private banks, while energy stocks sold off on global concerns. Despite the headwind, domestic flows kept midcap indices resilient.' },
+      { title: 'Volatility Ahead', body: 'The India VIX spiked 18% as traders positioned ahead of the weekly expiry. Analysts expect elevated volatility next week as earnings season picks up.' },
+      { title: 'Sector Watch', body: 'IT down 1.9% on a stronger rupee. Metals held support on firmer global commodity prices. Capital goods saw continued retail demand.' },
+    ],
   },
   {
     id: 2, cat: 'macro', tagLabel: 'Macro',
     title: 'RBI likely to hold rates in August as inflation stays within band',
+    hook: 'Steady inflation gives RBI room to stay on pause',
     blurb: 'Economists expect the central bank to maintain its current stance given steady food price trends and a stable currency.',
     img: 'https://images.unsplash.com/photo-1518186285589-2f7649de83e0?q=80&w=800&auto=format&fit=crop',
     source: 'Macro Desk', time: '42 min ago',
@@ -67,10 +81,16 @@ const MOCK_ARTICLES: NewsArticle[] = [
       'Bond markets are pricing in a largely neutral outcome, with yields on the 10-year benchmark holding steady ahead of the announcement.',
     ],
     stats: [{ label: 'Expected move', value: 'No change' }, { label: 'Inflation trend', value: 'Easing' }, { label: '10Y yield', value: '7.02%' }],
+    slides: [
+      { title: 'Inflation Under Control', body: 'CPI has stayed within RBI\'s 4% target for three months. Food inflation eased sharply from peaks, while core inflation remains manageable despite rate cuts.' },
+      { title: 'Currency Stability', body: 'The rupee has traded in a narrow 82.5-83.2 range against the dollar, removing urgency for any defensive policy shift by the central bank.' },
+      { title: 'Forward Guidance', body: 'Bond markets expect a pause at the August meeting, with rate cuts more likely in Q4. 10Y yields holding at 7.02% signal confidence in the outlook.' },
+    ],
   },
   {
     id: 3, cat: 'earnings', tagLabel: 'Earnings',
     title: 'Mid-tier IT firm beats estimates on deal wins, guides cautiously for H2',
+    hook: 'Beat on revenue, but guide is cautious for back half',
     blurb: 'Management flagged continued softness in discretionary tech spend from US clients despite a strong order book.',
     img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=800&auto=format&fit=crop',
     source: 'Earnings Wire', time: '1 hr ago',
@@ -80,6 +100,11 @@ const MOCK_ARTICLES: NewsArticle[] = [
       'The stock saw volatile trade in the immediate aftermath of the print as investors weighed the strong order book against the softer guidance.',
     ],
     stats: [{ label: 'Revenue', value: 'Beat' }, { label: 'Margin', value: '+40 bps QoQ' }, { label: 'Guidance', value: 'Cautious' }],
+    slides: [
+      { title: 'Deal Wins Drive Beat', body: 'Revenue beat powered by large BFSI and healthcare deals. Order book expanded 22%, suggesting strong pipeline for H2 even amid near-term headwinds.' },
+      { title: 'Margin Expansion', body: 'Operating margins up 40 bps QoQ to 18.2%, driven by cost discipline and higher fixed-price contract mix. Offset some discretionary spend softness.' },
+      { title: 'Guidance: Cautious', body: 'Management flagged continued softness in US discretionary tech spend. H2 growth guide of 6-8% signals slower momentum heading into year-end.' },
+    ],
   },
   {
     id: 4, cat: 'global', tagLabel: 'Global',

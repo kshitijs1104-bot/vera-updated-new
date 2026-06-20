@@ -4,12 +4,17 @@ import { CategoryPills } from './CategoryPills';
 import { NewsFeed } from './NewsFeed';
 import { WatchlistPanel } from './WatchlistPanel';
 import { ArticleDrawer } from './ArticleDrawer';
+import { StoryRail } from './StoryRail';
+import { StoryViewer } from './StoryViewer';
 import type { NewsArticle } from '../../lib/sight-data';
+import { useNewsArticles } from '../../lib/sight-data';
 
 export function SightPage() {
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [openArticle, setOpenArticle] = useState<NewsArticle | null>(null);
+  const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
+  const { data: allArticles = [] } = useNewsArticles(category === 'all' ? undefined : category);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -65,6 +70,13 @@ export function SightPage() {
 
         {/* Category pills */}
         <CategoryPills active={category} onChange={setCategory} />
+
+        {/* Story rail */}
+        <StoryRail
+          articles={allArticles}
+          onSelectStory={(index) => setSelectedStoryIndex(index)}
+          activeIndex={selectedStoryIndex ?? undefined}
+        />
       </div>
 
       {/* Main scrollable area — full width terminal layout */}
@@ -137,6 +149,17 @@ export function SightPage() {
 
       {/* Article drawer */}
       <ArticleDrawer article={openArticle} onClose={() => setOpenArticle(null)} />
+
+      {/* Story Viewer modal */}
+      {selectedStoryIndex !== null && allArticles[selectedStoryIndex] && (
+        <StoryViewer
+          article={allArticles[selectedStoryIndex]}
+          onClose={() => setSelectedStoryIndex(null)}
+          allArticles={allArticles}
+          currentIndex={selectedStoryIndex}
+          onNavigate={(index) => setSelectedStoryIndex(index)}
+        />
+      )}
     </div>
   );
 }

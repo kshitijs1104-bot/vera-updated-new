@@ -9,6 +9,12 @@ interface ChatMessage {
   content: string;
 }
 
+interface DynamicStat {
+  key: string;
+  value: string;
+  label: string;
+}
+
 type CompanyState = 'Critical' | 'Deteriorating' | 'Stable' | 'Recovering' | 'Survived' | 'Collapsed';
 
 const STATE_COLORS: Record<string, string> = {
@@ -68,7 +74,7 @@ function CompanyStateBar({ state, attempt }: { state: CompanyState; attempt: num
   );
 }
 
-function CompanyContextPanel({ entry }: { entry: GraveyardEntry }) {
+function CompanyContextPanel({ entry, stats }: { entry: GraveyardEntry; stats: DynamicStat[] }) {
   return (
     <div className="w-96 shrink-0 border-r border-[var(--border)] flex flex-col overflow-y-auto bg-[var(--surface2)]/30">
       <div className="px-5 py-5 border-b border-[var(--border)]">
@@ -76,6 +82,20 @@ function CompanyContextPanel({ entry }: { entry: GraveyardEntry }) {
         <h3 className="text-base font-syne font-bold text-[var(--amber)] leading-tight">{entry.name}</h3>
         <div className="text-[11px] font-mono text-[var(--dim)] mt-0.5">{entry.yearRange}</div>
       </div>
+
+      {stats.length > 0 && (
+        <div className="px-5 py-4 border-b border-[var(--border)]">
+          <div className="text-[9px] font-mono text-[var(--mint)] uppercase tracking-widest mb-3">Current State</div>
+          <div className="space-y-2">
+            {stats.map((stat) => (
+              <div key={stat.key} className="flex items-baseline justify-between gap-2">
+                <span className="text-[9px] font-mono text-[var(--dim)] uppercase tracking-wider">{stat.label}</span>
+                <span className="text-sm font-mono text-[var(--text)] text-right">{stat.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="px-5 py-4 border-b border-[var(--border)] space-y-1">
         <div className="text-[9px] font-mono text-[var(--mint)] uppercase tracking-widest mb-2">The Product</div>
@@ -118,11 +138,12 @@ function CompanyContextPanel({ entry }: { entry: GraveyardEntry }) {
 function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [attempt, setAttempt] = useState(0);
   const [companyState, setCompanyState] = useState<CompanyState>('Critical');
+  const [attempt, setAttempt] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [briefingDone, setBriefingDone] = useState(false);
+  const [dynamicStats, setDynamicStats] = useState<DynamicStat[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -157,12 +178,40 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
     return raw;
   };
 
+  // Parse STATS line from AI response. Format: STATS|key1:val1|key2:val2|...
+  const parseStats = (text: string): DynamicStat[] => {
+    const match = text.match(/STATS\|([^\n]+)/);
+    if (!match) return [];
+    const pairs = match[1].split('|').map(p => p.trim()).filter(Boolean);
+    const labels: Record<string, string> = {
+      burn_rate_percent: 'Burn Rate',
+      runway_months: 'Runway',
+      cash_position: 'Cash Position',
+      customers: 'Customers',
+      churn_rate: 'Churn',
+      arr: 'ARR',
+      growth_rate: 'Growth',
+      key_metric: 'Key Metric',
+    };
+    return pairs
+      .map(p => {
+        const [key, value] = p.split(':').map(s => s.trim());
+        return { key, value, label: labels[key] || key.replace(/_/g, ' ').toUpperCase() };
+      })
+      .filter(s => s.key && s.value);
+  };
+
   useEffect(() => {
     chatMutation.mutate(
       { id: entry.id, data: { message: '', attempt: 0, history: [] } },
       {
         onSuccess: (data) => {
-          setMessages([{ role: 'assistant', content: cleanReply(data.reply) }]);
+          const cleaned = cleanReply(data.reply);
+          const stats = parseStats(cleaned);
+          setDynamicStats(stats);
+          // Strip STATS line from display
+          const displayContent = cleaned.replace(/\n?STATS\|[^\n]+/g, '').trim();
+          setMessages([{ role: 'assistant', content: displayContent }]);
           setCompanyState((data.companyState as CompanyState) || 'Critical');
           setBriefingDone(true);
           scrollToBottom();
@@ -194,7 +243,12 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
       },
       {
         onSuccess: (data) => {
-          setMessages((prev) => [...prev, { role: 'assistant', content: cleanReply(data.reply) }]);
+          const cleaned = cleanReply(data.reply);
+          const stats = parseStats(cleaned);
+          setDynamicStats(stats);
+          // Strip STATS line from display
+          const displayContent = cleaned.replace(/\n?STATS\|[^\n]+/g, '').trim();
+          setMessages((prev) => [...prev, { role: 'assistant', content: displayContent }]);
           setCompanyState((data.companyState as CompanyState) || 'Critical');
           setAttempt(nextAttempt);
           if (data.gameOver) {
@@ -237,7 +291,7 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
 
         {/* Body: context panel + chat */}
         <div className="flex flex-1 min-h-0">
-          <CompanyContextPanel entry={entry} />
+          <CompanyContextPanel entry={entry} stats={dynamicStats} />
 
           {/* Chat column */}
           <div className="flex flex-col flex-1 min-w-0">

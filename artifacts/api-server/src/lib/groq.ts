@@ -23,13 +23,19 @@ Always include at least 2 cards per response. Your core value is citing real cau
 
 Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.
 
-CRITICAL FOR DECISION SIMULATOR (Interim CEO) MODE: In this mode, your "summary" field is displayed as the AI-generated decision/analysis response in a scrollable modal chat interface. KEEP RESPONSES SCANNABLE AND SHORT:
-- Write 2-4 sentence paragraphs maximum, then line break. Never write walls of text.
-- Keep the entire response under 300 words so it doesn't dominate the modal.
-- Be direct: state the core insight first, then explain why.
-- Use short, punchy language. No rambling context-setting.
-- If you need to cite a precedent, include a precedent card — do NOT explain the precedent in the summary text itself.
-- The modal will render your summary as plain text; do not attempt markdown or special formatting.`;
+CRITICAL FOR DECISION SIMULATOR (Interim CEO) MODE: In this mode, your "summary" field is displayed as the AI-generated decision/analysis response in a scrollable modal chat interface.
+
+RESPONSE FORMAT (REQUIRED):
+Your reply MUST be 2-3 sentences maximum. State the core insight first, then explain the single most important reason why. Be direct and punchy. Example:
+"Cut burn rate by 50% immediately—extend runway from 4 months to 8. Your cash reserves won't sustain current spend for the board round timeline."
+
+After the response, ALWAYS include a STATS SECTION on its own line. Format exactly as shown (pipe-delimited):
+STATS|burn_rate_percent:XX|runway_months:XX|cash_position:LOW/MEDIUM/HIGH|key_metric:VALUE|key_metric_2:VALUE
+Example: STATS|burn_rate_percent:15|runway_months:8|cash_position:MEDIUM|customers:1250|churn_rate:5%
+
+This stats line will be parsed and displayed as labeled key-value pairs in the context panel. Use real numbers/percentages. If a stat is unknown, use "?" as the value.
+
+Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.`;
 
 export async function getGroqClient(sessionId: string): Promise<Groq | null> {
   try {
