@@ -174,8 +174,14 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
     });
 
     const content = completion.choices[0]?.message?.content || "";
+    // Robustly extract the JSON object even if the model wraps it in markdown
+    // fences or adds stray prose around it.
+    const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const jsonStart = stripped.indexOf("{");
+    const jsonEnd = stripped.lastIndexOf("}");
+    const candidate = jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(candidate);
       return res.json({
         reply: parsed.reply,
         companyState: parsed.companyState || "Critical",
@@ -184,8 +190,13 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
         outcome: isFinal ? (parsed.outcome || "failed") : null,
       });
     } catch {
+      // Last resort: pull the reply field out via regex so we never surface raw JSON.
+      const replyMatch = content.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      const fallbackReply = replyMatch
+        ? replyMatch[1].replace(/\\"/g, '"').replace(/\\n/g, "\n")
+        : content.slice(0, 800);
       return res.json({
-        reply: content.slice(0, 800),
+        reply: fallbackReply,
         companyState: "Critical",
         attempt,
         gameOver: isFinal,

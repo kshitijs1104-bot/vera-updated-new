@@ -134,12 +134,35 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
     }, 50);
   };
 
+  // Defensive: if the backend ever returns the model's raw JSON (or a fenced
+  // code block) as the reply, extract the human-readable `reply` field so the
+  // war room never shows raw `"reply": "..."` text.
+  const cleanReply = (raw: string): string => {
+    if (!raw || typeof raw !== 'string') return raw;
+    let s = raw.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    if (s.startsWith('{') || s.includes('"reply"')) {
+      const start = s.indexOf('{');
+      const end = s.lastIndexOf('}');
+      if (start !== -1 && end > start) {
+        try {
+          const obj = JSON.parse(s.slice(start, end + 1));
+          if (obj && typeof obj.reply === 'string') return obj.reply;
+        } catch {
+          /* fall through to regex */
+        }
+      }
+      const m = s.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (m) return m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+    }
+    return raw;
+  };
+
   useEffect(() => {
     chatMutation.mutate(
       { id: entry.id, data: { message: '', attempt: 0, history: [] } },
       {
         onSuccess: (data) => {
-          setMessages([{ role: 'assistant', content: data.reply }]);
+          setMessages([{ role: 'assistant', content: cleanReply(data.reply) }]);
           setCompanyState((data.companyState as CompanyState) || 'Critical');
           setBriefingDone(true);
           scrollToBottom();
@@ -171,7 +194,7 @@ function AutopsyChatModal({ entry, onClose }: { entry: GraveyardEntry; onClose: 
       },
       {
         onSuccess: (data) => {
-          setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+          setMessages((prev) => [...prev, { role: 'assistant', content: cleanReply(data.reply) }]);
           setCompanyState((data.companyState as CompanyState) || 'Critical');
           setAttempt(nextAttempt);
           if (data.gameOver) {

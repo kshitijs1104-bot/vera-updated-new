@@ -67,14 +67,20 @@ export function SightPage() {
         <CategoryPills active={category} onChange={setCategory} />
       </div>
 
-      {/* Main scrollable area */}
+      {/* Main scrollable area — full width terminal layout */}
       <div className="flex-1 overflow-y-auto">
         <div
-          className="grid gap-[26px] px-[22px] py-[4px] pb-[60px] max-w-[1320px] mx-auto max-[980px]:grid-cols-1 max-[640px]:px-4"
-          style={{ gridTemplateColumns: '1fr 340px' }}
+          className="grid gap-[18px] px-[22px] py-[14px] pb-[60px] max-w-none mx-auto max-[980px]:grid-cols-1 max-[640px]:px-4"
+          style={{ gridTemplateColumns: '1fr 320px' }}
         >
           {/* Feed */}
-          <main>
+          <main className="min-w-0">
+            <div className="flex items-center justify-between mb-[10px]">
+              <h2 className="font-mono text-[11px] uppercase tracking-[1.4px] text-[var(--dim)]">
+                Live Newswire
+              </h2>
+              <span className="font-mono text-[10.5px] text-[var(--dim)]">Real-time · chronological</span>
+            </div>
             <NewsFeed category={category} onArticleClick={setOpenArticle} />
           </main>
 

@@ -3,12 +3,14 @@ import App from "./App";
 import "./index.css";
 import { setDefaultHeaders, setBaseUrl } from "@workspace/api-client-react";
 
-// Point all /api/* calls at the Replit backend when VITE_API_BASE_URL is set,
-// otherwise fall back to relative /api paths (useful for local dev with a proxy).
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
-if (apiBaseUrl) {
-  setBaseUrl(apiBaseUrl.replace(/\/+$/, ""));
-}
+// Point all /api/* calls at the Replit backend. Prefer the build-time env var,
+// but fall back to the known production URL so the app works even when the env
+// var isn't picked up by the build. This runs synchronously before React
+// renders below, so the base URL is always set before any API hook fires.
+const DEFAULT_API_BASE_URL = "https://vera-nexus-rebuild--kshitijaurelian.replit.app";
+const apiBaseUrl =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) || DEFAULT_API_BASE_URL;
+setBaseUrl(apiBaseUrl.replace(/\/+$/, ""));
 
 // Persistent session ID for all API calls (matches backend settings row lookup)
 function getSessionId(): string {
