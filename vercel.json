@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm --filter @workspace/vera-nexus build",
+  "outputDirectory": "artifacts/vera-nexus/dist/public",
+  "installCommand": "pnpm install"
+}
