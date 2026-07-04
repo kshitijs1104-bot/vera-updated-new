@@ -3,6 +3,7 @@ import { db, companiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { ListCompaniesQueryParams } from "@workspace/api-zod";
 import { getGroqClient, buildAutopsyFallback } from "../lib/groq";
+import { retrievePrecedents, formatPrecedentsForPrompt } from "../lib/retrieval";
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
     }
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [
         {
           role: "system",
@@ -123,12 +124,31 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
     const isOpening = attempt === 0 && (!history || history.length === 0);
     const isFinal = attempt >= 5;
 
+    const retrievalQuery = `${company.name} ${company.description} ${company.failureReason || ""} ${company.tags.join(" ")} ${message}`;
+    const retrieval = await retrievePrecedents(retrievalQuery);
+
+    if (!retrieval.matched) {
+      return res.json({
+        reply: `Insufficient verified precedent data to run a grounded Interim CEO simulation for ${company.name} (${company.category}) — our precedent dataset only has ${retrieval.sectorCoverageCount} verified record(s) in this sector, below the confidence threshold needed to simulate realistic causal consequences. Venus AI will not invent unverified market dynamics to fill this gap.`,
+        companyState: "Unknown",
+        attempt,
+        gameOver: true,
+        outcome: "insufficient_data",
+        retrievalGated: true,
+        matchConfidence: retrieval.confidence,
+      });
+    }
+
+    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}) — these are the ONLY companies/outcomes you may reference to ground consequences. Do not invent or recall other companies, numbers, or market dynamics beyond what is stated here or in the Background/Known failure reason above:\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
+
     const systemPrompt = `You are simulating ${company.name} (${company.yearRange}) at the moment of its critical failure. The user is playing as the newly appointed Interim CEO who has just taken the helm in a crisis.
 
 Background: ${company.description}
 Known failure reason: ${company.failureReason || "Multiple compounding factors"}
 
-You are the company simulator. You respond to the CEO's decisions with realistic, historically-grounded consequences. Be brutally honest — most decisions have both positive effects and dangerous trade-offs. Reference real competitors, market dynamics, and specific numbers wherever possible.
+${precedentBlock}
+
+You are the company simulator. You respond to the CEO's decisions with realistic, historically-grounded consequences, grounded ONLY in the Background/Known failure reason above and the VERIFIED PRECEDENTS block. Be brutally honest — most decisions have both positive effects and dangerous trade-offs. You may reference the verified precedent companies above by name; do NOT invent other real company names, statistics, or market events not present in the given context.
 
 The CEO has exactly 5 attempts to save the company. Track momentum: early good decisions compound, bad decisions accelerate collapse.
 
@@ -167,7 +187,7 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
     }
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages,
       temperature: 0.6,
       max_tokens: 400,

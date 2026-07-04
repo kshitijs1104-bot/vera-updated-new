@@ -1,0 +1,1214 @@
+[
+  {
+    "name": "Domo",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "13 (2010-2023)",
+    "what_they_did": "Business intelligence dashboards",
+    "how_much_raised": "$690M",
+    "why_they_failed": "Scaled back 2023; lost to Tableau; Power BI; high costs",
+    "takeaway": "Big bets need wins",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "483687225",
+      "category_list": "Business Intelligence|Enterprise Software|SaaS|Web Development",
+      "founded_at": "2010-10-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Gigya",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2006-2018)",
+    "what_they_did": "Social login identity tools",
+    "how_much_raised": "$104.6M",
+    "why_they_failed": "Ended 2018; SAP acquisition; lost to Google login",
+    "takeaway": "Regs and giants choke",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "105800000",
+      "category_list": "Enterprise Software|Identity Management",
+      "founded_at": "2006-06-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Intercom",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2011-2023)",
+    "what_they_did": "Customer messaging platform",
+    "how_much_raised": "$240.8M",
+    "why_they_failed": "Startup phase \"shut down\" 2023; lost to Zendesk",
+    "takeaway": "Giants catch up",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "65750000",
+      "category_list": "Software",
+      "founded_at": "2011-08-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Huddle",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2006-2018)",
+    "what_they_did": "Cloud collaboration for teams",
+    "how_much_raised": "$89.2M",
+    "why_they_failed": "Faded 2018; lost to Slack; Teams; sold off",
+    "takeaway": "Ecosystems win",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "89200000",
+      "category_list": "Collaboration|Document Management|Enterprise Software|Internet|Project Management|Web Development",
+      "founded_at": "2006-11-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Invision",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2011-2023)",
+    "what_they_did": "Design collaboration platform",
+    "how_much_raised": "$350M",
+    "why_they_failed": "Scaled back 2023; lost to Figma; Adobe",
+    "takeaway": "Better beats big",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "44616400",
+      "category_list": "Software",
+      "founded_at": "1993-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Twilio SendGrid",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "8 (2015-2023)",
+    "what_they_did": "Email API service",
+    "how_much_raised": "$80.9M (SendGrid)",
+    "why_they_failed": "Startup phase \"shut down\" 2023; lost to Mailchimp",
+    "takeaway": "Giants crowd out",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Workable",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "10 (2012-2022)",
+    "what_they_did": "HR hiring software",
+    "how_much_raised": "$84M",
+    "why_they_failed": "Startup phase \"shut down\" 2022; lost to Lever",
+    "takeaway": "Scale or stall",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "34450000",
+      "category_list": "Human Resources|Recruiting|Software",
+      "founded_at": "2012-07-12",
+      "country_code": "GBR"
+    }
+  },
+  {
+    "name": "Piston Cloud",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "6 (2011-2017)",
+    "what_they_did": "OpenStack cloud software",
+    "how_much_raised": "$12.5M",
+    "why_they_failed": "Sold 2017; lost to AWS; OpenStack free",
+    "takeaway": "Free kills premium",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Refresh",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "5 (2011-2016)",
+    "what_they_did": "Social CRM app",
+    "how_much_raised": "$10M",
+    "why_they_failed": "Acquired 2015; \"closed\" 2016; lost to LinkedIn",
+    "takeaway": "Big fish eat ideas",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Trello Gold",
+    "target_sector": "SaaS/Enterprise Software",
+    "source_sector_label": "Information",
+    "years_of_operation": "5 (2017-2022)",
+    "what_they_did": "Premium project management",
+    "how_much_raised": "$10M (Trello)",
+    "why_they_failed": "Phased out 2022; free sufficed",
+    "takeaway": "Free trumps upsell",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "LendUp",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2012-2021",
+    "what_they_did": "Loans for subprime borrowers",
+    "how_much_raised": "$350M",
+    "why_they_failed": "Regulatory fines and OppLoans competition",
+    "takeaway": "Fintech can\u2019t skirt regs",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "64000000",
+      "category_list": "Finance|FinTech",
+      "founded_at": "2011-11-21",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Circle",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2013-2023",
+    "what_they_did": "Crypto payments and stablecoin",
+    "how_much_raised": "$500M",
+    "why_they_failed": "Lost to Coinbase and market shifts",
+    "takeaway": "Crypto needs stability",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "-",
+      "category_list": "Health Care|Hospitals|Medical|Services",
+      "founded_at": "",
+      "country_code": "GBR"
+    }
+  },
+  {
+    "name": "Simple",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2009-2016",
+    "what_they_did": "Neobank with budgeting",
+    "how_much_raised": "$25M",
+    "why_they_failed": "Lost to Chime/Ally and shut post-BBVA sale",
+    "takeaway": "Neobanks need independence",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "15290000",
+      "category_list": "Banking|Enterprise Software|Finance",
+      "founded_at": "2009-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Isentium",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2012-2020",
+    "what_they_did": "Social sentiment for trading",
+    "how_much_raised": "$15M",
+    "why_they_failed": "Lost to Bloomberg and low uptake",
+    "takeaway": "Trading tools need traction",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Clarity Money",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2016-2022",
+    "what_they_did": "Personal finance app",
+    "how_much_raised": "$11M",
+    "why_they_failed": "Lost to Mint/Acorns and sold to Goldman",
+    "takeaway": "Finance apps need edge",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Monitor110",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2005-2008",
+    "what_they_did": "Financial data aggregator",
+    "how_much_raised": "$3M (est.)",
+    "why_they_failed": "Lost to Bloomberg and early market",
+    "takeaway": "Timing is key",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "16000000",
+      "category_list": "Curated Web",
+      "founded_at": "",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Avant",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2012-2023",
+    "what_they_did": "Online personal loans",
+    "how_much_raised": "$655M",
+    "why_they_failed": "Lost to LendingClub and high defaults",
+    "takeaway": "Lending needs risk balance",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "1729000000",
+      "category_list": "Analytics|Big Data|FinTech|Machine Learning|Web Development",
+      "founded_at": "2012-11-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Pawngo",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2011-2017",
+    "what_they_did": "Online pawn lending",
+    "how_much_raised": "$6M",
+    "why_they_failed": "Lost to traditional pawnshops and niche",
+    "takeaway": "Niche lending needs demand",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "2300000",
+      "category_list": "Finance",
+      "founded_at": "2011-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "SmartAsset",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2012-2023",
+    "what_they_did": "Financial planning tools",
+    "how_much_raised": "$161M",
+    "why_they_failed": "Lost to NerdWallet and slow growth",
+    "takeaway": "Planning needs traction",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "7600000",
+      "category_list": "Finance|Sales and Marketing",
+      "founded_at": "2012-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Cake Financial",
+    "target_sector": "Fintech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2006-2011",
+    "what_they_did": "Portfolio tracking tool",
+    "how_much_raised": "$3M",
+    "why_they_failed": "Lost to Mint and sold to TradeKing",
+    "takeaway": "Finance tools need scale",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "-",
+      "category_list": "Finance|FinTech",
+      "founded_at": "2006-04-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Amino",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2013-2021",
+    "what_they_did": "Doctor search and cost estimation",
+    "how_much_raised": "$45M",
+    "why_they_failed": "Lost to Zocdoc/GoodRx and slow adoption",
+    "takeaway": "Narrow focus beats broad",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "26400000",
+      "category_list": "Health Care|Healthcare Services",
+      "founded_at": "2013-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Aira Health",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2015-2019",
+    "what_they_did": "Personalized asthma/allergy app",
+    "how_much_raised": "$12M",
+    "why_they_failed": "Small user base and cash shortage",
+    "takeaway": "Niche apps need big audiences",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Avizia",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2014-2018",
+    "what_they_did": "Telemedicine for hospitals",
+    "how_much_raised": "$32M",
+    "why_they_failed": "Outpaced by bigger rivals and acquired",
+    "takeaway": "Niche needs a moat",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "5744992",
+      "category_list": "Communications Infrastructure|Health and Wellness|Health Care|Health Care Information Technology|Healthcare Services|Health Diagnostics|mHealth|Mobile Emergency&Health|Mobile Health|Telecommunications",
+      "founded_at": "2013-04-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Better",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2016-2023",
+    "what_they_did": "Mental health for employees",
+    "how_much_raised": "$4.5M",
+    "why_they_failed": "Crowded market and no differentiation",
+    "takeaway": "Unique value is critical",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "10000000",
+      "category_list": "Education|Enterprises|Enterprise Software|Training",
+      "founded_at": "2012-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "BioBeats",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2014-2020",
+    "what_they_did": "Stress monitoring wearable",
+    "how_much_raised": "$7M",
+    "why_they_failed": "Lost to bigger players and acquired",
+    "takeaway": "Standout use case needed",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "650000",
+      "category_list": "Health and Wellness|Machine Learning",
+      "founded_at": "2012-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Cardiogram",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2016-2021",
+    "what_they_did": "Heart rate analysis app",
+    "how_much_raised": "$2M",
+    "why_they_failed": "Monetization and differentiation woes",
+    "takeaway": "Validation is key",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Augmedix",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2012-2024",
+    "what_they_did": "Remote medical scribes",
+    "how_much_raised": "$150M",
+    "why_they_failed": "Lost to software rivals and acquired",
+    "takeaway": "Flexibility beats rigidity",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "23000000",
+      "category_list": "Health and Wellness|Health Care|Hospitals|Medical",
+      "founded_at": "2012-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Outset Medical",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2010-2015",
+    "what_they_did": "Portable dialysis (early)",
+    "how_much_raised": "$200M",
+    "why_they_failed": "Production snags and competition",
+    "takeaway": "Flawless execution needed",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "151000000",
+      "category_list": "Medical Devices",
+      "founded_at": "",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Call9",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2015-2019",
+    "what_they_did": "Telemedicine for nursing homes",
+    "how_much_raised": "$34M",
+    "why_they_failed": "Slow growth and high costs",
+    "takeaway": "Execution must scale",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "CareSync",
+    "target_sector": "Healthtech",
+    "source_sector_label": "Health Care",
+    "years_of_operation": "2011-2018",
+    "what_they_did": "Care coordination platform",
+    "how_much_raised": "$48M",
+    "why_they_failed": "No payer contracts and revenue",
+    "takeaway": "Need payer buy-in",
+    "source_file": "Startup Failure (Health Care).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "23000000",
+      "category_list": "Curated Web|Health and Wellness|Health Care Information Technology|Healthcare Services|mHealth",
+      "founded_at": "2011-10-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Faraday Future",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2014-2023",
+    "what_they_did": "Luxury electric vehicles",
+    "how_much_raised": "$3.5B",
+    "why_they_failed": "Mismanagement and Tesla/Rivian competition",
+    "takeaway": "EV hype needs execution",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Anki",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2010-2019",
+    "what_they_did": "AI-powered toy robots",
+    "how_much_raised": "$200M",
+    "why_they_failed": "High costs and competition from Lego/Sphero",
+    "takeaway": "Consumer hardware needs mass pricing",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "105000000",
+      "category_list": "Artificial Intelligence|Cars|Consumer Electronics|Entertainment|Games|Hardware + Software|Robotics",
+      "founded_at": "2010-01-05",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Quanergy",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2012-2022",
+    "what_they_did": "LiDAR for autonomous vehicles",
+    "how_much_raised": "$160M",
+    "why_they_failed": "Lost to Velodyne/Luminar and delays",
+    "takeaway": "LiDAR needs booming market",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Skully Helmets",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2013-2016",
+    "what_they_did": "AR motorcycle helmets",
+    "how_much_raised": "$15M",
+    "why_they_failed": "Mismanagement and no product vs Nolan/Shoei",
+    "takeaway": "AR needs execution",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Airware",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2011-2018",
+    "what_they_did": "Drone hardware/software for industry",
+    "how_much_raised": "$70M",
+    "why_they_failed": "Lost to DJI and high costs",
+    "takeaway": "Drones need simplicity",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "40420000",
+      "category_list": "Aerospace|Drones|Enterprise Software|Robotics",
+      "founded_at": "2011-05-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Aptera Motors",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2005-2011",
+    "what_they_did": "Three-wheeled electric vehicles",
+    "how_much_raised": "$40M",
+    "why_they_failed": "Lost to Tesla and quirky design",
+    "takeaway": "EVs need mainstream appeal",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Better Place",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2007-2013",
+    "what_they_did": "EVs with swappable batteries",
+    "how_much_raised": "$850M",
+    "why_they_failed": "Lost to Tesla and high infra costs",
+    "takeaway": "Infra needs buy-in",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "925000000",
+      "category_list": "Clean Technology",
+      "founded_at": "2007-10-29",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Butterfly Network",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2011-2020",
+    "what_they_did": "Handheld ultrasound device",
+    "how_much_raised": "$400M",
+    "why_they_failed": "Lost to GE/Philips and slow adoption",
+    "takeaway": "Medical hardware needs fast inroads",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "100000000",
+      "category_list": "Software",
+      "founded_at": "2011-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Aria Insights",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2008-2019",
+    "what_they_did": "Tethered industrial drones",
+    "how_much_raised": "$39M",
+    "why_they_failed": "Small market and lost to DJI/Skydio",
+    "takeaway": "Hardware niches need big adopters",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Fisker Automotive",
+    "target_sector": "Consumer Hardware",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2007-2013",
+    "what_they_did": "Luxury hybrid-electric cars",
+    "how_much_raised": "$1.4B",
+    "why_they_failed": "Lost to Tesla and supplier failure",
+    "takeaway": "Luxury EVs need reliability",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "1471000000",
+      "category_list": "Automotive|Clean Technology",
+      "founded_at": "2008-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Auctionata",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "6 (2012-2018)",
+    "what_they_did": "Online auction house for art and luxury",
+    "how_much_raised": "$95M",
+    "why_they_failed": "Shut down 2018; high costs; lost to eBay; valuation scandal",
+    "takeaway": "Trust and economics matter",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "95648700",
+      "category_list": "Auctions|E-Commerce",
+      "founded_at": "2012-02-01",
+      "country_code": "DEU"
+    }
+  },
+  {
+    "name": "Ecomom",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "4 (2009-2013)",
+    "what_they_did": "Eco-friendly baby products e-commerce",
+    "how_much_raised": "$12M",
+    "why_they_failed": "Shut down 2013; mismanagement; lost to Amazon",
+    "takeaway": "Execution beats ethos",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "10700000",
+      "category_list": "E-Commerce|Green|Organic",
+      "founded_at": "2008-08-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Kozmo.com",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "4 (1998-2002)",
+    "what_they_did": "Urban free delivery service",
+    "how_much_raised": "$110M",
+    "why_they_failed": "Closed 2002; free delivery killed margins; dot-com bust",
+    "takeaway": "Free's a trap",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Ahalife",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "7 (2010-2017)",
+    "what_they_did": "Curated luxury goods marketplace",
+    "how_much_raised": "$20M",
+    "why_they_failed": "Closed 2017; high marketing costs; lost to Amazon",
+    "takeaway": "Niche doesn't defend",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Catelyn",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "3 (2015-2018)",
+    "what_they_did": "Subscription jewelry rental service",
+    "how_much_raised": "$2M",
+    "why_they_failed": "Shut down 2018; low demand; lost to Stitch Fix",
+    "takeaway": "Niche needs traction",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Augury Books",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "5 (2012-2017)",
+    "what_they_did": "Indie e-commerce bookstore for poetry",
+    "how_much_raised": "$0.5M",
+    "why_they_failed": "Closed 2017; couldn't scale; lost to Amazon",
+    "takeaway": "Niche retail bleeds",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "BurstIQ",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "7 (2015-2022)",
+    "what_they_did": "Blockchain health data marketplace",
+    "how_much_raised": "$5.8M",
+    "why_they_failed": "Faded 2022; low adoption; lost to data brokers",
+    "takeaway": "Tech alone doesn't sell",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "250000",
+      "category_list": "Software",
+      "founded_at": "2015-01-01",
+      "country_code": ""
+    }
+  },
+  {
+    "name": "Crate",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "4 (2014-2018)",
+    "what_they_did": "Online furniture rental service",
+    "how_much_raised": "$4M",
+    "why_they_failed": "Shut down 2018; soft demand; high logistics costs",
+    "takeaway": "Niche needs a hook",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "AllRomance",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "10 (2006-2016)",
+    "what_they_did": "E-book retailer for romance novels",
+    "how_much_raised": "$1M",
+    "why_they_failed": "Closed 2016; financial losses; lost to Kindle",
+    "takeaway": "Adapt or die",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Havenly",
+    "target_sector": "E-commerce/Retail",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "9 (2014-2023)",
+    "what_they_did": "Online interior design service",
+    "how_much_raised": "$85M",
+    "why_they_failed": "Startup phase \"shut down\" 2023; lost to Wayfair",
+    "takeaway": "Scale beats service",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "7520000",
+      "category_list": "Curated Web|Design|Services",
+      "founded_at": "2014-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Ask Jeeves",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "11 (1996-2007)",
+    "what_they_did": "Early search engine with butler mascot",
+    "how_much_raised": "$20M",
+    "why_they_failed": "Faded by 2007; lost to Google's algorithm and ad model; sold off",
+    "takeaway": "Innovation isn't enough",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Jetpac",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "5 (2011-2016)",
+    "what_they_did": "AI travel recommendation app",
+    "how_much_raised": "$4.4M",
+    "why_they_failed": "Closed 2016; Google bought; couldn't scale solo",
+    "takeaway": "Small can sell",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "2400000",
+      "category_list": "Travel",
+      "founded_at": "",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Notion AI",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "5 (2018-2023)",
+    "what_they_did": "AI productivity feature",
+    "how_much_raised": "$343M (Notion)",
+    "why_they_failed": "Phased out 2023; didn't stand out",
+    "takeaway": "Features need identity",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Zume",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "7 (2015-2022)",
+    "what_they_did": "Predictive pizza analytics",
+    "how_much_raised": "$375M",
+    "why_they_failed": "Shut down 2022; robots flopped",
+    "takeaway": "Tech needs results",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Quid",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2008-2020)",
+    "what_they_did": "AI trend analytics",
+    "how_much_raised": "$79M",
+    "why_they_failed": "Merged 2020; lost to Google Trends",
+    "takeaway": "Differentiation's key",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "66500000",
+      "category_list": "Big Data Analytics|SaaS|Software",
+      "founded_at": "2010-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Spoke",
+    "target_sector": "AI/ML",
+    "source_sector_label": "Information",
+    "years_of_operation": "6 (2015-2021)",
+    "what_they_did": "AI workplace chatbot",
+    "how_much_raised": "$28M",
+    "why_they_failed": "Closed 2021; lost to Slack bots",
+    "takeaway": "Giants gobble niches",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "25100000",
+      "category_list": "Contact Management|CRM|Crowdsourcing|Email|Human Resources|Networking|Sales and Marketing|Software|Task Management",
+      "founded_at": "2002-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Beepi",
+    "target_sector": "Mobility/Transportation",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "4 (2013-2017)",
+    "what_they_did": "Peer-to-peer used car marketplace",
+    "how_much_raised": "$150M",
+    "why_they_failed": "Shut down 2017; high shipping costs; cash burned out",
+    "takeaway": "Costs can kill",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "78950000",
+      "category_list": "Automotive|E-Commerce",
+      "founded_at": "2013-04-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Carwoo",
+    "target_sector": "Mobility/Transportation",
+    "source_sector_label": "Retail Trade",
+    "years_of_operation": "6 (2009-2015)",
+    "what_they_did": "Online car-buying platform",
+    "how_much_raised": "$15M",
+    "why_they_failed": "Closed 2015; dealers resisted; cash ran dry",
+    "takeaway": "Resistance stalls disruption",
+    "source_file": "Startup Failure (Retail Trade).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Elio Motors",
+    "target_sector": "Mobility/Transportation",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2009-2020",
+    "what_they_did": "Cheap three-wheeled car",
+    "how_much_raised": "$30M",
+    "why_they_failed": "Lost to Toyota/Honda and delays",
+    "takeaway": "Cheap cars need delivery",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "25000000",
+      "category_list": "Translation",
+      "founded_at": "2012-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Pearl Automation",
+    "target_sector": "Mobility/Transportation",
+    "source_sector_label": "Manufacturing",
+    "years_of_operation": "2014-2017",
+    "what_they_did": "Car rearview cameras",
+    "how_much_raised": "$50M",
+    "why_they_failed": "Lost to Tesla/Ford built-ins",
+    "takeaway": "Auto tech must beat OEMs",
+    "source_file": "Startup Failure (Manufactures).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Munchery",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "8 (2010-2018)",
+    "what_they_did": "Chef-prepared meal delivery",
+    "how_much_raised": "$125M",
+    "why_they_failed": "Bankruptcy 2018; overexpansion; lost to Grubhub",
+    "takeaway": "Expansion eats cash",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "117200000",
+      "category_list": "Hospitality",
+      "founded_at": "2011-04-01",
+      "country_code": ""
+    }
+  },
+  {
+    "name": "Curb Food",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "4 (2019-2023)",
+    "what_they_did": "Automated ghost kitchens",
+    "how_much_raised": "$10M",
+    "why_they_failed": "Closed 2023; tech glitches; lost to DoorDash",
+    "takeaway": "Robots need results",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Presto",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "5 (2015-2020)",
+    "what_they_did": "Restaurant ordering tablets",
+    "how_much_raised": "$30M",
+    "why_they_failed": "Closed 2020; low adoption; lost to Ziosk",
+    "takeaway": "Tech needs diners",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "SpoonRocket",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "4 (2013-2017)",
+    "what_they_did": "On-demand meal delivery",
+    "how_much_raised": "$13M",
+    "why_they_failed": "Closed 2017; thin margins; lost to DoorDash",
+    "takeaway": "Speed costs too much",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "13500000",
+      "category_list": "Delivery|Hospitality",
+      "founded_at": "2013-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Cafe X",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "6 (2015-2021)",
+    "what_they_did": "Robotic coffee kiosks",
+    "how_much_raised": "$15M",
+    "why_they_failed": "Closed 2021; low adoption; lost to Starbucks",
+    "takeaway": "Humans trump robots",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Clover",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "8 (2012-2020)",
+    "what_they_did": "Plant-based fast food chain",
+    "how_much_raised": "$20M",
+    "why_they_failed": "Closed 2020; niche; lost to McDonald's",
+    "takeaway": "Niche eats need taste",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "8800000",
+      "category_list": "Mobile|Open Source|Payments|SaaS",
+      "founded_at": "2010-10-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Caviar",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "8 (2012-2020)",
+    "what_they_did": "Premium food delivery",
+    "how_much_raised": "$90M",
+    "why_they_failed": "Sold 2020; couldn't scale; lost to DoorDash",
+    "takeaway": "Premium loses to scale",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": {
+      "status": "acquired",
+      "funding_total_usd": "15000000",
+      "category_list": "Curated Web|Delivery|Hospitality",
+      "founded_at": "2012-07-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Nosh",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "4 (2013-2017)",
+    "what_they_did": "Healthy meal delivery",
+    "how_much_raised": "$5M",
+    "why_they_failed": "Closed 2017; low demand; lost to HelloFresh",
+    "takeaway": "Health needs scale",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Sprig",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "4 (2013-2017)",
+    "what_they_did": "Organic meal delivery",
+    "how_much_raised": "$57M",
+    "why_they_failed": "Closed 2017; high costs; lost to Uber Eats",
+    "takeaway": "Organic's pricey",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "56700000",
+      "category_list": "Delivery|Hospitality",
+      "founded_at": "2013-04-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Flowtab",
+    "target_sector": "Foodtech",
+    "source_sector_label": "Accommodation and Food Services",
+    "years_of_operation": "3 (2011-2014)",
+    "what_they_did": "Bar ordering app",
+    "how_much_raised": "$2M",
+    "why_they_failed": "Closed 2014; low adoption; lost to POS systems",
+    "takeaway": "Convenience needs converts",
+    "source_file": "Startup Failure (Food and services).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Airy Labs",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "2 (2010-2012)",
+    "what_they_did": "Educational mobile games for kids",
+    "how_much_raised": "$1.5M",
+    "why_they_failed": "Shut down in 2012 after chaotic sprint; too many games; no focus; cash ran out",
+    "takeaway": "Focus beats frenzy",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "1500000",
+      "category_list": "EdTech|Education|Games|Gamification|MMO Games|Social Media",
+      "founded_at": "2011-04-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Codeacademy",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "11 (2011-2022)",
+    "what_they_did": "Online coding lessons",
+    "how_much_raised": "$42.5M",
+    "why_they_failed": "Acquired 2021; \"closed\" 2022; free tiers didn't convert; lost to Coursera",
+    "takeaway": "Freemium's a gamble",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Top Hat",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "13 (2009-2022)",
+    "what_they_did": "Classroom engagement tools",
+    "how_much_raised": "$130.7M",
+    "why_they_failed": "Startup phase \"shut down\" 2022; lost to Google Classroom",
+    "takeaway": "Niche edtech ceilings",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Knewton",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "12 (2008-2020)",
+    "what_they_did": "Adaptive learning platform",
+    "how_much_raised": "$182.3M",
+    "why_they_failed": "Sold 2020; overhyped AI; lost to Pearson",
+    "takeaway": "Prove the pudding",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "147250017",
+      "category_list": "Colleges|EdTech|Education|K-12 Education|Machine Learning|Personalization",
+      "founded_at": "2008-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Zuuka",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "8 (2009-2017)",
+    "what_they_did": "Digital kids' storytelling",
+    "how_much_raised": "$2.5M",
+    "why_they_failed": "Shut down 2017; lost to Epic!",
+    "takeaway": "Kids' tech brutal",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Treehouse",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "11 (2011-2022)",
+    "what_they_did": "Online coding school",
+    "how_much_raised": "$24.6M",
+    "why_they_failed": "Sold 2022; lost to free resources",
+    "takeaway": "Free eats paid",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "12350000",
+      "category_list": "Android|EdTech|Education|iOS|Web Design|Web Development",
+      "founded_at": "2011-11-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Homer",
+    "target_sector": "Edtech",
+    "source_sector_label": "Information",
+    "years_of_operation": "6 (2013-2019)",
+    "what_they_did": "Kids' reading app",
+    "how_much_raised": "$2.2M",
+    "why_they_failed": "Sold 2019; lost to Epic!",
+    "takeaway": "Kids' ed needs scale",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  },
+  {
+    "name": "Money360",
+    "target_sector": "Real Estate/Proptech",
+    "source_sector_label": "Finance and Insurance",
+    "years_of_operation": "2012-2020",
+    "what_they_did": "Real estate lending platform",
+    "how_much_raised": "$10M (est.)",
+    "why_they_failed": "Lost to Fundrise and slow growth",
+    "takeaway": "Lending needs scale",
+    "source_file": "Startup Failure (Finance and Insurance).csv",
+    "crunchbase_cross_ref": {
+      "status": "operating",
+      "funding_total_usd": "113000000",
+      "category_list": "Real Estate",
+      "founded_at": "2010-01-01",
+      "country_code": "USA"
+    }
+  },
+  {
+    "name": "Zumper Pro",
+    "target_sector": "Real Estate/Proptech",
+    "source_sector_label": "Information",
+    "years_of_operation": "6 (2015-2021)",
+    "what_they_did": "Rental listing premium",
+    "how_much_raised": "$171M (Zumper)",
+    "why_they_failed": "Phased out 2021; free listings won",
+    "takeaway": "Free trumps tiers",
+    "source_file": "Startup Failures (Information Sector).csv",
+    "crunchbase_cross_ref": null
+  }
+]

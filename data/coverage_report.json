@@ -1,0 +1,42 @@
+{
+  "SaaS/Enterprise Software": {
+    "available": 11,
+    "selected": 10
+  },
+  "Fintech": {
+    "available": 46,
+    "selected": 10
+  },
+  "Healthtech": {
+    "available": 60,
+    "selected": 10
+  },
+  "Consumer Hardware": {
+    "available": 28,
+    "selected": 10
+  },
+  "E-commerce/Retail": {
+    "available": 88,
+    "selected": 10
+  },
+  "AI/ML": {
+    "available": 6,
+    "selected": 6
+  },
+  "Mobility/Transportation": {
+    "available": 4,
+    "selected": 4
+  },
+  "Foodtech": {
+    "available": 26,
+    "selected": 10
+  },
+  "Edtech": {
+    "available": 7,
+    "selected": 7
+  },
+  "Real Estate/Proptech": {
+    "available": 2,
+    "selected": 2
+  }
+}

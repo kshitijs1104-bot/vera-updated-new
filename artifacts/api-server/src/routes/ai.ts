@@ -3,8 +3,37 @@ import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse } from "../lib/groq";
+import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
 
 const router = Router();
+
+function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalResult): object {
+  const sectorNote = retrieval.inferredSector
+    ? `our verified precedent dataset only has ${retrieval.sectorCoverageCount} record(s) in the "${retrieval.inferredSector}" sector`
+    : `we could not confidently match this query to any sector in our verified precedent dataset`;
+  return {
+    summary: `Insufficient verified precedent data to ground a confident, causal answer to this query — ${sectorNote}. Venus AI only reasons from real, sourced startup outcomes and will not fabricate causal precedents to fill the gap.`,
+    cards: [
+      {
+        type: "risk",
+        title: "Precedent Coverage Gap",
+        content: {
+          risks: [
+            {
+              name: "Insufficient grounded data",
+              probability: 100,
+              impact: "High",
+              mitigation: `Rephrase your question toward a well-covered sector (SaaS, Fintech, Healthtech, Consumer Hardware, E-commerce/Retail, or Foodtech have full precedent coverage), or treat any answer here as unverified opinion rather than a data-grounded call.`,
+            },
+          ],
+        },
+      },
+    ],
+    retrievalGated: true,
+    matchConfidence: retrieval.confidence,
+    inferredSector: retrieval.inferredSector,
+  };
+}
 
 router.post("/ai/analyze", async (req, res) => {
   try {
@@ -21,9 +50,17 @@ router.post("/ai/analyze", async (req, res) => {
       return res.json(buildFallbackVenusResponse(body.data.message));
     }
 
+    const retrieval = await retrievePrecedents(body.data.message, { businessContext: body.data.businessContext });
+
+    if (!retrieval.matched) {
+      return res.json(buildInsufficientPrecedentResponse(body.data.message, retrieval));
+    }
+
+    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
+
     const systemPrompt = body.data.businessContext
-      ? `${VENUS_PROMPT}\n\nBusiness Context: ${body.data.businessContext}`
-      : VENUS_PROMPT;
+      ? `${VENUS_PROMPT}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
+      : `${VENUS_PROMPT}\n\n${precedentBlock}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -40,16 +77,20 @@ router.post("/ai/analyze", async (req, res) => {
     messages.push({ role: "user", content: body.data.message });
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages,
       temperature: 0.4,
-      max_tokens: 2000,
+      max_tokens: 3000,
     });
 
     const content = completion.choices[0]?.message?.content || "";
+    const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const jsonStart = stripped.indexOf("{");
+    const jsonEnd = stripped.lastIndexOf("}");
+    const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
 
     try {
-      const parsed = JSON.parse(content);
+      const parsed = JSON.parse(jsonStr);
       return res.json(parsed);
     } catch {
       return res.json({
@@ -92,10 +133,18 @@ router.post("/ai/idea-review", async (req, res) => {
       body.data.teamSize && `Team size: ${body.data.teamSize}`,
     ].filter(Boolean).join(", ");
 
+    const retrieval = await retrievePrecedents(body.data.idea, { sector: body.data.industry });
+
+    if (!retrieval.matched) {
+      return res.json(buildInsufficientPrecedentResponse(body.data.idea, retrieval));
+    }
+
+    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
+
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [
-        { role: "system", content: VENUS_PROMPT },
+        { role: "system", content: `${VENUS_PROMPT}\n\n${precedentBlock}` },
         {
           role: "user",
           content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,
@@ -143,7 +192,7 @@ router.post("/ai/summarize-article", async (req, res) => {
     }
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [
         {
           role: "system",

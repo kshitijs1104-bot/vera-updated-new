@@ -1,0 +1,156 @@
+Airy Labs | Educational mobile games for kids
+Ask Jeeves | Early search engine with butler mascot
+Bebo | Social networking site popular in UK
+Burbn | Check-in app with photo-sharing
+Canvas | Collaborative document editing platform
+Change.org | Petition platform for activism
+Chirp | App to share data via sound
+Cloudera | Big data analytics platform
+Cocoon | Privacy-focused browser
+Codeacademy | Online coding lessons
+CollabFinder | Matchmaking for project collaborators
+Color Labs | Photo-sharing by location
+Connect | Social networking via Facebook
+Coub | Short looping video app
+Domo | Business intelligence dashboards
+Digg | Social news aggregator
+Drifty | Ionic mobile app framework
+Dropbox Paper | Collaborative doc tool
+Evernote | Note-taking app
+Exec | On-demand personal assistants
+EyeEm | Photo-sharing and stock platform
+Factual | Location data platform
+Formspring | Anonymous Q&A social app
+Foursquare Swarm | Check-in app with badges
+Friendster | Early social network
+GeoCities | Web hosting for personal pages
+GetGlue | Social TV check-in app
+Gigya | Social login identity tools
+Gimlet | Podcasting narrative shows
+Gowalla | Location-based social app
+Grooveshark | Music streaming with uploads
+GroupMe | Group messaging app
+HootSuite Media | Social media management tool
+Houseparty | Group video chat app
+Huddle | Cloud collaboration for teams
+Hulu Japan | Streaming for Japan
+IFTTT | Automation connecting apps
+Inkling | Digital publishing for e-books
+Instagram Live | Live-streaming on Instagram
+Intercom | Customer messaging platform
+Invision | Design collaboration platform
+Jawbone | Fitness trackers with data
+Jetpac | AI travel recommendation app
+Kik | Messaging app for teens
+Knewton | Adaptive learning platform
+Mailbox | Sleek email app
+Maker Media | DIY tech magazine and events
+Medium One | IoT data processing platform
+Milk | Mobile apps like Oink
+Mixpanel | User behavior analytics
+Mobli | Photo and video-sharing app
+Music.ly | Lip-sync video app
+MySpace | Social networking pioneer
+Netscape | First big web browser
+NewsTilt | Platform for journalists
+Notion AI | AI productivity feature
+Nuzzel | News curation via Twitter
+Path | Private social network
+Periscope | Live-streaming app
+Photobucket | Photo-hosting site
+Pinterest UK | UK-specific curation
+Piston Cloud | OpenStack cloud software
+Plex | Media server streaming
+Pocket | Save-for-later app
+Pulse | News reader app
+Quibb | Professional networking links
+Quid | AI trend analytics
+Quixey | Mobile app search engine
+Rap Genius | Lyrics annotation site
+Readability | Reading app with subscriptions
+Refresh | Social CRM app
+RethinkDB | Open-source database
+Riffsy | GIF search engine
+Rockmelt | Social browser
+Secret | Anonymous social app
+ShareThis | Social sharing widget
+Songza | Mood-based music streaming
+SoundCloud Go | Paid streaming tier
+Soundwave | Social music tracking
+Spoke | AI workplace chatbot
+Substack Local | Local newsletter funding
+Tango | Video chat with games
+Tasty Labs | Social Q&A app
+TinyChat | Video chat rooms
+Tinder Social | Group hangout feature
+TokBox | Video chat platform
+Top Hat | Classroom engagement tools
+Topix | Local news aggregator
+Trello Gold | Premium project management
+Tumblr | Microblogging platform
+Treehouse | Online coding school
+TuneIn Premium | Paid radio streaming
+Twilio SendGrid | Email API service
+Twitter Fabric | Developer toolkit
+Twitter Music | Music discovery app
+Udacity Blitz | Freelance gig platform
+Vdio | Video streaming service
+Vine | Short-video app
+VisiCalc | First spreadsheet software
+Whisper | Anonymous social app
+WhoSay | Celeb social platform
+Wickr | Secure messaging app
+Wishbone | Polling app for teens
+Woo | Dating app for pros
+Workable | HR hiring software
+Xmarks | Bookmark sync tool
+Xobni | Email plugin
+Yahoo Answers | Q&A platform
+Yahoo Buzz | Social news aggregator
+Yahoo Groups | Online community forums
+Yahoo Live | Live-streaming platform
+Yammer | Enterprise social network
+Yik Yak | Anonymous local social app
+Yo | Minimalist messaging app
+Yola | Website builder
+YouNow | Live-streaming app
+Zapier Plus | Premium automation tier
+Zencoder | Video encoding service
+Zendesk Chat | Live chat tool
+Ziddu | File-sharing platform
+Zombie Labs | Zombie-themed mobile games
+Zoomdata | Data visualization tool
+Zopim | Live chat widget
+Zscaler Shift | Cloud security analytics
+Zulily | Flash sales platform
+Zume | Predictive pizza analytics
+Zumper Pro | Rental listing premium
+Zurb | Design prototyping tool
+Zuuka | Digital kids' storytelling
+Zynga Games | Social gaming giant
+Bitpass | Micropayment platform
+Blync | Social polling app
+BountyJobs | Recruitment marketplace
+BranchOut | LinkedIn on Facebook
+Burstly | Mobile ad platform
+CloudHammer | Cloud management tool
+Crunchyroll | Anime streaming platform
+Curse | Gaming community platform
+DailyBurn | Fitness video app
+Dailylook | Fashion subscription boxes
+Datto | Backup and recovery software
+Deem | Travel management platform
+Detour | Audio tour app
+Disruptive Media | Digital content platform
+Divshot | Web hosting builder
+Drawbridge | Ad tech identity tracking
+Dunwello | Freelancer review platform
+Everalbum | Photo storage app
+Friend.ly | Social Q&A app
+Frontback | Dual-camera photo app
+Froyo | Social gaming app
+GoAnimate | DIY animation tool
+Hitpost | Sports social app
+Homer | Kids' reading app
+Hot Potato | Social check-in app
+Humanoid | Content curation platform
