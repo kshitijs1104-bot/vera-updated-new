@@ -51,9 +51,7 @@ function Router() {
         </Layout>
       </Route>
       <Route path="/venus">
-        <Layout>
-          <VenusPage />
-        </Layout>
+        <VenusPage />
       </Route>
       <Route path="/settings">
         <Layout>
