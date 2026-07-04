@@ -3,13 +3,29 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Vera Nexus API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: events
+    description: Causal events timeline
+  - name: reports
+    description: Intelligence reports
+  - name: companies
+    description: Corporate graveyard
+  - name: signals
+    description: Market signals
+  - name: thoughts
+    description: Thoughts hub social feed
+  - name: settings
+    description: Session settings
+  - name: ai
+    description: Venus AI engine
+  - name: stocks
+    description: Stock quotes
 paths:
   /healthz:
     get:
@@ -24,6 +40,439 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List causal events
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: sentiment
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+
+  /events/{id}:
+    get:
+      operationId: getEvent
+      tags: [events]
+      summary: Get an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The event
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /events/{id}/ripple:
+    post:
+      operationId: analyzeRipple
+      tags: [events]
+      summary: AI ripple analysis for an event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Ripple analysis
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RippleAnalysis" }
+
+  /reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: List intelligence reports
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Report" }
+
+  /reports/{id}:
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: Get a report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /reports/{id}/summary:
+    post:
+      operationId: summarizeReport
+      tags: [reports]
+      summary: AI summary for a report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Report summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportSummary" }
+
+  /companies:
+    get:
+      operationId: listCompanies
+      tags: [companies]
+      summary: List graveyard companies
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Company" }
+
+  /companies/{id}:
+    get:
+      operationId: getCompany
+      tags: [companies]
+      summary: Get a company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The company
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /companies/{id}/autopsy:
+    post:
+      operationId: autopsyCompany
+      tags: [companies]
+      summary: AI post-mortem autopsy for a company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Autopsy result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Autopsy" }
+
+  /companies/{id}/autopsy/chat:
+    post:
+      operationId: autopsyChat
+      tags: [companies]
+      summary: Interim CEO decision simulator chat
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AutopsyChatInput" }
+      responses:
+        "200":
+          description: Chat reply
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutopsyChatResult" }
+
+  /signals:
+    get:
+      operationId: listSignals
+      tags: [signals]
+      summary: List market signals
+      responses:
+        "200":
+          description: List of signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Signal" }
+
+  /thoughts:
+    get:
+      operationId: listThoughts
+      tags: [thoughts]
+      summary: List thoughts
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of thoughts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ThoughtWithReactions" }
+    post:
+      operationId: createThought
+      tags: [thoughts]
+      summary: Create a thought
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThoughtInput" }
+      responses:
+        "201":
+          description: Created thought
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThoughtWithReactions" }
+
+  /thoughts/{id}:
+    get:
+      operationId: getThought
+      tags: [thoughts]
+      summary: Get a thought
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The thought
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThoughtWithReactions" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+    delete:
+      operationId: deleteThought
+      tags: [thoughts]
+      summary: Delete a thought
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /reactions:
+    post:
+      operationId: toggleReaction
+      tags: [thoughts]
+      summary: Toggle a reaction on a thought
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReactionInput" }
+      responses:
+        "200":
+          description: Reaction toggle result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReactionToggleResult" }
+
+  /settings/groq-key:
+    get:
+      operationId: getGroqKeyStatus
+      tags: [settings]
+      summary: Get Groq API key status
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroqKeyStatus" }
+    post:
+      operationId: saveGroqKey
+      tags: [settings]
+      summary: Save Groq API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroqKeyInput" }
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroqKeyStatus" }
+    delete:
+      operationId: deleteGroqKey
+      tags: [settings]
+      summary: Delete Groq API key
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroqKeyStatus" }
+
+  /settings/onboarding:
+    get:
+      operationId: getOnboarding
+      tags: [settings]
+      summary: Get onboarding data
+      responses:
+        "200":
+          description: Onboarding data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnboardingData" }
+    post:
+      operationId: saveOnboarding
+      tags: [settings]
+      summary: Save onboarding data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OnboardingInput" }
+      responses:
+        "200":
+          description: Onboarding data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnboardingData" }
+
+  /ai/analyze:
+    post:
+      operationId: venusAnalyze
+      tags: [ai]
+      summary: Venus AI structured analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VenusAnalyzeInput" }
+      responses:
+        "200":
+          description: Venus AI response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VenusResponse" }
+
+  /ai/idea-review:
+    post:
+      operationId: ideaReview
+      tags: [ai]
+      summary: Venus AI idea review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdeaReviewInput" }
+      responses:
+        "200":
+          description: Venus AI response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VenusResponse" }
+
+  /ai/summarize-article:
+    post:
+      operationId: summarizeArticle
+      tags: [ai]
+      summary: AI summary for a news article
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ArticleSummaryInput" }
+      responses:
+        "200":
+          description: Article summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArticleSummary" }
+
+  /stocks/quote:
+    get:
+      operationId: getStockQuotes
+      tags: [stocks]
+      summary: Get stock quotes
+      parameters:
+        - name: symbols
+          in: query
+          required: true
+          schema: { type: string }
+          description: Comma separated list of ticker symbols
+      responses:
+        "200":
+          description: Stock quotes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockQuote" }
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +483,308 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+
+    Event:
+      type: object
+      required: [id, year, title, category, sentiment, impact, source, rippleCount, tags]
+      properties:
+        id: { type: integer }
+        year: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        category: { type: string }
+        sentiment: { type: string }
+        impact: { type: integer }
+        source: { type: string }
+        rippleCount: { type: integer }
+        tags: { type: array, items: { type: string } }
+        createdAt: { type: ["string", "null"], format: date-time }
+
+    RippleFlowchartNode:
+      type: object
+      required: [id, label, type]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        type: { type: string }
+
+    RippleFlowchartEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to: { type: string }
+
+    RippleFlowchart:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/RippleFlowchartNode" }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/RippleFlowchartEdge" }
+
+    RippleAnalysis:
+      type: object
+      required: [eventId]
+      properties:
+        eventId: { type: integer }
+        analysis: { type: string }
+        flowchart:
+          oneOf:
+            - $ref: "#/components/schemas/RippleFlowchart"
+            - type: "null"
+        affectedSectors:
+          type: array
+          items: { type: string }
+        causalChain:
+          type: array
+          items: { type: string }
+
+    Report:
+      type: object
+      required: [id, title, source, publishedAt, category, summary, tags]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        source: { type: string }
+        publishedAt: { type: string }
+        category: { type: string }
+        summary: { type: string }
+        imageUrl: { type: ["string", "null"] }
+        tags: { type: array, items: { type: string } }
+        createdAt: { type: ["string", "null"], format: date-time }
+
+    ReportSummary:
+      type: object
+      required: [reportId, summary, keyTakeaways, causalImplications]
+      properties:
+        reportId: { type: integer }
+        summary: { type: string }
+        keyTakeaways: { type: array, items: { type: string } }
+        causalImplications: { type: string }
+
+    Company:
+      type: object
+      required: [id, name, yearRange, description, category, tags]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        yearRange: { type: string }
+        description: { type: string }
+        category: { type: string }
+        tags: { type: array, items: { type: string } }
+        failureReason: { type: ["string", "null"] }
+        createdAt: { type: ["string", "null"], format: date-time }
+
+    Autopsy:
+      type: object
+      required: [companyId, rootCause, timeline, lessonsLearned, causalChain]
+      properties:
+        companyId: { type: integer }
+        rootCause: { type: string }
+        timeline: { type: string }
+        lessonsLearned: { type: array, items: { type: string } }
+        causalChain: { type: array, items: { type: string } }
+        analogy: { type: ["string", "null"] }
+
+    AutopsyChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string }
+        content: { type: string }
+
+    AutopsyChatInput:
+      type: object
+      properties:
+        message: { type: string }
+        attempt: { type: integer }
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/AutopsyChatMessage" }
+
+    AutopsyChatResult:
+      type: object
+      required: [reply, companyState, attempt, gameOver]
+      properties:
+        reply: { type: string }
+        companyState: { type: string }
+        attempt: { type: integer }
+        gameOver: { type: boolean }
+        outcome: { type: ["string", "null"] }
+
+    Signal:
+      type: object
+      required: [id, name, change, sentiment]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        value: { type: ["string", "null"] }
+        change: { type: string }
+        sentiment: { type: string }
+        updatedAt: { type: ["string", "null"], format: date-time }
+
+    Thought:
+      type: object
+      required: [id, content, author, category, tags]
+      properties:
+        id: { type: integer }
+        content: { type: string }
+        author: { type: string }
+        category: { type: string }
+        tags: { type: array, items: { type: string } }
+        createdAt: { type: ["string", "null"], format: date-time }
+
+    ThoughtWithReactions:
+      allOf:
+        - $ref: "#/components/schemas/Thought"
+        - type: object
+          properties:
+            reactions:
+              type: object
+              additionalProperties: { type: integer }
+
+    ThoughtInput:
+      type: object
+      required: [content, author, category]
+      properties:
+        content: { type: string, minLength: 1 }
+        author: { type: string, minLength: 1 }
+        category: { type: string }
+        tags: { type: array, items: { type: string } }
+
+    ReactionInput:
+      type: object
+      required: [thoughtId, reactionType]
+      properties:
+        thoughtId: { type: integer }
+        reactionType: { type: string }
+
+    ReactionToggleResult:
+      type: object
+      required: [action, thoughtId, reactionType]
+      properties:
+        action: { type: string }
+        thoughtId: { type: integer }
+        reactionType: { type: string }
+
+    GroqKeyStatus:
+      type: object
+      required: [configured, maskedKey]
+      properties:
+        configured: { type: boolean }
+        maskedKey: { type: ["string", "null"] }
+
+    GroqKeyInput:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey: { type: string, minLength: 1 }
+
+    OnboardingData:
+      type: object
+      required: [completed]
+      properties:
+        companyName: { type: ["string", "null"] }
+        stage: { type: ["string", "null"] }
+        industry: { type: ["string", "null"] }
+        teamSize: { type: ["string", "null"] }
+        country: { type: ["string", "null"] }
+        primaryGoal: { type: ["string", "null"] }
+        completed: { type: boolean }
+
+    OnboardingInput:
+      type: object
+      properties:
+        companyName: { type: string }
+        stage: { type: string }
+        industry: { type: string }
+        teamSize: { type: string }
+        country: { type: string }
+        primaryGoal: { type: string }
+
+    VenusHistoryMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string }
+        content: { type: string }
+
+    VenusAnalyzeInput:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1 }
+        businessContext: { type: string }
+        sessionHistory:
+          type: array
+          items: { $ref: "#/components/schemas/VenusHistoryMessage" }
+
+    IdeaReviewInput:
+      type: object
+      required: [idea]
+      properties:
+        idea: { type: string, minLength: 1 }
+        stage: { type: string }
+        industry: { type: string }
+        teamSize: { type: string }
+
+    VenusCard:
+      type: object
+      required: [type, title, content]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        content: {}
+
+    VenusResponse:
+      type: object
+      required: [summary, cards]
+      properties:
+        summary: { type: string }
+        cards:
+          type: array
+          items: { $ref: "#/components/schemas/VenusCard" }
+
+    ArticleSummaryInput:
+      type: object
+      required: [title, body]
+      properties:
+        articleId: { type: integer }
+        title: { type: string }
+        body: { type: string }
+
+    ArticleStat:
+      type: object
+      required: [label, value]
+      properties:
+        label: { type: string }
+        value: { type: string }
+
+    ArticleSummary:
+      type: object
+      required: [bullets, stats]
+      properties:
+        articleId: { type: ["integer", "null"] }
+        bullets: { type: array, items: { type: string } }
+        stats:
+          type: array
+          items: { $ref: "#/components/schemas/ArticleStat" }
+
+    StockQuote:
+      type: object
+      required: [symbol, change, changeRaw, positive]
+      properties:
+        symbol: { type: string }
+        price: { type: ["number", "null"] }
+        change: { type: string }
+        changeRaw: { type: number }
+        positive: { type: boolean }
+        error: { type: boolean }

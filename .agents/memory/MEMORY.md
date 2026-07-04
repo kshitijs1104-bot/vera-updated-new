@@ -1,0 +1,2 @@
+- [Drizzle array queries](drizzle-array-and-upsert-gotchas.md) — use `inArray()` not raw `sql ANY(${arr}::int[])`; use `onConflictDoNothing()`+re-select for getOrCreate-by-unique-key patterns.
+- [Vercel/v0 migration checklist](vercel-v0-migration.md) — after copying source into a Vite artifact, verify App.tsx was actually wired to real routes, not left as the scaffold placeholder.

@@ -25,7 +25,17 @@ app.use(
     },
   }),
 );
-app.use(cors());
+// TODO: lock down before production — set ALLOWED_ORIGIN to your Vercel deployment URL.
+// CORS must be registered before any routes so preflight (OPTIONS) requests are
+// handled for every endpoint, including the AI POST routes.
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-session-id", "x-groq-api-key"],
+    credentials: false,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

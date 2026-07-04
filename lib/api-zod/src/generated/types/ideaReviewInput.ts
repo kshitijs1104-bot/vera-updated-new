@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface IdeaReviewInput {
+  /** @minLength 1 */
+  idea: string;
+  stage?: string;
+  industry?: string;
+  teamSize?: string;
 }

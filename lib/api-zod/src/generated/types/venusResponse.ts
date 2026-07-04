@@ -5,7 +5,9 @@
  * Vera Nexus API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { VenusCard } from './venusCard';
 
-export interface HealthStatus {
-  status: string;
+export interface VenusResponse {
+  summary: string;
+  cards: VenusCard[];
 }

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+export type GetStockQuotesParams = {
+/**
+ * Comma separated list of ticker symbols
+ */
+symbols: string;
+};
