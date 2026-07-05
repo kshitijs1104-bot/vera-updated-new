@@ -1,0 +1,189 @@
+From a07c99fc254d4ef44c39af349f9e9f59f3766a5f Mon Sep 17 00:00:00 2001
+From: Vera Fix <fix@vera.local>
+Date: Sun, 5 Jul 2026 14:52:38 +0000
+Subject: [PATCH 1/2] Fix: stop re-asking for business context every turn
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Root cause: the context-gate function ignored sessionHistory entirely and
+only checked a businessContext field the frontend never populates. Even
+when a value WAS passed, the gate still fired regardless — it only
+changed the wording of the question, never actually skipped it.
+
+Fix: derive business context from prior user turns in sessionHistory
+(which the frontend already sends every request) when a dedicated
+businessContext field is absent, and skip the gate entirely once context
+is known from either source. The derived/explicit context is now also
+threaded into retrieval and prompt-building so the model actually uses
+it once established.
+---
+ artifacts/api-server/src/routes/ai.ts | 40 ++++++++++++++++++++++-----
+ 1 file changed, 33 insertions(+), 7 deletions(-)
+
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 4b887b0..1353673 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -76,15 +76,37 @@ function requiresContext(message: string) {
+   return contextNeedWords.test(normalized) && !isSimpleDefinition.test(normalized);
+ }
+ 
+-function buildContextClarification(message: string, existingContext?: string) {
++const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
++
++function deriveContextFromHistory(sessionHistory?: { role?: string; content?: string }[]): string | undefined {
++  if (!sessionHistory || sessionHistory.length === 0) return undefined;
++
++  const contextMessages = sessionHistory
++    .filter((h) => h.role === "user" && typeof h.content === "string" && BUSINESS_CONTEXT_SIGNAL.test(h.content))
++    .map((h) => h.content as string);
++
++  if (contextMessages.length === 0) return undefined;
++  return contextMessages.join(" | ");
++}
++
++function buildContextClarification(
++  message: string,
++  businessContext?: string,
++  sessionHistory?: { role?: string; content?: string }[],
++) {
+   if (!requiresContext(message)) return null;
+ 
++  // If the user already gave business context earlier in this session (or it was
++  // passed explicitly), do NOT re-gate — just proceed to answer using it.
++  const existingContext = businessContext || deriveContextFromHistory(sessionHistory);
++  if (existingContext) return null;
++
+   const contextHints = [
+     "What industry or sector are you in?",
+     "What stage is the business at and who is the customer?",
+   ];
+ 
+-  const prefix = existingContext ? "I can answer this better if you share one more detail:" : "To answer this well, I need two quick details:";
++  const prefix = "To answer this well, I need two quick details:";
+   return {
+     summary: `${prefix} ${contextHints.join(" ")}`,
+     cards: [
+@@ -164,12 +186,16 @@ router.post("/ai/analyze", async (req, res) => {
+       return res.json(buildFallbackVenusResponse(body.data.message));
+     }
+ 
+-    const clarification = buildContextClarification(body.data.message, body.data.businessContext);
++    // Fall back to context inferred from earlier turns in this session whenever a
++    // dedicated businessContext wasn't explicitly provided on this request.
++    const effectiveBusinessContext = body.data.businessContext || deriveContextFromHistory(body.data.sessionHistory);
++
++    const clarification = buildContextClarification(body.data.message, body.data.businessContext, body.data.sessionHistory);
+     if (clarification) {
+       return res.json(clarification);
+     }
+ 
+-    const retrieval = await retrievePrecedents(body.data.message, { businessContext: body.data.businessContext });
++    const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
+ 
+     const isModerate = retrieval.tier === "moderate";
+     const isNone = retrieval.tier === "none";
+@@ -185,9 +211,9 @@ router.post("/ai/analyze", async (req, res) => {
+     const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH: There are no verified precedents for this request. You must not invent company names or fabricate specific precedent-based causal claims. Respond with general strategic reasoning only, clearly labeled as unverified and not derived from Venus AI's dataset.`;
+ 
+     const systemPrompt = isNone
+-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${body.data.businessContext ? `\n\nBusiness Context: ${body.data.businessContext}` : ""}`
+-      : body.data.businessContext
+-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
++      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}`
++      : effectiveBusinessContext
++        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}`
+         : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
+ 
+     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+-- 
+2.43.0
+
+
+From 97675a026c92f4c0f73619086aaf18edcd7cb40a Mon Sep 17 00:00:00 2001
+From: Vera Fix <fix@vera.local>
+Date: Sun, 5 Jul 2026 15:03:37 +0000
+Subject: [PATCH 2/2] Fix: error responses render as if they were real answers
+
+Two bugs compounding:
+
+1. groq.ts: only the JSON-parse step had retry protection. The initial
+   API call itself was unwrapped, so any transient network/rate-limit
+   error on that first call threw straight past all retry logic into
+   the route's generic catch-all, producing a generic 'unexpected error'
+   response for queries that likely would have succeeded on one retry.
+   Now the initial call gets the same one-retry protection as parsing.
+
+2. Venus.tsx / venusHistory.ts: the frontend's render logic already had
+   correct handling for isError (hide confidence badge, show a distinct
+   red error box instead of cards) -- but isError/errorType were never
+   copied from the API response onto the saved ChatMessage object in
+   the onSuccess handler, and weren't even part of the ChatMessage type.
+   So every error response silently lost its error flag and rendered
+   identically to a real, confidently-badged answer. Added the fields
+   to the type and wired them through.
+---
+ artifacts/api-server/src/lib/groq.ts         | 18 ++++++++++++++++--
+ artifacts/vera-nexus/src/lib/venusHistory.ts |  2 ++
+ artifacts/vera-nexus/src/pages/Venus.tsx     |  2 ++
+ 3 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index eafb971..480abea 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -64,8 +64,22 @@ export async function callGroqJSON(
+   params: GroqJsonParams,
+   label: string,
+ ): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
+-  const completion = await groq.chat.completions.create(params);
+-  const raw = completion.choices[0]?.message?.content || "";
++  let raw: string;
++
++  try {
++    const completion = await groq.chat.completions.create(params);
++    raw = completion.choices[0]?.message?.content || "";
++  } catch (initialErr) {
++    console.error(`[callGroqJSON] "${label}" — initial API call itself threw, retrying once before giving up`, initialErr);
++    try {
++      const retryCompletion = await groq.chat.completions.create(params);
++      raw = retryCompletion.choices[0]?.message?.content || "";
++    } catch (retryErr) {
++      console.error(`[callGroqJSON] "${label}" — retry API call ALSO threw. Giving up.`, retryErr);
++      return { parsed: null, raw: "", errorType: "transient" };
++    }
++  }
++
+   const candidate = extractJson(raw);
+ 
+   try {
+diff --git a/artifacts/vera-nexus/src/lib/venusHistory.ts b/artifacts/vera-nexus/src/lib/venusHistory.ts
+index e04d8ce..71e53e8 100644
+--- a/artifacts/vera-nexus/src/lib/venusHistory.ts
++++ b/artifacts/vera-nexus/src/lib/venusHistory.ts
+@@ -15,6 +15,8 @@ export interface ChatMessage {
+   confidence?: 'verified' | 'exploratory';
+   confidenceNote?: string;
+   contextQuery?: string;
++  isError?: boolean;
++  errorType?: 'parse' | 'transient';
+ }
+ 
+ export interface ChatSession {
+diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+index 5532d71..94de3ff 100644
+--- a/artifacts/vera-nexus/src/pages/Venus.tsx
++++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+@@ -142,6 +142,8 @@ export function VenusPage() {
+             confidence: res.confidence,
+             confidenceNote: res.confidenceNote,
+             contextQuery: text,
++            isError: (res as any).isError,
++            errorType: (res as any).errorType,
+           };
+           const withVenus: ChatSession = { ...updated, messages: [...newMessages, venusMsg] };
+           setCurrentSession(withVenus);
+-- 
+2.43.0
+
