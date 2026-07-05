@@ -785,7 +785,7 @@ function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'expl
 
 function ResponseJumpNav({ cards }: { cards: any[] }) {
   return (
-    <div className="sticky top-2 z-10 mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2 backdrop-blur">
+    <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2">
       {cards.map((card, index) => (
         <a key={index} href={`#venus-card-${index}`} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] hover:border-[var(--indigo)] hover:text-white">
           {card.title?.replace(/\s+/g, ' ').trim() || `Section ${index + 1}`}
@@ -922,9 +922,9 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
       {card.type === 'analysis' && (
         <ul className="space-y-3">
           {(normalizedContent.points ?? []).map((pt: any, i: number) => (
-            <li key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline gap-1 sm:gap-4 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
-              <span className="text-[var(--muted)] sm:shrink-0">{pt.label}</span>
-              <span className="font-mono text-white sm:text-right">{pt.value}</span>
+            <li key={i} className="flex flex-col gap-1 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
+              <span className="text-[var(--dim)] text-[11px] font-mono uppercase tracking-wide">{pt.label}</span>
+              <span className="text-white leading-relaxed">{pt.value}</span>
             </li>
           ))}
         </ul>

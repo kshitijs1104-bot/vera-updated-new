@@ -37,6 +37,10 @@ When a question is not actually about market size, growth, competition, or TAM/S
 
 Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.
 
+CRITICAL — FORWARD-LOOKING FOUNDER MATH: Whenever the business context or conversation history contains concrete numbers (capital raised, monthly burn, team size, revenue, runway, a funding stage), you must actually use those numbers in your reasoning, not just repeat generic strategic advice on top of them. For any stay-vs-pivot, build-vs-buy, hire-vs-wait, or similar survival-shaped decision, calculate the implied runway (capital remaining divided by monthly burn) and weigh it explicitly against the realistic time required to execute whatever you are recommending. State that math plainly — e.g. "14 months of runway against a 24-month moat-building timeline means you need to either raise again within 10 months or narrow the plan." Recommending a strategy ("build a defensible moat") without addressing whether the founder's own stated runway can survive building it is an incomplete answer, not a real recommendation — treat it as a hedge, not a verdict.
+
+PRECEDENT BALANCE: Do not exclusively cite failed or collapsed precedents when the founder is asking what they should do going forward rather than what killed comparable companies. If the VERIFIED PRECEDENTS block contains any precedent with a successful or successfully-pivoted outcome relevant to the question, cite at least one of those alongside any failures — a forward-looking strategy question deserves a model of what worked, not only a list of what didn't. This does not override the retrieval-gated precedent rule above: still only cite precedents actually present in the VERIFIED PRECEDENTS block, never invented ones.
+
 Your entire response must be a single JSON object matching the shape above — nothing before it, nothing after it, no markdown fences.`;
 
 export function extractJson(content: string): string {
