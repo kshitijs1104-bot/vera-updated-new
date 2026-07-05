@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
+import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 
 const router = Router();
 
@@ -130,11 +131,14 @@ function buildContextClarification(
 function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
   if (typeof parsed.summary !== "string") return parsed;
 
+  // "none" tier no longer gets a forced ⚠️ prefix here — the confidence badge
+  // already surfaces that in the UI, and the model is instructed to weave in
+  // a brief natural mention itself rather than have one bolted on top. Forcing
+  // both created a duplicated, alarmist-feeling wall of caveats on every
+  // answer that simply wasn't in the curated precedent dataset.
   const label = retrieval.tier === "moderate"
     ? "Exploratory signal — limited precedent coverage."
-    : retrieval.tier === "none"
-      ? "⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset. Treat as an unverified starting point only."
-      : null;
+    : null;
 
   if (!label) return parsed;
   if (!parsed.summary.startsWith(label)) {
@@ -143,12 +147,18 @@ function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResul
   return parsed;
 }
 
+// NOTE: this function is currently unused by the /ai/analyze flow (that route
+// lets the "none" tier fall through to normal LLM reasoning with the
+// noPrecedentInstruction system-prompt note, which is the correct behavior).
+// Kept here in case another route wants a standalone "coverage gap" card, but
+// the copy below intentionally does NOT ask the user to reword their query —
+// a missing precedent is a dataset-coverage gap, not a prompting mistake.
 function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalResult): object {
   const sectorNote = retrieval.inferredSector
-    ? `our verified precedent dataset only has ${retrieval.sectorCoverageCount} record(s) in the "${retrieval.inferredSector}" sector`
-    : `we could not confidently match this query to any sector in our verified precedent dataset`;
+    ? `the verified precedent dataset only has ${retrieval.sectorCoverageCount} record(s) in the "${retrieval.inferredSector}" sector`
+    : `this query didn't match any sector in the verified precedent dataset`;
   return {
-    summary: `⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset. Treat as an unverified starting point only. ${sectorNote}.`,
+    summary: `⚠️ No verified precedent match — the answer below is general strategic reasoning, not backed by Venus AI's dataset. Treat it as a useful starting point, not a data-grounded verdict.`,
     cards: [
       {
         type: "risk",
@@ -159,7 +169,7 @@ function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalR
               name: "Insufficient grounded data",
               probability: 100,
               impact: "High",
-              mitigation: `Rephrase your question toward a well-covered sector (SaaS, Fintech, Healthtech, Consumer Hardware, E-commerce/Retail, or Foodtech have full precedent coverage), or treat any answer here as unverified opinion rather than a data-grounded call.`,
+              mitigation: `This is a gap in dataset coverage, not a problem with how the question was asked — ${sectorNote}. The reasoning above still applies; just weigh it as an informed opinion rather than a precedent-backed call.`,
             },
           ],
         },
@@ -200,6 +210,13 @@ router.post("/ai/analyze", async (req, res) => {
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
 
+    // No verified precedent in the curated dataset doesn't mean "give up" — it
+    // means go find real information instead. This is fully generic: whatever
+    // the user asked about (a named app, a niche concept, anything), the raw
+    // message itself is the search query. Never special-cased to any topic.
+    const webResult = isNone ? await webSearch(body.data.message) : null;
+    const webSearchBlock = webResult ? formatWebSearchForPrompt(webResult) : "";
+
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
 
     const venusPromptForTier = isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT;
@@ -208,10 +225,10 @@ router.post("/ai/analyze", async (req, res) => {
       : "Conversation context so far: none.";
     const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template with at least 2 cards.`;
     const decisionRoutingInstruction = buildDecisionRoutingInstruction(body.data.message);
-    const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH: There are no verified precedents for this request. You must not invent company names or fabricate specific precedent-based causal claims. Respond with general strategic reasoning only, clearly labeled as unverified and not derived from Venus AI's dataset.`;
+    const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}`
       : effectiveBusinessContext
         ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}`
         : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
@@ -241,7 +258,9 @@ router.post("/ai/analyze", async (req, res) => {
       parsed.confidenceTier = retrieval.tier;
       parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
       parsed.confidenceNote = retrieval.tier === "none"
-        ? "No verified precedents matched this request, so the answer is general strategic reasoning rather than dataset-grounded analysis."
+        ? (webResult && !webResult.empty
+            ? "No verified precedents matched this request, so this answer is grounded in a live web search plus general reasoning rather than the curated dataset."
+            : "No verified precedents matched this request and the web search didn't return usable results, so this answer is general reasoning rather than dataset-grounded analysis.")
         : retrieval.tier === "moderate"
           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
@@ -281,9 +300,15 @@ router.post("/ai/analyze", async (req, res) => {
         };
 
     return res.json(shortQueryFallback || errorResponse);
-  } catch (err) {
+  } catch (err: any) {
     req.log.error(err);
-    return res.json(buildTransientErrorResponse("your query"));
+    const status = err?.status ?? err?.response?.status;
+    const reason = status === 429
+      ? "AI provider rate limit hit — too many requests in a short window"
+      : status
+        ? `AI provider returned an error (status ${status})`
+        : "Request to the AI backend failed unexpectedly";
+    return res.json(buildTransientErrorResponse("your query", reason));
   }
 });
 

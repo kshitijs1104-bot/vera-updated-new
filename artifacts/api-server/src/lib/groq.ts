@@ -59,12 +59,34 @@ interface GroqJsonParams {
  * and a higher token budget. Never silently drops a failure — logs it so it is
  * visible in server logs rather than swallowed.
  */
+// Wraps a single Groq call with retry + backoff for genuine transient failures
+// (rate limits, timeouts, transient 5xx from Groq's API) so a momentary network
+// blip never surfaces to the user as an error — it just quietly retries.
+async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string, attempts = 3) {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await groq.chat.completions.create(params);
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.status ?? err?.response?.status;
+      // 429 (rate limit) and 5xx are worth retrying; 4xx auth/validation errors are not.
+      const isRetryable = status === 429 || (status >= 500 && status < 600) || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET";
+      if (!isRetryable || i === attempts - 1) throw err;
+      const delayMs = 300 * Math.pow(2, i); // 300ms, 600ms, 1200ms
+      console.error(`[callGroqJSON] "${label}" — transient error (status=${status}), retry ${i + 1}/${attempts - 1} after ${delayMs}ms`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 export async function callGroqJSON(
   groq: Groq,
   params: GroqJsonParams,
   label: string,
 ): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
-  const completion = await groq.chat.completions.create(params);
+  const completion = await createWithRetry(groq, params, label);
   const raw = completion.choices[0]?.message?.content || "";
   const candidate = extractJson(raw);
 
@@ -156,11 +178,11 @@ export function buildFallbackVenusResponse(message: string): object {
 // Used for genuine runtime/API errors (bad request, network, parsing exhaustion)
 // caught after we already confirmed a Groq client/key exists. Must never claim
 // "not configured" — that phrase should only ever describe a truly missing key.
-export function buildTransientErrorResponse(message: string): object {
+export function buildTransientErrorResponse(message: string, reason?: string): object {
   return {
-    summary: "Venus AI hit an unexpected error processing this query. Please try again.",
+    summary: "Venus AI hit a temporary problem reaching the model, not a problem with your question. Please try again in a moment.",
     confidence: "exploratory",
-    confidenceNote: "The response is only a fallback because the request failed unexpectedly.",
+    confidenceNote: "The response is only a fallback because the backend request failed — this is not a signal that the query itself was unclear.",
     isError: true,
     errorType: "transient",
     cards: [
@@ -169,8 +191,8 @@ export function buildTransientErrorResponse(message: string): object {
         title: "Temporary Error",
         content: {
           points: [
-            { label: "Status", value: "Request failed unexpectedly", sentiment: "neutral" },
-            { label: "Fix", value: "Please try again or rephrase the request", sentiment: "neutral" },
+            { label: "Status", value: reason || "Request to the AI backend failed unexpectedly", sentiment: "neutral" },
+            { label: "Fix", value: "Just try again — no need to reword your question", sentiment: "neutral" },
           ],
         },
       },
