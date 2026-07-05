@@ -109,6 +109,12 @@ router.post("/ai/analyze", async (req, res) => {
 
     if (parsed) {
       parsed.confidenceTier = retrieval.tier;
+      parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
+      parsed.confidenceNote = retrieval.tier === "none"
+        ? "No verified precedents matched this request, so the answer is general strategic reasoning rather than dataset-grounded analysis."
+        : retrieval.tier === "moderate"
+          ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
+          : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
       applyTierLabel(parsed, retrieval);
       return res.json(parsed);
     }
@@ -187,6 +193,12 @@ router.post("/ai/idea-review", async (req, res) => {
 
     if (parsed) {
       parsed.confidenceTier = retrieval.tier;
+      parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
+      parsed.confidenceNote = retrieval.tier === "none"
+        ? "No verified precedents matched this request, so the answer is general strategic reasoning rather than dataset-grounded analysis."
+        : retrieval.tier === "moderate"
+          ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
+          : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
       applyTierLabel(parsed, retrieval);
       return res.json(parsed);
     }

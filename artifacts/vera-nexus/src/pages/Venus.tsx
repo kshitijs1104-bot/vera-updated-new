@@ -93,7 +93,14 @@ export function VenusPage() {
       { data: { message: text, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
       {
         onSuccess: (res) => {
-          const venusMsg: ChatMessage = { role: 'venus', content: res.summary, cards: res.cards };
+          const venusMsg: ChatMessage = {
+            role: 'venus',
+            content: res.summary,
+            cards: res.cards,
+            confidence: res.confidence,
+            confidenceNote: res.confidenceNote,
+            contextQuery: text,
+          };
           const withVenus: ChatSession = { ...updated, messages: [...newMessages, venusMsg] };
           setCurrentSession(withVenus);
           persistSession(withVenus);
@@ -301,35 +308,44 @@ export function VenusPage() {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-8 space-y-8 max-w-4xl mx-auto w-full">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'user' ? (
-                  <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-white rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
-                    {msg.content}
-                  </div>
-                ) : (
-                  <div className="max-w-[90%] space-y-3 group">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black">V</div>
-                      <span className="text-[10px] font-mono uppercase text-[var(--muted)]">Venus</span>
+            {messages.map((msg, i) => {
+              const priorUserQuery = messages.slice(0, i).reverse().find(m => m.role === 'user')?.content ?? '';
+              return (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'user' ? (
+                    <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-white rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
+                      {msg.content}
                     </div>
-
-                    {msg.content && <VenusMessage content={msg.content} />}
-
-                    {msg.cards && msg.cards.length > 0 && (
-                      <div className="grid grid-cols-1 gap-3 mt-4">
-                        {msg.cards.map((card: any, ci: number) => (
-                          <VenusCard key={ci} card={card} />
-                        ))}
+                  ) : (
+                    <div className="max-w-[90%] space-y-3 group">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black">V</div>
+                          <span className="text-[10px] font-mono uppercase text-[var(--muted)]">Venus</span>
+                        </div>
+                        {msg.role === 'venus' && <ConfidenceBadge confidence={msg.confidence} note={msg.confidenceNote} />}
                       </div>
-                    )}
 
-                    {/* Response actions: copy markdown, download .md, save */}
-                    <VenusResponseActions msg={msg} onSave={() => handleSaveResponse(msg)} />
-                  </div>
-                )}
-              </div>
-            ))}
+                      {msg.content && <VenusMessage content={msg.content} confidence={msg.confidence} confidenceNote={msg.confidenceNote} />}
+
+                      {msg.cards && msg.cards.length > 0 && (
+                        <>
+                          <ResponseJumpNav cards={msg.cards} />
+                          <div className="grid grid-cols-1 gap-3 mt-2">
+                            {msg.cards.map((card: any, ci: number) => (
+                              <VenusCard key={ci} card={card} index={ci} contextQuery={msg.contextQuery || priorUserQuery} previousContextQuery={priorUserQuery} />
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Response actions: copy markdown, download .md, save */}
+                      <VenusResponseActions msg={msg} onSave={() => handleSaveResponse(msg)} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {analyzeMutation.isPending && (
               <div className="flex justify-start">
@@ -380,8 +396,11 @@ export function VenusPage() {
 }
 
 /* Render Venus response with basic markdown-like formatting */
-function VenusMessage({ content }: { content: string }) {
-  const lines = content.split('\n');
+function VenusMessage({ content, confidence }: { content: string; confidence?: 'verified' | 'exploratory'; confidenceNote?: string }) {
+  const stripped = confidence === 'exploratory'
+    ? content.replace(/^⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset\. Treat as an unverified starting point only\.\s*/i, '').trim()
+    : content;
+  const lines = stripped.split('\n');
   return (
     <div className="space-y-1.5 text-sm text-[var(--text)] leading-relaxed">
       {lines.map((line, i) => {
@@ -446,6 +465,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function getCompetitorLabel(competitor: unknown): string {
+  if (typeof competitor === 'string') return competitor.trim() || 'Unknown competitor';
+  if (!isRecord(competitor)) return 'Unknown competitor';
+  const name = typeof competitor.name === 'string' ? competitor.name.trim() : '';
+  const description = typeof competitor.description === 'string' ? competitor.description.trim() : '';
+  const marketShare = competitor.marketShare != null ? String(competitor.marketShare) : '';
+  if (name && description) return `${name} — ${description}`;
+  if (name && marketShare) return `${name} — ${marketShare}`;
+  return name || 'Unknown competitor';
+}
+
+function isMarketQueryRelevant(query: string): boolean {
+  const normalized = query.toLowerCase();
+  return /\b(market|competitor|competition|tam|sam|som|growth|sizing|size|opportunity|demand|landscape|category)\b/.test(normalized);
+}
+
 function parseMaybeJson(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
@@ -495,7 +530,42 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
   return null;
 }
 
-function VenusCard({ card }: { card: any }) {
+function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'exploratory'; note?: string }) {
+  const isExploratory = confidence === 'exploratory';
+  const label = isExploratory ? 'Exploratory — no precedent match' : 'Verified precedent';
+  const classes = isExploratory
+    ? 'border-[var(--amber)]/30 bg-[var(--amber)]/10 text-[var(--amber)]'
+    : 'border-[var(--mint)]/30 bg-[var(--mint)]/10 text-[var(--mint)]';
+
+  return (
+    <div className="relative group shrink-0">
+      <button type="button" className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors ${classes}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${isExploratory ? 'bg-[var(--amber)]' : 'bg-[var(--mint)]'}`} />
+        {label}
+      </button>
+      {note && (
+        <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 hidden w-64 rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-2.5 text-[11px] leading-relaxed text-[var(--muted)] shadow-lg group-hover:block group-focus-within:block">
+          {note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResponseJumpNav({ cards }: { cards: any[] }) {
+  return (
+    <div className="sticky top-2 z-10 mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2 backdrop-blur">
+      {cards.map((card, index) => (
+        <a key={index} href={`#venus-card-${index}`} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] hover:border-[var(--indigo)] hover:text-white">
+          {card.title?.replace(/\s+/g, ' ').trim() || `Section ${index + 1}`}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '' }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string }) {
+  const [expanded, setExpanded] = useState(index < 2);
   const typeColors: Record<string, string> = {
     analysis: 'var(--indigo-light)',
     market: 'var(--mint)',
@@ -507,13 +577,27 @@ function VenusCard({ card }: { card: any }) {
   const color = typeColors[card.type] ?? 'var(--dim)';
   const content = parseMaybeJson(card.content);
   const normalizedContent = isRecord(content) ? content : { value: content };
+  const shouldRenderMarket = card.type !== 'market' || isMarketQueryRelevant(contextQuery);
+  const changedScopeNote = previousContextQuery && contextQuery && previousContextQuery !== contextQuery ? 'Refined for current scope' : null;
+
+  if (!shouldRenderMarket) return null;
 
   return (
-    <div className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-        <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
-      </div>
+    <div id={`venus-card-${index}`} className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5 overflow-hidden">
+      <button type="button" onClick={() => setExpanded(v => !v)} className="flex w-full items-start justify-between gap-3 text-left">
+        <div className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+          <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
+        </div>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{expanded ? 'Hide' : 'Show'}</span>
+      </button>
+
+      {changedScopeNote && (
+        <div className="mt-3 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)]">{changedScopeNote}</div>
+      )}
+
+      {expanded && (
+        <div className="mt-4 space-y-4">
 
       {card.type === 'analysis' && (
         <ul className="space-y-2">
@@ -607,7 +691,9 @@ function VenusCard({ card }: { card: any }) {
             <div>
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-2">Competitors</div>
               <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
-                {normalizedContent.competitors.map((item: unknown, index: number) => <li key={index}>{renderInline(String(item))}</li>)}
+                {normalizedContent.competitors.map((item: unknown, innerIndex: number) => (
+                  <li key={innerIndex}>{renderInline(getCompetitorLabel(item))}</li>
+                ))}
               </ul>
             </div>
           )}
@@ -649,9 +735,38 @@ function VenusCard({ card }: { card: any }) {
         </div>
       )}
 
-      {!['analysis', 'risk', 'roadmap', 'precedent', 'market', 'decision'].includes(card.type) && (
+      {card.type === 'funnel' && (
+        <div className="space-y-2">
+          {(normalizedContent.stages ?? normalizedContent.steps ?? []).map((stage: any, stageIndex: number) => (
+            <div key={stageIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3" style={{ marginLeft: `${stageIndex * 6}px`, marginRight: `${stageIndex * 6}px` }}>
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--indigo)]/20 text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-white">{renderInline(String(stage.stage_title ?? stage.title ?? stage.name ?? 'Stage'))}</div>
+                  <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(stage.stage_detail ?? stage.detail ?? stage.description ?? ''))}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.type === 'solution' && (
+        <div className="space-y-2">
+          {(normalizedContent.solutions ?? normalizedContent.options ?? []).map((solution: any, solutionIndex: number) => (
+            <div key={solutionIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3" style={{ marginLeft: `${solutionIndex * 4}px`, marginRight: `${solutionIndex * 4}px` }}>
+              <div className="text-sm font-semibold text-white">{renderInline(String(solution.stage_title ?? solution.title ?? solution.name ?? 'Solution'))}</div>
+              <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(solution.stage_detail ?? solution.detail ?? solution.description ?? ''))}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!['analysis', 'risk', 'roadmap', 'precedent', 'market', 'decision', 'funnel', 'solution'].includes(card.type) && (
         <div className="space-y-2">
           {renderStructuredValue(normalizedContent)}
+        </div>
+      )}
         </div>
       )}
     </div>

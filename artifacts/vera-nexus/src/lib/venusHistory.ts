@@ -12,6 +12,9 @@ export interface ChatMessage {
   role: 'user' | 'venus';
   content?: string;
   cards?: any[];
+  confidence?: 'verified' | 'exploratory';
+  confidenceNote?: string;
+  contextQuery?: string;
 }
 
 export interface ChatSession {
