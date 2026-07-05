@@ -12,4 +12,8 @@ test('Venus prompt includes direct-verdict instructions for real decision forks 
   assert.match(source, /multi-option verdict breakdown/i);
   assert.match(source, /single top-line verdict/i);
   assert.match(source, /Do not force a verdict format/i);
+  assert.match(source, /short, informal, or fragmentary/i);
+  assert.match(source, /treat short phrases like/i);
+  assert.match(source, /weigh how strongly each stated option is supported or undermined/i);
+  assert.match(source, /Do not default to 60\/40|70\/30/i);
 });

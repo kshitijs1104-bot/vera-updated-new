@@ -7,6 +7,65 @@ import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } f
 
 const router = Router();
 
+function normalizeQueryText(message: string) {
+  return message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function inferDecisionRouting(message: string) {
+  const normalized = normalizeQueryText(message);
+  if (!normalized) return null;
+
+  const isDecisionish = /\b(should|shld|would|could|worth|hire|wait|launch|buy|build|raise|bootstrap|outsource|do|use|join|go|stick|keep)\b/.test(normalized);
+  const hasAlternatives = /\b(or|vs|versus|instead|rather|either)\b/.test(normalized) || normalized.includes(" or ");
+
+  if (!isDecisionish) return null;
+
+  return {
+    mode: "decision" as const,
+    subtype: hasAlternatives ? "multi-option" as const : "binary" as const,
+  };
+}
+
+function buildDecisionRoutingInstruction(message: string) {
+  const routing = inferDecisionRouting(message);
+  if (!routing) return "";
+
+  const noun = routing.subtype === "multi-option" ? "multi-option decision question" : "single-path decision question";
+  return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
+}
+
+function buildShortQueryFallback(message: string) {
+  const routing = inferDecisionRouting(message);
+  if (!routing) return null;
+
+  const recommendation = routing.subtype === "multi-option"
+    ? "Choose the option that best avoids the strongest risk you just identified."
+    : "Give a direct yes/no or wait/launch verdict based on the stated situation.";
+
+  return {
+    summary: "Direct decision query received. Venus will answer the choice directly rather than treating the prompt as malformed input.",
+    confidence: "exploratory",
+    confidenceNote: "The response is a structured fallback because the model did not return a fully parsed response for this short-form query.",
+    cards: [
+      {
+        type: "decision",
+        title: "Decision",
+        content: {
+          options: [
+            {
+              name: "Primary path",
+              scores: { viability: 6, speed: 7, defensibility: 6, capital_efficiency: 6 },
+              verdict: "The request should be handled as a direct decision question.",
+            },
+          ],
+          recommendation,
+        },
+      },
+    ],
+    confidenceTier: "none",
+  };
+}
+
 function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
   if (typeof parsed.summary !== "string") return parsed;
 
@@ -78,13 +137,14 @@ router.post("/ai/analyze", async (req, res) => {
       ? `Conversation context so far:\n${body.data.sessionHistory.slice(-8).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
       : "Conversation context so far: none.";
     const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template with at least 2 cards.`;
+    const decisionRoutingInstruction = buildDecisionRoutingInstruction(body.data.message);
     const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH: There are no verified precedents for this request. You must not invent company names or fabricate specific precedent-based causal claims. Respond with general strategic reasoning only, clearly labeled as unverified and not derived from Venus AI's dataset.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${body.data.businessContext ? `\n\nBusiness Context: ${body.data.businessContext}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${body.data.businessContext ? `\n\nBusiness Context: ${body.data.businessContext}` : ""}`
       : body.data.businessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${historyContext}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -119,7 +179,8 @@ router.post("/ai/analyze", async (req, res) => {
       return res.json(parsed);
     }
 
-    return res.json({
+    const shortQueryFallback = buildShortQueryFallback(body.data.message);
+    return res.json(shortQueryFallback || {
       summary: raw.slice(0, 300) || "Venus AI could not produce a well-formed response for this query. Please try again.",
       cards: [
         {
