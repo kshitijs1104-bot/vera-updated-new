@@ -442,6 +442,59 @@ function renderInline(text: string): React.ReactNode {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
+  const parsed = parseMaybeJson(value);
+  if (typeof parsed === 'string') {
+    return <span>{renderInline(parsed)}</span>;
+  }
+  if (typeof parsed === 'number' || typeof parsed === 'boolean') {
+    return <span className="font-mono text-white">{String(parsed)}</span>;
+  }
+  if (Array.isArray(parsed)) {
+    return (
+      <ul className="space-y-1.5 list-disc pl-5">
+        {parsed.map((item, index) => (
+          <li key={index} className="text-sm text-[var(--muted)]">
+            {renderStructuredValue(item, depth + 1)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (isRecord(parsed)) {
+    const entries = Object.entries(parsed);
+    if (entries.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        {entries.map(([key, entryValue]) => (
+          <div key={key} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{key.replace(/_/g, ' ')}</div>
+            <div className="text-sm text-[var(--muted)]">{renderStructuredValue(entryValue, depth + 1)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
 function VenusCard({ card }: { card: any }) {
   const typeColors: Record<string, string> = {
     analysis: 'var(--indigo-light)',
@@ -452,6 +505,8 @@ function VenusCard({ card }: { card: any }) {
     precedent: 'var(--mint)',
   };
   const color = typeColors[card.type] ?? 'var(--dim)';
+  const content = parseMaybeJson(card.content);
+  const normalizedContent = isRecord(content) ? content : { value: content };
 
   return (
     <div className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5">
@@ -462,7 +517,7 @@ function VenusCard({ card }: { card: any }) {
 
       {card.type === 'analysis' && (
         <ul className="space-y-2">
-          {(card.content?.points ?? []).map((pt: any, i: number) => (
+          {(normalizedContent.points ?? []).map((pt: any, i: number) => (
             <li key={i} className="flex justify-between items-center text-sm border-b border-[var(--border)] border-dashed pb-2 last:border-0">
               <span className="text-[var(--muted)]">{pt.label}</span>
               <span className="font-mono text-white">{pt.value}</span>
@@ -473,7 +528,7 @@ function VenusCard({ card }: { card: any }) {
 
       {card.type === 'risk' && (
         <div className="space-y-3">
-          {(card.content?.risks ?? []).map((risk: any, i: number) => (
+          {(normalizedContent.risks ?? []).map((risk: any, i: number) => (
             <div key={i} className="bg-[var(--surface)] p-3 rounded border border-[var(--border)]">
               <div className="flex justify-between items-center mb-1.5">
                 <span className="text-sm font-bold text-[var(--amber)]">{risk.name}</span>
@@ -487,10 +542,22 @@ function VenusCard({ card }: { card: any }) {
 
       {card.type === 'roadmap' && (
         <div className="space-y-3">
-          {(card.content?.milestones ?? card.content?.phases ?? []).map((m: any, i: number) => (
-            <div key={i} className="flex gap-3">
-              <div className="font-mono text-[var(--amber)] opacity-60 text-xs pt-0.5 shrink-0">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
-              <div className="text-sm text-[var(--muted)]">{m.goal ?? m.description ?? JSON.stringify(m)}</div>
+          {normalizedContent.horizon && (
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Horizon: {String(normalizedContent.horizon)}</div>
+          )}
+          {(normalizedContent.phases ?? normalizedContent.milestones ?? []).map((m: any, i: number) => (
+            <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
+                {m.title && <div className="text-sm font-semibold text-white">{m.title}</div>}
+              </div>
+              <div className="text-sm text-[var(--muted)] mb-2">{m.goal ?? m.description ?? renderStructuredValue(m)}</div>
+              {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
+                <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)] mt-2">
+                  {m.actions.map((action: string, actionIndex: number) => <li key={actionIndex}>{renderInline(String(action))}</li>)}
+                </ul>
+              )}
+              {m.metric && <div className="mt-2 text-[11px] font-mono text-[var(--mint)]">Metric: {renderInline(String(m.metric))}</div>}
             </div>
           ))}
         </div>
@@ -498,7 +565,7 @@ function VenusCard({ card }: { card: any }) {
 
       {card.type === 'precedent' && (
         <div className="space-y-3">
-          {(card.content?.precedents ?? []).map((p: any, i: number) => (
+          {(normalizedContent.precedents ?? []).map((p: any, i: number) => (
             <div
               key={i}
               className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]"
@@ -521,18 +588,70 @@ function VenusCard({ card }: { card: any }) {
         </div>
       )}
 
-      {['market', 'decision'].includes(card.type) && (
-        <div className="space-y-2">
-          {(card.content?.points ?? card.content?.factors ?? []).map((p: any, i: number) => (
-            <div key={i} className="text-sm text-[var(--muted)] flex items-start gap-2">
-              <span className="text-[var(--mint)] mt-0.5">•</span>
-              <span>{typeof p === 'string' ? p : p.label ?? p.factor ?? JSON.stringify(p)}</span>
+      {card.type === 'market' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ['TAM', normalizedContent.tam],
+              ['SAM', normalizedContent.sam],
+              ['SOM', normalizedContent.som],
+              ['Growth', normalizedContent.growth],
+            ].filter(([, value]) => value != null && value !== '').map(([label, value]) => (
+              <div key={label} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{label}</div>
+                <div className="text-sm text-white font-mono">{String(value)}</div>
+              </div>
+            ))}
+          </div>
+          {normalizedContent.competitors && Array.isArray(normalizedContent.competitors) && normalizedContent.competitors.length > 0 && (
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-2">Competitors</div>
+              <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+                {normalizedContent.competitors.map((item: unknown, index: number) => <li key={index}>{renderInline(String(item))}</li>)}
+              </ul>
+            </div>
+          )}
+          {normalizedContent.whitespace && (
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-2">Whitespace</div>
+              <div className="text-sm text-[var(--muted)]">{renderInline(String(normalizedContent.whitespace))}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {card.type === 'decision' && (
+        <div className="space-y-3">
+          {(normalizedContent.options ?? []).map((option: any, i: number) => (
+            <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div className="font-semibold text-white">{option.name ?? `Option ${i + 1}`}</div>
+                {option.verdict && <div className="text-sm text-[var(--muted)]">{renderInline(String(option.verdict))}</div>}
+              </div>
+              {option.scores && isRecord(option.scores) && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {Object.entries(option.scores).map(([scoreKey, scoreValue]) => (
+                    <div key={scoreKey} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{scoreKey.replace(/_/g, ' ')}</div>
+                      <div className="text-sm font-mono text-white">{String(scoreValue)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
-          {/* Fallback */}
-          {!card.content?.points && !card.content?.factors && (
-            <pre className="text-xs text-[var(--muted)] font-mono whitespace-pre-wrap">{JSON.stringify(card.content, null, 2)}</pre>
+          {normalizedContent.recommendation && (
+            <div className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 p-3">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] mb-1">Recommendation</div>
+              <div className="text-sm text-[var(--muted)]">{renderInline(String(normalizedContent.recommendation))}</div>
+            </div>
           )}
+        </div>
+      )}
+
+      {!['analysis', 'risk', 'roadmap', 'precedent', 'market', 'decision'].includes(card.type) && (
+        <div className="space-y-2">
+          {renderStructuredValue(normalizedContent)}
         </div>
       )}
     </div>
