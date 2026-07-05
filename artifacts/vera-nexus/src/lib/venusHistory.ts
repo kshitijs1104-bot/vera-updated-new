@@ -6,6 +6,13 @@ export interface SavedAnalysis {
   title: string;
   summary: string;
   savedAt: string;
+  // Full response data needed to actually reopen/re-render this analysis later.
+  // Previously only title/summary were stored, so a saved item could be listed
+  // but never reopened — there was no data to render back into the chat view.
+  cards?: any[];
+  confidence?: 'verified' | 'exploratory';
+  confidenceNote?: string;
+  contextQuery?: string;
 }
 
 export interface ChatMessage {
