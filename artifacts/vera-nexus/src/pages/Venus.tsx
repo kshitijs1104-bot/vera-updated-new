@@ -328,16 +328,34 @@ export function VenusPage() {
 
                       {msg.content && <VenusMessage content={msg.content} confidence={msg.confidence} confidenceNote={msg.confidenceNote} />}
 
-                      {msg.cards && msg.cards.length > 0 && (
-                        <>
-                          <ResponseJumpNav cards={msg.cards} />
-                          <div className="grid grid-cols-1 gap-3 mt-2">
-                            {msg.cards.map((card: any, ci: number) => (
-                              <VenusCard key={ci} card={card} index={ci} contextQuery={msg.contextQuery || priorUserQuery} previousContextQuery={priorUserQuery} />
-                            ))}
-                          </div>
-                        </>
-                      )}
+                      {msg.cards && msg.cards.length > 0 && (() => {
+                        const orderedCards = (msg.cards ?? []).map((card: any, index: number) => ({
+                          ...card,
+                          role: card.role ?? (index === 0 ? 'primary' : 'supporting'),
+                        }));
+                        const primaryCards = orderedCards.filter((card: any) => card.role === 'primary');
+                        const displayCards = primaryCards.length > 0
+                          ? [...primaryCards, ...orderedCards.filter((card: any) => card.role !== 'primary')]
+                          : orderedCards;
+
+                        return (
+                          <>
+                            <ResponseJumpNav cards={displayCards} />
+                            <div className="grid grid-cols-1 gap-3 mt-2">
+                              {displayCards.map((card: any, ci: number) => (
+                                <VenusCard
+                                  key={`${ci}-${card.title ?? 'card'}`}
+                                  card={card}
+                                  index={ci}
+                                  contextQuery={msg.contextQuery || priorUserQuery}
+                                  previousContextQuery={priorUserQuery}
+                                  isPrimary={card.role === 'primary' || (primaryCards.length === 0 && ci === 0)}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        );
+                      })()}
 
                       {/* Response actions: copy markdown, download .md, save */}
                       <VenusResponseActions msg={msg} onSave={() => handleSaveResponse(msg)} />
@@ -530,6 +548,83 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
   return null;
 }
 
+function normalizeCompetitors(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(item => {
+      if (typeof item === 'string') {
+        const trimmed = item.trim();
+        if (!trimmed) return [];
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return normalizeCompetitors(parsed);
+          }
+          if (isRecord(parsed)) {
+            return [formatCompetitor(parsed)];
+          }
+        } catch {
+          return [trimmed];
+        }
+        return [trimmed];
+      }
+      if (isRecord(item)) {
+        return [formatCompetitor(item)];
+      }
+      return [String(item)];
+    });
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normalizeCompetitors(parsed);
+    } catch {
+      return [trimmed];
+    }
+  }
+
+  return [];
+}
+
+function formatCompetitor(competitor: Record<string, unknown>): string {
+  const name = typeof competitor.name === 'string' && competitor.name.trim()
+    ? competitor.name.trim()
+    : typeof competitor.company === 'string' && competitor.company.trim()
+      ? competitor.company.trim()
+      : typeof competitor.title === 'string' && competitor.title.trim()
+        ? competitor.title.trim()
+        : 'Competitor';
+  const description = typeof competitor.description === 'string' && competitor.description.trim()
+    ? competitor.description.trim()
+    : typeof competitor.summary === 'string' && competitor.summary.trim()
+      ? competitor.summary.trim()
+      : typeof competitor.notes === 'string' && competitor.notes.trim()
+        ? competitor.notes.trim()
+        : '';
+  const marketShare = competitor.marketShare != null ? String(competitor.marketShare) : '';
+  if (description && marketShare) return `${name} — ${description} (${marketShare})`;
+  if (description) return `${name} — ${description}`;
+  if (marketShare) return `${name} — ${marketShare}`;
+  return name;
+}
+
+function CompetitorList({ competitors }: { competitors: unknown }) {
+  if (import.meta.env.DEV) {
+    console.debug('[Venus] competitor payload', competitors);
+  }
+  const normalized = normalizeCompetitors(competitors);
+  if (normalized.length === 0) return null;
+  return (
+    <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+      {normalized.map((item, idx) => (
+        <li key={`${item}-${idx}`}>{renderInline(item)}</li>
+      ))}
+    </ul>
+  );
+}
+
 function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'exploratory'; note?: string }) {
   const isExploratory = confidence === 'exploratory';
   const label = isExploratory ? 'Exploratory — no precedent match' : 'Verified precedent';
@@ -564,8 +659,8 @@ function ResponseJumpNav({ cards }: { cards: any[] }) {
   );
 }
 
-function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '' }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string }) {
-  const [expanded, setExpanded] = useState(index < 2);
+function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '', isPrimary = false }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string; isPrimary?: boolean }) {
+  const [expanded, setExpanded] = useState(isPrimary);
   const typeColors: Record<string, string> = {
     analysis: 'var(--indigo-light)',
     market: 'var(--mint)',
@@ -579,25 +674,15 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
   const normalizedContent = isRecord(content) ? content : { value: content };
   const shouldRenderMarket = card.type !== 'market' || isMarketQueryRelevant(contextQuery);
   const changedScopeNote = previousContextQuery && contextQuery && previousContextQuery !== contextQuery ? 'Refined for current scope' : null;
+  const primary = Boolean(isPrimary || card.role === 'primary');
 
   if (!shouldRenderMarket) return null;
 
-  return (
-    <div id={`venus-card-${index}`} className="bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5 overflow-hidden">
-      <button type="button" onClick={() => setExpanded(v => !v)} className="flex w-full items-start justify-between gap-3 text-left">
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-          <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
-        </div>
-        <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{expanded ? 'Hide' : 'Show'}</span>
-      </button>
-
+  const body = (
+    <div className="mt-4 space-y-4">
       {changedScopeNote && (
-        <div className="mt-3 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)]">{changedScopeNote}</div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--mint)]">{changedScopeNote}</div>
       )}
-
-      {expanded && (
-        <div className="mt-4 space-y-4">
 
       {card.type === 'analysis' && (
         <ul className="space-y-2">
@@ -687,14 +772,10 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
               </div>
             ))}
           </div>
-          {normalizedContent.competitors && Array.isArray(normalizedContent.competitors) && normalizedContent.competitors.length > 0 && (
+          {normalizedContent.competitors != null && (
             <div>
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-2">Competitors</div>
-              <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
-                {normalizedContent.competitors.map((item: unknown, innerIndex: number) => (
-                  <li key={innerIndex}>{renderInline(getCompetitorLabel(item))}</li>
-                ))}
-              </ul>
+              <CompetitorList competitors={normalizedContent.competitors} />
             </div>
           )}
           {normalizedContent.whitespace && (
@@ -738,7 +819,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
       {card.type === 'funnel' && (
         <div className="space-y-2">
           {(normalizedContent.stages ?? normalizedContent.steps ?? []).map((stage: any, stageIndex: number) => (
-            <div key={stageIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3" style={{ marginLeft: `${stageIndex * 6}px`, marginRight: `${stageIndex * 6}px` }}>
+            <div key={stageIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
               <div className="flex items-start gap-2">
                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--indigo)]/20 text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
                 <div className="min-w-0">
@@ -754,7 +835,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
       {card.type === 'solution' && (
         <div className="space-y-2">
           {(normalizedContent.solutions ?? normalizedContent.options ?? []).map((solution: any, solutionIndex: number) => (
-            <div key={solutionIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3" style={{ marginLeft: `${solutionIndex * 4}px`, marginRight: `${solutionIndex * 4}px` }}>
+            <div key={solutionIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
               <div className="text-sm font-semibold text-white">{renderInline(String(solution.stage_title ?? solution.title ?? solution.name ?? 'Solution'))}</div>
               <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(solution.stage_detail ?? solution.detail ?? solution.description ?? ''))}</div>
             </div>
@@ -767,7 +848,33 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {renderStructuredValue(normalizedContent)}
         </div>
       )}
+    </div>
+  );
+
+  return (
+    <div id={`venus-card-${index}`} className={`bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5 overflow-hidden ${primary ? 'ring-1 ring-[var(--indigo)]/20 border-[var(--indigo)]/30' : ''}`}>
+      {primary ? (
+        <div>
+          <div className="flex items-start justify-between gap-3 text-left">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
+            </div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Primary answer</span>
+          </div>
+          {body}
         </div>
+      ) : (
+        <>
+          <button type="button" onClick={() => setExpanded(v => !v)} className="flex w-full items-start justify-between gap-3 text-left">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
+            </div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{expanded ? 'Hide' : 'Show'}</span>
+          </button>
+          {expanded && body}
+        </>
       )}
     </div>
   );
