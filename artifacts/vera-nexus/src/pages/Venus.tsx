@@ -26,6 +26,47 @@ const SAVED_TYPE_COLORS: Record<SavedAnalysisType, string> = {
   analysis: 'var(--dim)',
 };
 
+interface CompanyReportSnapshot {
+  foundedYear?: string;
+  founders?: string[];
+  fundingRaised?: string;
+  whatTheyBuilt?: string;
+}
+
+interface CompanyReport {
+  companyName: string;
+  snapshot: CompanyReportSnapshot;
+  timeline: Array<{ label: string; detail: string }>;
+  analysis: string;
+  sources: Array<{ title: string; url: string }>;
+  generatedAt: string;
+}
+
+interface CompanyReportState {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  report?: CompanyReport;
+  error?: string;
+}
+
+function normalizeCompanyKey(companyName: string) {
+  return companyName.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function loadCompanyReportCache(): Record<string, CompanyReportState> {
+  try {
+    const raw = localStorage.getItem('ve_company_reports');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCompanyReportCache(cache: Record<string, CompanyReportState>) {
+  try {
+    localStorage.setItem('ve_company_reports', JSON.stringify(cache));
+  } catch {}
+}
+
 function groupSavedByType(saved: ReturnType<typeof getSavedAnalyses>) {
   const groups: Partial<Record<SavedAnalysisType, typeof saved>> = {};
   for (const s of saved) {
@@ -47,6 +88,7 @@ export function VenusPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [groqKey, setGroqKey] = useState(() => localStorage.getItem('ve_groq_key') || '');
   const [input, setInput] = useState('');
+  const [companyReports, setCompanyReports] = useState<Record<string, CompanyReportState>>(loadCompanyReportCache);
   const endRef = useRef<HTMLDivElement | null>(null);
   const analyzeMutation = useVenusAnalyze();
 
@@ -115,6 +157,46 @@ export function VenusPage() {
     saveAnalysis({ type, title, summary: msg.content ?? '' });
     setSaved(getSavedAnalyses());
   };
+
+  const handleGenerateCompanyReport = useCallback(async (companyName: string) => {
+    const key = normalizeCompanyKey(companyName);
+    if (!key) return;
+
+    setCompanyReports(prev => ({
+      ...prev,
+      [key]: { status: 'loading', report: prev[key]?.report, error: undefined },
+    }));
+
+    try {
+      const response = await fetch('/api/ai/company-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName, context: messages[messages.length - 1]?.content ?? '' }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const report = await response.json();
+      const nextState = {
+        status: 'ready' as const,
+        report,
+      };
+      setCompanyReports(prev => {
+        const updated = { ...prev, [key]: nextState };
+        persistCompanyReportCache(updated);
+        return updated;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setCompanyReports(prev => {
+        const updated = { ...prev, [key]: { status: 'error', error: message } };
+        persistCompanyReportCache(updated);
+        return updated;
+      });
+    }
+  }, [messages]);
 
   const handleDeleteSaved = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -350,6 +432,8 @@ export function VenusPage() {
                                   contextQuery={msg.contextQuery || priorUserQuery}
                                   previousContextQuery={priorUserQuery}
                                   isPrimary={card.role === 'primary' || (primaryCards.length === 0 && ci === 0)}
+                                  companyReports={companyReports}
+                                  onGenerateCompanyReport={handleGenerateCompanyReport}
                                 />
                               ))}
                             </div>
@@ -659,8 +743,9 @@ function ResponseJumpNav({ cards }: { cards: any[] }) {
   );
 }
 
-function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '', isPrimary = false }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string; isPrimary?: boolean }) {
+function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '', isPrimary = false, companyReports, onGenerateCompanyReport }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string; isPrimary?: boolean; companyReports: Record<string, CompanyReportState>; onGenerateCompanyReport: (companyName: string) => Promise<void> }) {
   const [expanded, setExpanded] = useState(isPrimary);
+  const [reportExpanded, setReportExpanded] = useState(false);
   const typeColors: Record<string, string> = {
     analysis: 'var(--indigo-light)',
     market: 'var(--mint)',
@@ -675,6 +760,9 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
   const shouldRenderMarket = card.type !== 'market' || isMarketQueryRelevant(contextQuery);
   const changedScopeNote = previousContextQuery && contextQuery && previousContextQuery !== contextQuery ? 'Refined for current scope' : null;
   const primary = Boolean(isPrimary || card.role === 'primary');
+  const precedentCompany = card.type === 'precedent' ? (typeof normalizedContent.precedents?.[0]?.company === 'string' ? normalizedContent.precedents[0].company : null) : null;
+  const companyReportKey = precedentCompany ? normalizeCompanyKey(precedentCompany) : null;
+  const companyReportState = companyReportKey ? companyReports[companyReportKey] : undefined;
 
   if (!shouldRenderMarket) return null;
 
@@ -734,26 +822,96 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
 
       {card.type === 'precedent' && (
         <div className="space-y-3">
-          {(normalizedContent.precedents ?? []).map((p: any, i: number) => (
-            <div
-              key={i}
-              className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]"
-            >
-              <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
-                  <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
+          {(normalizedContent.precedents ?? []).map((p: any, i: number) => {
+            const reportKey = p.company ? normalizeCompanyKey(String(p.company)) : null;
+            const reportState = reportKey ? companyReports[reportKey] : undefined;
+            return (
+              <div
+                key={i}
+                className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]"
+              >
+                <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
+                    <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
+                  </div>
+                  {p.outcome && (
+                    <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
+                      {p.outcome}
+                    </span>
+                  )}
                 </div>
-                {p.outcome && (
-                  <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
-                    {p.outcome}
-                  </span>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
+                <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!p.company) return;
+                      if (reportState?.status === 'loading') return;
+                      if (reportState?.status === 'ready') {
+                        setReportExpanded(v => !v);
+                        return;
+                      }
+                      setReportExpanded(true);
+                      await onGenerateCompanyReport(String(p.company));
+                    }}
+                    className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] disabled:cursor-wait disabled:opacity-70"
+                    disabled={reportState?.status === 'loading'}
+                  >
+                    {reportState?.status === 'loading' ? 'Researching…' : reportState?.status === 'ready' ? (reportExpanded ? 'Hide report' : 'Show report') : 'Generate Report'}
+                  </button>
+                </div>
+
+                {reportExpanded && reportState && (
+                  <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface)]/70 p-3">
+                    {reportState.status === 'loading' && <div className="text-sm text-[var(--muted)]">Gathering public details and sources…</div>}
+                    {reportState.status === 'error' && <div className="text-sm text-[var(--red)]">{reportState.error ?? 'Report generation failed.'}</div>}
+                    {reportState.status === 'ready' && reportState.report && (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Snapshot</div>
+                          <div className="space-y-1 text-sm text-[var(--muted)]">
+                            {reportState.report.snapshot.foundedYear && <div>Founded: {renderInline(reportState.report.snapshot.foundedYear)}</div>}
+                            {reportState.report.snapshot.founders && reportState.report.snapshot.founders.length > 0 && <div>Founders: {renderInline(reportState.report.snapshot.founders.join(', '))}</div>}
+                            {reportState.report.snapshot.fundingRaised && <div>Funding: {renderInline(reportState.report.snapshot.fundingRaised)}</div>}
+                            {reportState.report.snapshot.whatTheyBuilt && <div>Built: {renderInline(reportState.report.snapshot.whatTheyBuilt)}</div>}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Timeline</div>
+                          <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+                            {reportState.report.timeline.map((entry, entryIndex) => (
+                              <li key={`${entry.label}-${entryIndex}`}><span className="text-white">{entry.label}</span>: {renderInline(entry.detail)}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">What happened</div>
+                          <p className="text-sm text-[var(--muted)] leading-relaxed">{renderInline(reportState.report.analysis)}</p>
+                        </div>
+                        {reportState.report.sources.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Sources</div>
+                            <ul className="space-y-1 text-sm">
+                              {reportState.report.sources.map((source, sourceIndex) => (
+                                <li key={`${source.url}-${sourceIndex}`}>
+                                  <a href={source.url} target="_blank" rel="noreferrer" className="text-[var(--mint)] hover:text-white underline decoration-dotted">
+                                    {source.title || source.url}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
-              <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -209,6 +209,106 @@ router.post("/ai/idea-review", async (req, res) => {
   }
 });
 
+router.post("/ai/company-report", async (req, res) => {
+  try {
+    const { companyName, context } = req.body as { companyName?: string; context?: string };
+    if (!companyName) return res.status(400).json({ error: "companyName is required" });
+
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const groq = await getGroqClient(sessionId);
+
+    if (!groq) {
+      return res.json({
+        companyName,
+        snapshot: {
+          foundedYear: "Unknown",
+          founders: [],
+          fundingRaised: "Unknown",
+          whatTheyBuilt: "Report generation requires a configured Groq API key.",
+        },
+        timeline: [],
+        analysis: "The report could not be generated because the Groq API key is not configured.",
+        sources: [],
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
+    const searchQuery = `${companyName} company overview funding founders timeline`; 
+    const searchUrl = `https://duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`;
+    const searchResponse = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    const searchHtml = await searchResponse.text();
+    const resultUrls = Array.from(new Set((searchHtml.match(/uddg="([^"]+)"/g) ?? []).map(match => match.slice(6, -1)).filter(Boolean).slice(0, 5)));
+
+    const articleSnippets = [] as string[];
+    for (const url of resultUrls) {
+      try {
+        const target = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        const articleResponse = await fetch(`https://r.jina.ai/http://${new URL(target).host}${new URL(target).pathname}${new URL(target).search}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+        const articleText = await articleResponse.text();
+        if (articleText) articleSnippets.push(articleText.slice(0, 5000));
+      } catch {
+        // ignore failing fetches and continue with the other sources
+      }
+    }
+
+    const prompt = `You are researching the company "${companyName}" for a founder-facing brief. Use the search snippets below as the only source material. If the evidence is weak or contradictory, mark unknown values rather than inventing facts. Return ONLY valid JSON with this shape: {"companyName":"string","snapshot":{"foundedYear":"string","founders":["string"],"fundingRaised":"string","whatTheyBuilt":"string"},"timeline":[{"label":"string","detail":"string"}],"analysis":"2-4 sentences","sources":[{"title":"string","url":"string"}]}. Do not mention that you are an AI. Do not include markdown. Context: ${context ?? ""}
+
+Search excerpts:
+${articleSnippets.join("\n\n").slice(0, 20000)}`;
+
+    const { parsed } = await callGroqJSON(
+      groq,
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: "You synthesize factual company reports from web excerpts. Return strict JSON only and do not invent facts." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 2000,
+      },
+      "ai/company-report",
+    );
+
+    const report = parsed && typeof parsed === "object"
+      ? {
+          companyName,
+          snapshot: {
+            foundedYear: parsed.snapshot?.foundedYear ?? "Unknown",
+            founders: Array.isArray(parsed.snapshot?.founders) ? parsed.snapshot.founders : [],
+            fundingRaised: parsed.snapshot?.fundingRaised ?? "Unknown",
+            whatTheyBuilt: parsed.snapshot?.whatTheyBuilt ?? "Unknown",
+          },
+          timeline: Array.isArray(parsed.timeline) ? parsed.timeline : [],
+          analysis: parsed.analysis ?? "No additional detail was available from the lookup sources.",
+          sources: Array.isArray(parsed.sources) ? parsed.sources : resultUrls.map(url => ({ title: url, url })),
+          generatedAt: new Date().toISOString(),
+        }
+      : {
+          companyName,
+          snapshot: { foundedYear: "Unknown", founders: [], fundingRaised: "Unknown", whatTheyBuilt: "Unknown" },
+          timeline: [],
+          analysis: "The lookup did not return a structured report.",
+          sources: resultUrls.map(url => ({ title: url, url })),
+          generatedAt: new Date().toISOString(),
+        };
+
+    return res.json(report);
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to generate company report" });
+  }
+});
+
 router.post("/ai/summarize-article", async (req, res) => {
   try {
     const { articleId, title, body } = req.body as { articleId?: number; title?: string; body?: string };
