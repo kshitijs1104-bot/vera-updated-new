@@ -374,52 +374,62 @@ export function VenusPage() {
 
         {/* Messages */}
         {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
-              <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
-                <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
+          // NOTE: the outer div is scrollable and the inner div uses `m-auto`
+          // instead of the parent using `justify-center`. A centered flex
+          // parent with overflow content clips symmetrically and there is no
+          // way to scroll up to reach the clipped top — which is exactly what
+          // was hiding the example prompts on shorter viewports. `m-auto`
+          // still centers when everything fits, but collapses to 0 and lets
+          // the container scroll normally once content is taller than the
+          // available space.
+          <div className="flex-1 overflow-y-auto flex flex-col items-center p-8 text-center">
+            <div className="m-auto flex flex-col items-center w-full py-4">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
+                <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
+                  <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
+                </div>
               </div>
-            </div>
-            <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
-            <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
-              Elite business intelligence. No hedging. Pure signal.
-            </p>
+              <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
+              <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
+                Elite business intelligence. No hedging. Pure signal.
+              </p>
 
-            <form
-              onSubmit={e => { e.preventDefault(); handleSend(); }}
-              className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
-            >
-              <textarea
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Ask Venus for unvarnished analysis..."
-                rows={1}
-                className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || analyzeMutation.isPending}
-                className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+              <form
+                onSubmit={e => { e.preventDefault(); handleSend(); }}
+                className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-                </svg>
-              </button>
-            </form>
-
-            <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
-              {EXAMPLE_PROMPTS.map(prompt => (
+                <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  placeholder="Ask Venus for unvarnished analysis..."
+                  rows={1}
+                  className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+                />
                 <button
-                  key={prompt}
-                  onClick={() => handleSend(prompt)}
-                  className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+                  type="submit"
+                  disabled={!input.trim() || analyzeMutation.isPending}
+                  className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
                 >
-                  <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
-                  {prompt}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                  </svg>
                 </button>
-              ))}
+              </form>
+
+              <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
+                {EXAMPLE_PROMPTS.map(prompt => (
+                  <button
+                    key={prompt}
+                    onClick={() => handleSend(prompt)}
+                    className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+                  >
+                    <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (

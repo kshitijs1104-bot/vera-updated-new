@@ -71,10 +71,25 @@ function requiresContext(message: string) {
   const normalized = normalizeQueryText(message);
   if (!normalized) return false;
 
-  const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription)/i;
-  const isSimpleDefinition = /(what is|what's|define|framework|concept|difference between|explain)/i;
+  const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription|risk|risks|threat|threats|weakness|weaknesses|vulnerability|vulnerabilities|priority|priorities|bottleneck|blocker|blockers|mistake|mistakes|blind spot|moat|differentiation|runway|burn)/i;
 
-  return contextNeedWords.test(normalized) && !isSimpleDefinition.test(normalized);
+  // The fixed keyword list above can never fully anticipate every phrasing.
+  // Any message that personally references "my/our/mine" (or asks someone to
+  // fund/back/hire/acquire "us") is inherently about THIS specific company,
+  // regardless of which noun follows — e.g. "what's MY biggest risk",
+  // "companies similar to MINE", "most likely to fund US". Without this, a
+  // query using none of the exact keywords above (like "risk") slips through
+  // the gate entirely and Venus starts guessing instead of asking.
+  const personalBusinessReference = /\b(my|our|mine|ours)\b/i.test(normalized)
+    || /\b(fund|back|hire|acquire|invest in|work with)\s+us\b/i.test(normalized);
+
+  // Don't gate genuinely generic definition questions ("what is a moat?"),
+  // but a definition-style opener followed by "my/our/mine" is still a
+  // personal question ("what's MY biggest risk") and must still be gated.
+  const isSimpleDefinition = /(what is|what's|define|framework|concept|difference between|explain)/i.test(normalized)
+    && !/\b(my|our|mine|ours)\b/i.test(normalized);
+
+  return (contextNeedWords.test(normalized) || personalBusinessReference) && !isSimpleDefinition;
 }
 
 const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
