@@ -1,3 +1,5 @@
 - [Drizzle array queries](drizzle-array-and-upsert-gotchas.md) — use `inArray()` not raw `sql ANY(${arr}::int[])`; use `onConflictDoNothing()`+re-select for getOrCreate-by-unique-key patterns.
 - [Vercel/v0 migration checklist](vercel-v0-migration.md) — after copying source into a Vite artifact, verify App.tsx was actually wired to real routes, not left as the scaffold placeholder.
 - [Reopened-from-GitHub regressions](reopened-from-github-regressions.md) — DB tables can come back empty and CSS theme vars can revert to literal placeholders; check both before assuming a code regression.
+- [Lexical retrieval-gating false positives](retrieval-gating-lexical-overlap.md) — generic domain vocabulary ("startup","raise","series") inflates keyword-overlap match scores; strip it or gating leaks ungrounded answers.
+- [Groq small-model JSON robustness](groq-json-retry-pattern.md) — 8b-instant models need extract-braces + retry-with-stricter-prompt to reliably return parseable JSON; also don't mix incompatible output-format instructions in one shared system prompt.

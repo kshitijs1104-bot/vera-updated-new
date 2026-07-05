@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, companiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { ListCompaniesQueryParams } from "@workspace/api-zod";
-import { getGroqClient, buildAutopsyFallback } from "../lib/groq";
+import { getGroqClient, buildAutopsyFallback, callGroqJSON } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt } from "../lib/retrieval";
 
 const router = Router();
@@ -57,16 +57,18 @@ router.post("/companies/:id/autopsy", async (req, res) => {
       return res.json({ companyId: id, ...buildAutopsyFallback(company.name) });
     }
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages: [
-        {
-          role: "system",
-          content: `You are an elite post-mortem analyst for failed companies. You think causally — you explain exactly why they failed, step by step. Use real facts, real numbers, real names. Return ONLY valid JSON, no markdown.`,
-        },
-        {
-          role: "user",
-          content: `Perform a deep autopsy on this failed company:
+    const { parsed, raw } = await callGroqJSON(
+      groq,
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `You are an elite post-mortem analyst for failed companies. You think causally — you explain exactly why they failed, step by step. Use real facts, real numbers, real names. Return ONLY valid JSON, no markdown.`,
+          },
+          {
+            role: "user",
+            content: `Perform a deep autopsy on this failed company:
 Name: ${company.name}
 Period: ${company.yearRange}
 Category: ${company.category}
@@ -74,19 +76,18 @@ Description: ${company.description}
 Tags: ${company.tags.join(", ")}
 
 Return JSON: { "rootCause": "The single root cause in 1-2 sharp sentences", "timeline": "What happened and when in 2-3 sentences", "lessonsLearned": ["lesson1", "lesson2", "lesson3", "lesson4"], "causalChain": ["Initial mistake", "Compounding factor", "Point of no return", "Final collapse"], "analogy": "One sharp analogy to another well-known failure or pattern" }`,
-        },
-      ],
-      temperature: 0.4,
-      max_tokens: 1000,
-    });
+          },
+        ],
+        temperature: 0.4,
+        max_tokens: 1200,
+      },
+      `companies/${id}/autopsy`,
+    );
 
-    const content = completion.choices[0]?.message?.content || "";
-    try {
-      const parsed = JSON.parse(content);
+    if (parsed) {
       return res.json({ companyId: id, ...parsed });
-    } catch {
-      return res.json({ companyId: id, rootCause: content, timeline: "", lessonsLearned: [], causalChain: [], analogy: null });
     }
+    return res.json({ companyId: id, rootCause: raw.slice(0, 500) || "Autopsy generation failed after retry.", timeline: "", lessonsLearned: [], causalChain: [], analogy: null });
   } catch (err) {
     req.log.error(err);
     return res.json({ companyId: parseInt(req.params.id), ...buildAutopsyFallback("this company") });
@@ -186,22 +187,13 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
       }
     }
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages,
-      temperature: 0.6,
-      max_tokens: 400,
-    });
+    const { parsed, raw } = await callGroqJSON(
+      groq,
+      { model: "llama-3.1-8b-instant", messages, temperature: 0.6, max_tokens: 800 },
+      `companies/${id}/autopsy/chat`,
+    );
 
-    const content = completion.choices[0]?.message?.content || "";
-    // Robustly extract the JSON object even if the model wraps it in markdown
-    // fences or adds stray prose around it.
-    const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    const jsonStart = stripped.indexOf("{");
-    const jsonEnd = stripped.lastIndexOf("}");
-    const candidate = jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
-    try {
-      const parsed = JSON.parse(candidate);
+    if (parsed) {
       return res.json({
         reply: parsed.reply,
         companyState: parsed.companyState || "Critical",
@@ -209,20 +201,20 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
         gameOver: isFinal ? true : (parsed.gameOver || false),
         outcome: isFinal ? (parsed.outcome || "failed") : null,
       });
-    } catch {
-      // Last resort: pull the reply field out via regex so we never surface raw JSON.
-      const replyMatch = content.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      const fallbackReply = replyMatch
-        ? replyMatch[1].replace(/\\"/g, '"').replace(/\\n/g, "\n")
-        : content.slice(0, 800);
-      return res.json({
-        reply: fallbackReply,
-        companyState: "Critical",
-        attempt,
-        gameOver: isFinal,
-        outcome: isFinal ? "failed" : null,
-      });
     }
+
+    // Last resort: pull the reply field out via regex so we never surface raw JSON.
+    const replyMatch = raw.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const fallbackReply = replyMatch
+      ? replyMatch[1].replace(/\\"/g, '"').replace(/\\n/g, "\n")
+      : raw.slice(0, 800) || "Simulation response failed after retry. Please try again.";
+    return res.json({
+      reply: fallbackReply,
+      companyState: "Critical",
+      attempt,
+      gameOver: isFinal,
+      outcome: isFinal ? "failed" : null,
+    });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Failed to process CEO chat" });

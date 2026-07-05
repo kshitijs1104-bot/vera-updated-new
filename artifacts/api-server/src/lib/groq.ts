@@ -25,19 +25,72 @@ Never include a card without genuine specific insight in it. If you do not have 
 
 CRITICAL — RETRIEVAL-GATED PRECEDENTS: You will be given a block of VERIFIED PRECEDENTS retrieved from a real, curated startup outcomes dataset. These are the ONLY companies you are allowed to name as precedents in this response. You MUST NOT invent, recall from general knowledge, or reference any company outcome, causal mechanism, or statistic that is not explicitly present in the VERIFIED PRECEDENTS block below. Any precedent card you produce must map directly to one of the verified records (same company name, same outcome, same causal mechanism — you may paraphrase but not add unverified facts). If the VERIFIED PRECEDENTS block is empty, you MUST NOT include a precedent card at all and MUST NOT name any specific company anywhere in your response (no real company names in summary, analysis, market, risk, roadmap, or decision content) — speak only in general structural/strategic terms for that response.
 
-CRITICAL FOR DECISION SIMULATOR (Interim CEO) MODE: In this mode, your "summary" field is displayed as the AI-generated decision/analysis response in a scrollable modal chat interface.
+Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.
 
-RESPONSE FORMAT (REQUIRED):
-Your reply MUST be 2-3 sentences maximum. State the core insight first, then explain the single most important reason why. Be direct and punchy. Example:
-"Cut burn rate by 50% immediately—extend runway from 4 months to 8. Your cash reserves won't sustain current spend for the board round timeline."
+Your entire response must be a single JSON object matching the shape above — nothing before it, nothing after it, no markdown fences.`;
 
-After the response, ALWAYS include a STATS SECTION on its own line. Format exactly as shown (pipe-delimited):
-STATS|burn_rate_percent:XX|runway_months:XX|cash_position:LOW/MEDIUM/HIGH|key_metric:VALUE|key_metric_2:VALUE
-Example: STATS|burn_rate_percent:15|runway_months:8|cash_position:MEDIUM|customers:1250|churn_rate:5%
+export function extractJson(content: string): string {
+  const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const jsonStart = stripped.indexOf("{");
+  const jsonEnd = stripped.lastIndexOf("}");
+  return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
+}
 
-This stats line will be parsed and displayed as labeled key-value pairs in the context panel. Use real numbers/percentages. If a stat is unknown, use "?" as the value.
+interface GroqJsonParams {
+  model: string;
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  temperature: number;
+  max_tokens: number;
+}
 
-Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.`;
+/**
+ * Calls Groq expecting a single JSON object back. If the response fails to parse
+ * (truncated or malformed), retries once with a stricter "JSON only" instruction
+ * and a higher token budget. Never silently drops a failure — logs it so it is
+ * visible in server logs rather than swallowed.
+ */
+export async function callGroqJSON(
+  groq: Groq,
+  params: GroqJsonParams,
+  label: string,
+): Promise<{ parsed: any | null; raw: string }> {
+  const completion = await groq.chat.completions.create(params);
+  const raw = completion.choices[0]?.message?.content || "";
+  const candidate = extractJson(raw);
+
+  try {
+    return { parsed: JSON.parse(candidate), raw };
+  } catch {
+    console.error(`[callGroqJSON] "${label}" — initial response failed to parse (len=${raw.length}), retrying with stricter prompt + higher token budget`);
+
+    const retryMessages: GroqJsonParams["messages"] = [
+      ...params.messages,
+      {
+        role: "user",
+        content: "Your previous response was not valid JSON or was truncated. Return ONLY the complete, valid JSON object now — no markdown fences, no preamble, no commentary, nothing before or after the JSON.",
+      },
+    ];
+
+    try {
+      const retryCompletion = await groq.chat.completions.create({
+        ...params,
+        messages: retryMessages,
+        max_tokens: Math.min(params.max_tokens * 2, 4000),
+      });
+      const raw2 = retryCompletion.choices[0]?.message?.content || "";
+      const candidate2 = extractJson(raw2);
+      try {
+        return { parsed: JSON.parse(candidate2), raw: raw2 };
+      } catch {
+        console.error(`[callGroqJSON] "${label}" — retry ALSO failed to parse (len=${raw2.length}). Giving up, surfacing raw content to caller. raw2_head=${raw2.slice(0, 300)}`);
+        return { parsed: null, raw: raw2 };
+      }
+    } catch (retryErr) {
+      console.error(`[callGroqJSON] "${label}" — retry call itself threw`, retryErr);
+      return { parsed: null, raw };
+    }
+  }
+}
 
 export async function getGroqClient(sessionId: string): Promise<Groq | null> {
   try {

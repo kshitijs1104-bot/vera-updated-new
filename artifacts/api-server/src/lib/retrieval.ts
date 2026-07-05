@@ -17,6 +17,15 @@ const STOPWORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "be", "been", "to", "of", "in", "on", "for", "and", "or",
   "we", "our", "i", "my", "should", "would", "could", "what", "how", "do", "does", "will", "with", "about",
   "this", "that", "it", "its", "us", "me", "you", "your", "can", "if", "as", "at", "by", "from", "into",
+  // Generic startup/business vocabulary that appears in nearly every precedent's
+  // text — these carry no real topical signal and previously caused false-positive
+  // matches on completely unrelated queries (e.g. a satellite-hardware query
+  // matching a foodtech precedent purely because both mention "startup"/"raise").
+  "startup", "startups", "company", "companies", "business", "businesses", "raise", "raising", "raised",
+  "series", "funding", "fund", "funded", "product", "products", "market", "markets", "team", "teams",
+  "build", "building", "built", "launch", "launching", "launched", "scale", "scaling", "scaled",
+  "now", "need", "needs", "idea", "ideas", "operator", "operators", "founder", "founders", "money",
+  "revenue", "growth", "grow", "growing", "customer", "customers", "year", "years",
 ]);
 
 function tokenize(text: string): string[] {
@@ -54,6 +63,10 @@ export interface RetrievalResult {
 
 const MATCH_THRESHOLD = 0.12;
 const TOP_K = 4;
+// Even if the ratio threshold is hit, require at least this many real overlapping
+// substantive tokens (post-stopword) so a match can't be manufactured from a
+// single coincidental word when the query has very few tokens overall.
+const MIN_RAW_OVERLAP = 2;
 
 export async function retrievePrecedents(query: string, opts?: { sector?: string; businessContext?: string }): Promise<RetrievalResult> {
   const all = await db.select().from(precedentsTable);
@@ -63,7 +76,7 @@ export async function retrievePrecedents(query: string, opts?: { sector?: string
   const inferredSector = opts?.sector || inferSector(combinedQuery);
   const sectorCoverageCount = inferredSector ? all.filter((p) => p.sector === inferredSector).length : 0;
 
-  const scored: PrecedentMatch[] = all.map((p) => {
+  const scored: (PrecedentMatch & { overlap: number })[] = all.map((p) => {
     const haystack = [
       p.embeddingSummary,
       p.decisionContext,
@@ -84,16 +97,23 @@ export async function retrievePrecedents(query: string, opts?: { sector?: string
     const denom = Math.max(queryTokens.size, 1);
     let score = overlap / denom;
 
-    // sector match is a strong signal on top of lexical overlap
+    // sector match is a strong signal on top of lexical overlap, but only
+    // counts toward the raw-overlap floor if there is also at least some
+    // genuine lexical overlap — otherwise a bare sector inference (from a
+    // single loosely-matched keyword) could pass the gate with zero real
+    // topical connection to the retrieved precedent's actual content.
     if (inferredSector && p.sector === inferredSector) {
       score += 0.25;
     }
 
-    return { precedent: p, score };
+    return { precedent: p, score, overlap };
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, TOP_K).filter((s) => s.score >= MATCH_THRESHOLD);
+  const top = scored
+    .slice(0, TOP_K)
+    .filter((s) => s.score >= MATCH_THRESHOLD && s.overlap >= MIN_RAW_OVERLAP)
+    .map(({ precedent, score }) => ({ precedent, score }));
 
   const confidence = top.length > 0 ? Math.min(1, top[0].score) : 0;
   const matched = top.length > 0 && confidence >= MATCH_THRESHOLD;

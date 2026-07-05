@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, callGroqJSON } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
 
 const router = Router();
@@ -76,36 +76,28 @@ router.post("/ai/analyze", async (req, res) => {
 
     messages.push({ role: "user", content: body.data.message });
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages,
-      temperature: 0.4,
-      max_tokens: 3000,
-    });
+    const { parsed, raw } = await callGroqJSON(
+      groq,
+      { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
+      "ai/analyze",
+    );
 
-    const content = completion.choices[0]?.message?.content || "";
-    const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    const jsonStart = stripped.indexOf("{");
-    const jsonEnd = stripped.lastIndexOf("}");
-    const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
-
-    try {
-      const parsed = JSON.parse(jsonStr);
+    if (parsed) {
       return res.json(parsed);
-    } catch {
-      return res.json({
-        summary: content.slice(0, 300),
-        cards: [
-          {
-            type: "analysis",
-            title: "Response",
-            content: {
-              points: [{ label: "Note", value: "Response format error. Please try again.", sentiment: "neutral" }],
-            },
-          },
-        ],
-      });
     }
+
+    return res.json({
+      summary: raw.slice(0, 300) || "Venus AI could not produce a well-formed response for this query. Please try again.",
+      cards: [
+        {
+          type: "analysis",
+          title: "Response",
+          content: {
+            points: [{ label: "Note", value: "Response format error after retry. Please try again.", sentiment: "neutral" }],
+          },
+        },
+      ],
+    });
   } catch (err) {
     req.log.error(err);
     return res.json(buildFallbackVenusResponse("your query"));
@@ -141,26 +133,27 @@ router.post("/ai/idea-review", async (req, res) => {
 
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
-      messages: [
-        { role: "system", content: `${VENUS_PROMPT}\n\n${precedentBlock}` },
-        {
-          role: "user",
-          content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,
-        },
-      ],
-      temperature: 0.4,
-      max_tokens: 2000,
-    });
+    const { parsed } = await callGroqJSON(
+      groq,
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: `${VENUS_PROMPT}\n\n${precedentBlock}` },
+          {
+            role: "user",
+            content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,
+          },
+        ],
+        temperature: 0.4,
+        max_tokens: 3000,
+      },
+      "ai/idea-review",
+    );
 
-    const content = completion.choices[0]?.message?.content || "";
-    try {
-      const parsed = JSON.parse(content);
+    if (parsed) {
       return res.json(parsed);
-    } catch {
-      return res.json(buildFallbackVenusResponse(body.data.idea));
     }
+    return res.json(buildFallbackVenusResponse(body.data.idea));
   } catch (err) {
     req.log.error(err);
     return res.json(buildFallbackVenusResponse("your idea"));
