@@ -59,20 +59,66 @@ interface GroqJsonParams {
  * and a higher token budget. Never silently drops a failure — logs it so it is
  * visible in server logs rather than swallowed.
  */
-// Wraps a single Groq call with retry + backoff for genuine transient failures
-// (rate limits, timeouts, transient 5xx from Groq's API) so a momentary network
-// blip never surfaces to the user as an error — it just quietly retries.
+// Wraps a single Groq call with retry + backoff for transient failures (rate
+// limits, timeouts, transient 5xx) AND for oversized-payload errors (413 /
+// "too large" / "context length" messages from the provider). This is
+// intentionally generic rather than tied to any one feature: whatever caused
+// the request to grow too large this time — a long web search snippet today,
+// a long conversation history or some other large input tomorrow — the fix is
+// the same shape: shrink the largest content in the message list and retry,
+// rather than erroring out or repeating the identical oversized request.
+function isRetryableTransient(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  return status === 429 || (status >= 500 && status < 600) || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET";
+}
+
+function isOversizedPayload(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  if (status === 413) return true;
+  const msg = (err?.message || err?.error?.message || "").toLowerCase();
+  return /too large|too long|context length|maximum context|payload/i.test(msg);
+}
+
+// Shrinks the largest message(s) in the array to a target fraction of their
+// current length, preserving the system prompt's structural instructions as
+// much as possible by trimming from the end of long content blocks. Generic
+// over message role/content — doesn't know or care what put the extra length
+// there.
+function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
+  return messages.map((m) => {
+    const targetLen = Math.floor(m.content.length * keepFraction);
+    return targetLen < m.content.length ? { ...m, content: m.content.slice(0, targetLen) } : m;
+  });
+}
+
+export function isContentPolicyRefusal(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  const code = (err?.code || err?.error?.code || "").toLowerCase();
+  const msg = (err?.message || err?.error?.message || "").toLowerCase();
+  return status === 400 && (code.includes("content") || code.includes("policy") || /content.?polic|flagged|refus/i.test(msg));
+}
+
 async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string, attempts = 3) {
   let lastErr: unknown;
+  let currentParams = params;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await groq.chat.completions.create(params);
+      return await groq.chat.completions.create(currentParams);
     } catch (err: any) {
       lastErr = err;
       const status = err?.status ?? err?.response?.status;
-      // 429 (rate limit) and 5xx are worth retrying; 4xx auth/validation errors are not.
-      const isRetryable = status === 429 || (status >= 500 && status < 600) || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET";
-      if (!isRetryable || i === attempts - 1) throw err;
+      // A content-policy refusal from the provider is never retryable — retrying
+      // or shrinking the payload won't change the provider's answer.
+      if (isContentPolicyRefusal(err)) throw err;
+      if (isOversizedPayload(err)) {
+        // Halve message sizes each retry — generic degradation, not a fix
+        // targeted at any specific source of bloat.
+        console.error(`[callGroqJSON] "${label}" — payload too large (status=${status}), shrinking messages and retrying (${i + 1}/${attempts - 1})`);
+        currentParams = { ...currentParams, messages: shrinkMessages(currentParams.messages, 0.5) };
+        if (i === attempts - 1) throw err;
+        continue;
+      }
+      if (!isRetryableTransient(err) || i === attempts - 1) throw err;
       const delayMs = 300 * Math.pow(2, i); // 300ms, 600ms, 1200ms
       console.error(`[callGroqJSON] "${label}" — transient error (status=${status}), retry ${i + 1}/${attempts - 1} after ${delayMs}ms`);
       await new Promise((r) => setTimeout(r, delayMs));
@@ -175,28 +221,22 @@ export function buildFallbackVenusResponse(message: string): object {
   };
 }
 
-// Used for genuine runtime/API errors (bad request, network, parsing exhaustion)
-// caught after we already confirmed a Groq client/key exists. Must never claim
-// "not configured" — that phrase should only ever describe a truly missing key.
-export function buildTransientErrorResponse(message: string, reason?: string): object {
+// This is the true last resort — only reached after retries AND payload
+// shrinking have both been exhausted (see createWithRetry) or a genuinely
+// non-retryable error occurred. Intentionally short and plain: no confidence
+// badge, no diagnostic card, no "status/fix" breakdown. Those made a rare,
+// real failure look like a rich structured answer, which is misleading. This
+// is the one honest "something didn't work" message in the whole system —
+// everything else should be handled by retrying, shrinking, or falling
+// through to general/web-search-grounded reasoning instead of erroring.
+export function buildTransientErrorResponse(message: string, kind?: "policy"): object {
   return {
-    summary: "Venus AI hit a temporary problem reaching the model, not a problem with your question. Please try again in a moment.",
-    confidence: "exploratory",
-    confidenceNote: "The response is only a fallback because the backend request failed — this is not a signal that the query itself was unclear.",
+    summary: kind === "policy"
+      ? "Sorry, Venus AI can't answer that. Please try a different question."
+      : "Sorry, Venus AI couldn't answer that right now. Please try again or ask something else.",
     isError: true,
     errorType: "transient",
-    cards: [
-      {
-        type: "analysis",
-        title: "Temporary Error",
-        content: {
-          points: [
-            { label: "Status", value: reason || "Request to the AI backend failed unexpectedly", sentiment: "neutral" },
-            { label: "Fix", value: "Just try again — no need to reword your question", sentiment: "neutral" },
-          ],
-        },
-      },
-    ],
+    cards: [],
   };
 }
 

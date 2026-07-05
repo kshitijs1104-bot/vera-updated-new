@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 
@@ -248,7 +248,7 @@ router.post("/ai/analyze", async (req, res) => {
 
     messages.push({ role: "user", content: body.data.message });
 
-    const { parsed, raw, errorType } = await callGroqJSON(
+    const { parsed } = await callGroqJSON(
       groq,
       { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
       "ai/analyze",
@@ -269,46 +269,14 @@ router.post("/ai/analyze", async (req, res) => {
     }
 
     const shortQueryFallback = buildShortQueryFallback(body.data.message);
-    const errorResponse = errorType === "parse"
-      ? {
-          summary: "Venus AI could not produce a well-formed response for this query after retrying. Please try again.",
-          isError: true,
-          errorType: "parse",
-          cards: [
-            {
-              type: "analysis",
-              title: "Response format issue",
-              content: {
-                points: [{ label: "Note", value: "The model returned malformed JSON after repair attempts.", sentiment: "neutral" }],
-              },
-            },
-          ],
-          confidenceTier: retrieval.tier,
-        }
-      : {
-          summary: raw.slice(0, 300) || "Venus AI could not produce a well-formed response for this query. Please try again.",
-          cards: [
-            {
-              type: "analysis",
-              title: "Response",
-              content: {
-                points: [{ label: "Note", value: "Response format error after retry. Please try again.", sentiment: "neutral" }],
-              },
-            },
-          ],
-          confidenceTier: retrieval.tier,
-        };
-
-    return res.json(shortQueryFallback || errorResponse);
+    // A parse failure (model didn't return usable JSON even after the repair
+    // retry in callGroqJSON) is just another case of "nothing usable came
+    // back" — it gets the same short, plain, honest fallback as any other
+    // exhausted-retries case, not its own diagnostic card.
+    return res.json(shortQueryFallback || buildTransientErrorResponse(body.data.message));
   } catch (err: any) {
     req.log.error(err);
-    const status = err?.status ?? err?.response?.status;
-    const reason = status === 429
-      ? "AI provider rate limit hit — too many requests in a short window"
-      : status
-        ? `AI provider returned an error (status ${status})`
-        : "Request to the AI backend failed unexpectedly";
-    return res.json(buildTransientErrorResponse("your query", reason));
+    return res.json(buildTransientErrorResponse(body.data.message, isContentPolicyRefusal(err) ? "policy" : undefined));
   }
 });
 
@@ -376,10 +344,10 @@ router.post("/ai/idea-review", async (req, res) => {
       applyTierLabel(parsed, retrieval);
       return res.json(parsed);
     }
-    return res.json(buildFallbackVenusResponse(body.data.idea));
-  } catch (err) {
+    return res.json(buildTransientErrorResponse(body.data.idea));
+  } catch (err: any) {
     req.log.error(err);
-    return res.json(buildFallbackVenusResponse("your idea"));
+    return res.json(buildTransientErrorResponse(body.data.idea, isContentPolicyRefusal(err) ? "policy" : undefined));
   }
 });
 

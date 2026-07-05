@@ -18,13 +18,42 @@ export interface WebSearchResult {
 
 const SEARCH_TIMEOUT_MS = 8000;
 const PER_SOURCE_TIMEOUT_MS = 6000;
-const MAX_SOURCES = 5;
-const SNIPPET_CHAR_LIMIT = 3000;
+const MAX_SOURCES = 4;
+// Hard ceiling on the COMBINED size of everything this function hands back,
+// regardless of how many sources came in or how large any single page was.
+// This exists because a per-source cap alone isn't enough — 4-5 sources each
+// under their own limit can still add up to a payload large enough to blow
+// past the model's context window (this is what caused the 413s). Whatever
+// number of sources come back, they always share this one fixed budget.
+const TOTAL_SNIPPET_CHAR_BUDGET = 6000;
 
 function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
+// r.jina.ai's readability extraction is generally good but still leaves in
+// repeated blank lines, occasional markdown link-noise, and boilerplate
+// (cookie notices, "subscribe" prompts) often duplicated across many lines.
+// Collapsing whitespace and dropping very short noise-lines buys back real
+// content within the character budget instead of spending it on junk.
+function cleanScrapedText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n")
+    .replace(/\n{2,}/g, "\n");
+}
+
+// Splits a fixed total character budget across however many sources actually
+// came back, so the combined result is bounded no matter what the search
+// returned this time — 1 source or 4, short pages or long ones.
+function applySharedBudget(sources: { url: string; snippet: string }[], totalBudget: number): { url: string; snippet: string }[] {
+  if (sources.length === 0) return sources;
+  const perSource = Math.floor(totalBudget / sources.length);
+  return sources.map((s) => ({ url: s.url, snippet: s.snippet.slice(0, perSource) }));
 }
 
 /**
@@ -69,7 +98,7 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
               { headers: { "User-Agent": "Mozilla/5.0" }, signal: srcSignal },
             );
             const text = await articleResponse.text();
-            return text ? { url: target, snippet: text.slice(0, SNIPPET_CHAR_LIMIT) } : null;
+            return text ? { url: target, snippet: cleanScrapedText(text) } : null;
           } finally {
             srcCancel();
           }
@@ -81,7 +110,8 @@ export async function webSearch(query: string): Promise<WebSearchResult> {
     );
 
     const usable = sources.filter((s): s is { url: string; snippet: string } => s !== null && s.snippet.trim().length > 0);
-    return { query, sources: usable, empty: usable.length === 0 };
+    const budgeted = applySharedBudget(usable, TOTAL_SNIPPET_CHAR_BUDGET);
+    return { query, sources: budgeted, empty: budgeted.length === 0 };
   } catch {
     // network failure, DNS issue, etc — search itself failed entirely
     return { query, sources: [], empty: true };
