@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, callGroqJSON } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
 
 const router = Router();
@@ -52,15 +52,19 @@ router.post("/ai/analyze", async (req, res) => {
 
     const retrieval = await retrievePrecedents(body.data.message, { businessContext: body.data.businessContext });
 
-    if (!retrieval.matched) {
+    if (retrieval.tier === "none") {
       return res.json(buildInsufficientPrecedentResponse(body.data.message, retrieval));
     }
 
-    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
+    const isModerate = retrieval.tier === "moderate";
+
+    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
+
+    const venusPromptForTier = isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT;
 
     const systemPrompt = body.data.businessContext
-      ? `${VENUS_PROMPT}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
-      : `${VENUS_PROMPT}\n\n${precedentBlock}`;
+      ? `${venusPromptForTier}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
+      : `${venusPromptForTier}\n\n${precedentBlock}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -69,7 +73,8 @@ router.post("/ai/analyze", async (req, res) => {
     if (body.data.sessionHistory && body.data.sessionHistory.length > 0) {
       for (const h of body.data.sessionHistory.slice(-10)) {
         if (h.content) {
-          messages.push({ role: h.role as "user" | "assistant", content: h.content });
+          const role = h.role === "user" ? "user" : "assistant";
+          messages.push({ role, content: h.content });
         }
       }
     }
@@ -83,6 +88,13 @@ router.post("/ai/analyze", async (req, res) => {
     );
 
     if (parsed) {
+      parsed.confidenceTier = retrieval.tier;
+      if (isModerate) {
+        const label = "Exploratory signal — limited precedent coverage.";
+        if (typeof parsed.summary === "string" && !parsed.summary.startsWith(label)) {
+          parsed.summary = `${label} ${parsed.summary}`;
+        }
+      }
       return res.json(parsed);
     }
 
@@ -97,10 +109,11 @@ router.post("/ai/analyze", async (req, res) => {
           },
         },
       ],
+      confidenceTier: retrieval.tier,
     });
   } catch (err) {
     req.log.error(err);
-    return res.json(buildFallbackVenusResponse("your query"));
+    return res.json(buildTransientErrorResponse("your query"));
   }
 });
 
@@ -133,12 +146,16 @@ router.post("/ai/idea-review", async (req, res) => {
 
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
 
+    const ideaSystemPrompt = retrieval.tier === "moderate"
+      ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}\n\n${precedentBlock}`
+      : `${VENUS_PROMPT}\n\n${precedentBlock}`;
+
     const { parsed } = await callGroqJSON(
       groq,
       {
         model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: `${VENUS_PROMPT}\n\n${precedentBlock}` },
+          { role: "system", content: ideaSystemPrompt },
           {
             role: "user",
             content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,

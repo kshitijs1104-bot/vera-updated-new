@@ -53,8 +53,11 @@ export interface PrecedentMatch {
   score: number;
 }
 
+export type ConfidenceTier = "strong" | "moderate" | "none";
+
 export interface RetrievalResult {
   matched: boolean;
+  tier: ConfidenceTier;
   confidence: number;
   inferredSector: string | null;
   precedents: PrecedentMatch[];
@@ -67,6 +70,17 @@ const TOP_K = 4;
 // substantive tokens (post-stopword) so a match can't be manufactured from a
 // single coincidental word when the query has very few tokens overall.
 const MIN_RAW_OVERLAP = 2;
+// Strong tier requires this many solid in-sector-strength matches (see MATCH_THRESHOLD
+// + MIN_RAW_OVERLAP above). Below that, we fall back to a relaxed "moderate" pass so a
+// query is never hard-refused just because it doesn't clear the strict bar, as long as
+// there is at least one genuinely overlapping real precedent to ground the answer in.
+const STRONG_TIER_MIN_COUNT = 3;
+// Moderate tier: real but weaker signal — fewer overlapping tokens and/or lower ratio,
+// possibly from an adjacent/analogous sector. Still requires at least one real
+// overlapping token; never zero-overlap (that would be pure fabrication).
+const MODERATE_MATCH_THRESHOLD = 0.06;
+const MODERATE_MIN_RAW_OVERLAP = 1;
+const MODERATE_TOP_K = 3;
 
 export async function retrievePrecedents(query: string, opts?: { sector?: string; businessContext?: string }): Promise<RetrievalResult> {
   const all = await db.select().from(precedentsTable);
@@ -110,19 +124,41 @@ export async function retrievePrecedents(query: string, opts?: { sector?: string
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const top = scored
-    .slice(0, TOP_K)
-    .filter((s) => s.score >= MATCH_THRESHOLD && s.overlap >= MIN_RAW_OVERLAP)
-    .map(({ precedent, score }) => ({ precedent, score }));
 
+  const strongCandidates = scored.filter((s) => s.score >= MATCH_THRESHOLD && s.overlap >= MIN_RAW_OVERLAP);
+
+  let tier: ConfidenceTier;
+  let selected: (PrecedentMatch & { overlap: number })[];
+
+  if (strongCandidates.length >= STRONG_TIER_MIN_COUNT) {
+    tier = "strong";
+    selected = strongCandidates.slice(0, TOP_K);
+  } else {
+    // Relaxed pass: real precedents with weaker lexical signal and/or from an
+    // adjacent sector, but still at least one genuinely overlapping token —
+    // never a zero-overlap (pure sector-inference-only) match.
+    const moderateCandidates = scored.filter(
+      (s) => s.score >= MODERATE_MATCH_THRESHOLD && s.overlap >= MODERATE_MIN_RAW_OVERLAP,
+    );
+    if (moderateCandidates.length > 0) {
+      tier = "moderate";
+      selected = moderateCandidates.slice(0, MODERATE_TOP_K);
+    } else {
+      tier = "none";
+      selected = [];
+    }
+  }
+
+  const top = selected.map(({ precedent, score }) => ({ precedent, score }));
   const confidence = top.length > 0 ? Math.min(1, top[0].score) : 0;
-  const matched = top.length > 0 && confidence >= MATCH_THRESHOLD;
+  const matched = tier !== "none";
 
   return {
     matched,
+    tier,
     confidence: Number(confidence.toFixed(3)),
     inferredSector,
-    precedents: matched ? top : [],
+    precedents: top,
     sectorCoverageCount,
   };
 }

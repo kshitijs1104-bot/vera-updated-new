@@ -113,6 +113,15 @@ export async function getGroqClient(sessionId: string): Promise<Groq | null> {
 
 export const VENUS_PROMPT = VENUS_SYSTEM_PROMPT;
 
+// Injected into the system prompt only for "moderate" confidence tier queries —
+// real precedents exist but are few and/or from an adjacent/analogous sector
+// rather than an exact match. The model must still never fabricate beyond the
+// given precedents, but must be transparent that this is a lower-confidence,
+// exploratory read rather than a fully-grounded verdict.
+export const MODERATE_TIER_PRECEDENT_NOTE = `
+
+IMPORTANT — LIMITED PRECEDENT MODE (moderate confidence): The VERIFIED PRECEDENTS below are real, but there are few of them and/or they come from an adjacent or analogous sector/decision type rather than an exact match to this query. You must still reason ONLY from these real precedents — never invent a company, outcome, or causal mechanism not present in the block below. But you must be transparent about the lower confidence: your summary field MUST begin with "Exploratory signal — limited precedent coverage." and must explicitly name which precedent(s) you are drawing from and why they are still relevant even though the match is imperfect. Do not present this with the same certainty as a fully-grounded answer — frame it as a starting point to spark thinking, not a definitive verdict.`;
+
 export function buildFallbackVenusResponse(message: string): object {
   return {
     summary: "Venus AI is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",
@@ -125,6 +134,27 @@ export function buildFallbackVenusResponse(message: string): object {
             { label: "Status", value: "Groq API key not configured", sentiment: "negative" },
             { label: "Fix", value: "Go to Settings → Groq API Key and paste your key", sentiment: "neutral" },
             { label: "Get Key", value: "Visit console.groq.com to create a free API key", sentiment: "positive" },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+// Used for genuine runtime/API errors (bad request, network, parsing exhaustion)
+// caught after we already confirmed a Groq client/key exists. Must never claim
+// "not configured" — that phrase should only ever describe a truly missing key.
+export function buildTransientErrorResponse(message: string): object {
+  return {
+    summary: "Venus AI hit an unexpected error processing this query. Your Groq API key is configured correctly — this was a transient issue. Please try again.",
+    cards: [
+      {
+        type: "analysis",
+        title: "Temporary Error",
+        content: {
+          points: [
+            { label: "Status", value: "Request failed — API key is fine", sentiment: "neutral" },
+            { label: "Fix", value: "Try rephrasing or resending your query", sentiment: "neutral" },
           ],
         },
       },
