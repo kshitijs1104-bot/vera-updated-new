@@ -76,15 +76,37 @@ function requiresContext(message: string) {
   return contextNeedWords.test(normalized) && !isSimpleDefinition.test(normalized);
 }
 
-function buildContextClarification(message: string, existingContext?: string) {
+const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
+
+function deriveContextFromHistory(sessionHistory?: { role?: string; content?: string }[]): string | undefined {
+  if (!sessionHistory || sessionHistory.length === 0) return undefined;
+
+  const contextMessages = sessionHistory
+    .filter((h) => h.role === "user" && typeof h.content === "string" && BUSINESS_CONTEXT_SIGNAL.test(h.content))
+    .map((h) => h.content as string);
+
+  if (contextMessages.length === 0) return undefined;
+  return contextMessages.join(" | ");
+}
+
+function buildContextClarification(
+  message: string,
+  businessContext?: string,
+  sessionHistory?: { role?: string; content?: string }[],
+) {
   if (!requiresContext(message)) return null;
+
+  // If the user already gave business context earlier in this session (or it was
+  // passed explicitly), do NOT re-gate — just proceed to answer using it.
+  const existingContext = businessContext || deriveContextFromHistory(sessionHistory);
+  if (existingContext) return null;
 
   const contextHints = [
     "What industry or sector are you in?",
     "What stage is the business at and who is the customer?",
   ];
 
-  const prefix = existingContext ? "I can answer this better if you share one more detail:" : "To answer this well, I need two quick details:";
+  const prefix = "To answer this well, I need two quick details:";
   return {
     summary: `${prefix} ${contextHints.join(" ")}`,
     cards: [
@@ -164,12 +186,16 @@ router.post("/ai/analyze", async (req, res) => {
       return res.json(buildFallbackVenusResponse(body.data.message));
     }
 
-    const clarification = buildContextClarification(body.data.message, body.data.businessContext);
+    // Fall back to context inferred from earlier turns in this session whenever a
+    // dedicated businessContext wasn't explicitly provided on this request.
+    const effectiveBusinessContext = body.data.businessContext || deriveContextFromHistory(body.data.sessionHistory);
+
+    const clarification = buildContextClarification(body.data.message, body.data.businessContext, body.data.sessionHistory);
     if (clarification) {
       return res.json(clarification);
     }
 
-    const retrieval = await retrievePrecedents(body.data.message, { businessContext: body.data.businessContext });
+    const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
 
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
@@ -185,9 +211,9 @@ router.post("/ai/analyze", async (req, res) => {
     const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH: There are no verified precedents for this request. You must not invent company names or fabricate specific precedent-based causal claims. Respond with general strategic reasoning only, clearly labeled as unverified and not derived from Venus AI's dataset.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${body.data.businessContext ? `\n\nBusiness Context: ${body.data.businessContext}` : ""}`
-      : body.data.businessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${body.data.businessContext}\n\n${precedentBlock}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}`
+      : effectiveBusinessContext
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}`
         : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
