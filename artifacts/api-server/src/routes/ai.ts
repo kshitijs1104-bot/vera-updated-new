@@ -66,6 +66,45 @@ function buildShortQueryFallback(message: string) {
   };
 }
 
+function requiresContext(message: string) {
+  const normalized = normalizeQueryText(message);
+  if (!normalized) return false;
+
+  const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription)/i;
+  const isSimpleDefinition = /(what is|what's|define|framework|concept|difference between|explain)/i;
+
+  return contextNeedWords.test(normalized) && !isSimpleDefinition.test(normalized);
+}
+
+function buildContextClarification(message: string, existingContext?: string) {
+  if (!requiresContext(message)) return null;
+
+  const contextHints = [
+    "What industry or sector are you in?",
+    "What stage is the business at and who is the customer?",
+  ];
+
+  const prefix = existingContext ? "I can answer this better if you share one more detail:" : "To answer this well, I need two quick details:";
+  return {
+    summary: `${prefix} ${contextHints.join(" ")}`,
+    cards: [
+      {
+        type: "analysis",
+        title: "Need a bit more context",
+        content: {
+          points: [
+            { label: "Why", value: "The answer depends on your business context, not just the general question.", sentiment: "neutral" },
+            { label: "Needed", value: "Industry/sector and target customer or stage.", sentiment: "neutral" },
+          ],
+        },
+      },
+    ],
+    confidence: "exploratory",
+    confidenceNote: "The answer is being gated until the essential business context is provided.",
+    requiresClarification: true,
+  };
+}
+
 function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
   if (typeof parsed.summary !== "string") return parsed;
 
@@ -125,6 +164,11 @@ router.post("/ai/analyze", async (req, res) => {
       return res.json(buildFallbackVenusResponse(body.data.message));
     }
 
+    const clarification = buildContextClarification(body.data.message, body.data.businessContext);
+    if (clarification) {
+      return res.json(clarification);
+    }
+
     const retrieval = await retrievePrecedents(body.data.message, { businessContext: body.data.businessContext });
 
     const isModerate = retrieval.tier === "moderate";
@@ -161,7 +205,7 @@ router.post("/ai/analyze", async (req, res) => {
 
     messages.push({ role: "user", content: body.data.message });
 
-    const { parsed, raw } = await callGroqJSON(
+    const { parsed, raw, errorType } = await callGroqJSON(
       groq,
       { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
       "ai/analyze",
@@ -180,19 +224,37 @@ router.post("/ai/analyze", async (req, res) => {
     }
 
     const shortQueryFallback = buildShortQueryFallback(body.data.message);
-    return res.json(shortQueryFallback || {
-      summary: raw.slice(0, 300) || "Venus AI could not produce a well-formed response for this query. Please try again.",
-      cards: [
-        {
-          type: "analysis",
-          title: "Response",
-          content: {
-            points: [{ label: "Note", value: "Response format error after retry. Please try again.", sentiment: "neutral" }],
-          },
-        },
-      ],
-      confidenceTier: retrieval.tier,
-    });
+    const errorResponse = errorType === "parse"
+      ? {
+          summary: "Venus AI could not produce a well-formed response for this query after retrying. Please try again.",
+          isError: true,
+          errorType: "parse",
+          cards: [
+            {
+              type: "analysis",
+              title: "Response format issue",
+              content: {
+                points: [{ label: "Note", value: "The model returned malformed JSON after repair attempts.", sentiment: "neutral" }],
+              },
+            },
+          ],
+          confidenceTier: retrieval.tier,
+        }
+      : {
+          summary: raw.slice(0, 300) || "Venus AI could not produce a well-formed response for this query. Please try again.",
+          cards: [
+            {
+              type: "analysis",
+              title: "Response",
+              content: {
+                points: [{ label: "Note", value: "Response format error after retry. Please try again.", sentiment: "neutral" }],
+              },
+            },
+          ],
+          confidenceTier: retrieval.tier,
+        };
+
+    return res.json(shortQueryFallback || errorResponse);
   } catch (err) {
     req.log.error(err);
     return res.json(buildTransientErrorResponse("your query"));

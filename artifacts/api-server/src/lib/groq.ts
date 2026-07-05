@@ -23,7 +23,7 @@ For solution cards the content is: { "solutions": [ { "title": "Solution name", 
 
 When the user is choosing between 2 or more genuinely distinct strategic paths, do not end with a list of pros and cons and leave the founder to decide. Add a decisive multi-option verdict breakdown. Use the summary field to lead with the call and a percentage-weighted breakdown such as "60% — Hire the batchmate as a paid intern. 40% — Recruit 3 unpaid interns directly." The percentages must reflect the actual risk and precedent analysis you just surfaced, not a fake even split. Before outputting any percentage, internally identify at least 2-3 concrete factors from your own analysis — the specific risks, precedents, or tradeoffs already surfaced — and weigh how strongly each stated option is supported or undermined by those factors. The percentage must be a direct function of that weighing. Do not default to 60/40, 70/30, or any stock split as a habit. If one option clearly conflicts with a HIGH-severity risk you just flagged, let the split reflect that with a much stronger skew such as 80/20 or 90/10. If the options are genuinely close, a tighter split like 55/45 is appropriate and should not be inflated to sound more decisive than the analysis supports. Do not force a verdict format when there is no real fork in the road; for single-path advice, pure information questions, or requests that are not actually a choice between competing paths, keep the existing analysis/risk/precedent format and do not manufacture a verdict structure.
 
-For binary yes/no or choose-one questions that evaluate a single path rather than compare two options, do not hedge with "yes if/no if" framing. End with a single top-line verdict in the summary field such as "Yes — not yet", "No — not yet", "Wait", or "Launch now", followed by the reasoning. The verdict word must come first and be explicit. Conditional caveats may appear inside the explanation, but the top-line answer must still commit to one clear call based on the founder's situation as stated.
+For binary yes/no or choose-one questions that evaluate a single path rather than compare two options, do not hedge with "yes if/no if" framing. End with a single top-line verdict in the summary field such as "Yes — not yet", "No — not yet", "Wait", or "Launch now", followed by the reasoning. The verdict word must come first and be explicit. Conditional caveats may appear inside the explanation, but the top-line answer must still commit to one clear call based on the founder's situation as stated. For decision questions, make the direct verdict the first sentence of the summary and make the decision card the primary card so the answer is clear at the top. The risk/analytics cards are supporting evidence underneath, not the main answer.
 
 Short, informal, or fragmentary queries are still valid strategic input. Treat short phrases like "shld i hire him or not" or other text-message style requests as a complete strategic query rather than malformed input. Do not require perfect punctuation, full-sentence structure, or exact keyword matching before answering. If the intent is a direct decision question, route it to the appropriate decision-style response rather than falling through to an error or empty fallback state.
 
@@ -63,7 +63,7 @@ export async function callGroqJSON(
   groq: Groq,
   params: GroqJsonParams,
   label: string,
-): Promise<{ parsed: any | null; raw: string }> {
+): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
   const completion = await groq.chat.completions.create(params);
   const raw = completion.choices[0]?.message?.content || "";
   const candidate = extractJson(raw);
@@ -77,7 +77,7 @@ export async function callGroqJSON(
       ...params.messages,
       {
         role: "user",
-        content: "Your previous response was not valid JSON or was truncated. Return ONLY the complete, valid JSON object now — no markdown fences, no preamble, no commentary, nothing before or after the JSON.",
+        content: "Your previous response was not valid JSON or was truncated. Repair it now and return ONLY the complete, valid JSON object — no markdown fences, no preamble, no commentary, nothing before or after the JSON.",
       },
     ];
 
@@ -93,11 +93,11 @@ export async function callGroqJSON(
         return { parsed: JSON.parse(candidate2), raw: raw2 };
       } catch {
         console.error(`[callGroqJSON] "${label}" — retry ALSO failed to parse (len=${raw2.length}). Giving up, surfacing raw content to caller. raw2_head=${raw2.slice(0, 300)}`);
-        return { parsed: null, raw: raw2 };
+        return { parsed: null, raw: raw2, errorType: "parse" };
       }
     } catch (retryErr) {
       console.error(`[callGroqJSON] "${label}" — retry call itself threw`, retryErr);
-      return { parsed: null, raw };
+      return { parsed: null, raw, errorType: "transient" };
     }
   }
 }
@@ -158,17 +158,19 @@ export function buildFallbackVenusResponse(message: string): object {
 // "not configured" — that phrase should only ever describe a truly missing key.
 export function buildTransientErrorResponse(message: string): object {
   return {
-    summary: "Venus AI hit an unexpected error processing this query. Your Groq API key is configured correctly — this was a transient issue. Please try again.",
+    summary: "Venus AI hit an unexpected error processing this query. Please try again.",
     confidence: "exploratory",
     confidenceNote: "The response is only a fallback because the request failed unexpectedly.",
+    isError: true,
+    errorType: "transient",
     cards: [
       {
         type: "analysis",
         title: "Temporary Error",
         content: {
           points: [
-            { label: "Status", value: "Request failed — API key is fine", sentiment: "neutral" },
-            { label: "Fix", value: "Try rephrasing or resending your query", sentiment: "neutral" },
+            { label: "Status", value: "Request failed unexpectedly", sentiment: "neutral" },
+            { label: "Fix", value: "Please try again or rephrase the request", sentiment: "neutral" },
           ],
         },
       },

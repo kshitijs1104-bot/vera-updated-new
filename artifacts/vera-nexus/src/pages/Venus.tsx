@@ -405,12 +405,20 @@ export function VenusPage() {
                           <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black">V</div>
                           <span className="text-[10px] font-mono uppercase text-[var(--muted)]">Venus</span>
                         </div>
-                        {msg.role === 'venus' && <ConfidenceBadge confidence={msg.confidence} note={msg.confidenceNote} />}
+                        {msg.role === 'venus' && !(msg as any).isError && <ConfidenceBadge confidence={msg.confidence} note={msg.confidenceNote} />}
                       </div>
 
                       {msg.content && <VenusMessage content={msg.content} confidence={msg.confidence} confidenceNote={msg.confidenceNote} />}
 
                       {msg.cards && msg.cards.length > 0 && (() => {
+                        if ((msg as any).isError) {
+                          return (
+                            <div className="rounded-xl border border-[var(--red)]/30 bg-[var(--red)]/10 p-4 text-sm text-[var(--red)]">
+                              <div className="text-[10px] font-mono uppercase tracking-wider mb-2">Error</div>
+                              <div>{msg.content}</div>
+                            </div>
+                          );
+                        }
                         const orderedCards = (msg.cards ?? []).map((card: any, index: number) => ({
                           ...card,
                           role: card.role ?? (index === 0 ? 'primary' : 'supporting'),
