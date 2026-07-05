@@ -1,0 +1,286 @@
+diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+index 5532d71..278b193 100644
+--- a/artifacts/vera-nexus/src/pages/Venus.tsx
++++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+@@ -154,10 +154,40 @@ export function VenusPage() {
+   const handleSaveResponse = (msg: ChatMessage) => {
+     const type = detectAnalysisType(msg.content ?? '', msg.cards);
+     const title = typeLabel(type) + ' — ' + new Date().toLocaleDateString();
+-    saveAnalysis({ type, title, summary: msg.content ?? '' });
++    saveAnalysis({
++      type,
++      title,
++      summary: msg.content ?? '',
++      cards: msg.cards,
++      confidence: msg.confidence,
++      confidenceNote: msg.confidenceNote,
++      contextQuery: msg.contextQuery,
++    });
+     setSaved(getSavedAnalyses());
+   };
+ 
++  const handleOpenSaved = (item: ReturnType<typeof getSavedAnalyses>[number]) => {
++    // Reopen a saved analysis as a fresh read-only session in the main chat view.
++    // Previously saved items had no click handler at all — this is the missing
++    // read-back path for the write-only save action.
++    const reopened: ChatSession = {
++      ...createSession(),
++      title: item.title,
++      messages: [
++        {
++          role: 'venus',
++          content: item.summary,
++          cards: item.cards ?? [],
++          confidence: item.confidence,
++          confidenceNote: item.confidenceNote,
++          contextQuery: item.contextQuery,
++        },
++      ],
++    };
++    setCurrentSession(reopened);
++    persistSession(reopened);
++  };
++
+   const handleGenerateCompanyReport = useCallback(async (companyName: string) => {
+     const key = normalizeCompanyKey(companyName);
+     if (!key) return;
+@@ -281,7 +311,11 @@ export function VenusPage() {
+                   {!collapsedGroups.has(type) && items.map(item => (
+                     <div
+                       key={item.id}
+-                      className="group flex items-center justify-between px-3 py-1.5 rounded text-xs text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white transition-colors cursor-default mb-0.5"
++                      onClick={() => handleOpenSaved(item)}
++                      role="button"
++                      tabIndex={0}
++                      onKeyDown={(e) => { if (e.key === 'Enter') handleOpenSaved(item); }}
++                      className="group flex items-center justify-between px-3 py-1.5 rounded text-xs text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white transition-colors cursor-pointer mb-0.5"
+                     >
+                       <span className="truncate flex-1">{item.title}</span>
+                       <Trash2
+@@ -751,9 +785,104 @@ function ResponseJumpNav({ cards }: { cards: any[] }) {
+   );
+ }
+ 
++// Renders a single precedent entry (e.g. one company in a precedent card) with its
++// own independent "Show report / Hide report" toggle. Previously this toggle lived
++// on the parent VenusCard and was shared across every precedent rendered inside it,
++// so clicking "Show report" on one company (e.g. Ask Jeeves) also revealed the report
++// panel for every other unrelated company in the same card (e.g. Zume). Each entry now
++// owns its own state so toggling one never affects the others.
++function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport }: { precedent: any; companyReports: Record<string, CompanyReportState>; onGenerateCompanyReport: (companyName: string) => Promise<void> }) {
++  const [reportExpanded, setReportExpanded] = useState(false);
++  const reportKey = p.company ? normalizeCompanyKey(String(p.company)) : null;
++  const reportState = reportKey ? companyReports[reportKey] : undefined;
++
++  return (
++    <div className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]">
++      <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
++        <div className="flex items-baseline gap-2">
++          <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
++          <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
++        </div>
++        {p.outcome && (
++          <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
++            {p.outcome}
++          </span>
++        )}
++      </div>
++      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
++      <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
++
++      <div className="mt-3 flex flex-wrap items-center gap-2">
++        <button
++          type="button"
++          onClick={async () => {
++            if (!p.company) return;
++            if (reportState?.status === 'loading') return;
++            if (reportState?.status === 'ready') {
++              setReportExpanded(v => !v);
++              return;
++            }
++            setReportExpanded(true);
++            await onGenerateCompanyReport(String(p.company));
++          }}
++          className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] disabled:cursor-wait disabled:opacity-70"
++          disabled={reportState?.status === 'loading'}
++        >
++          {reportState?.status === 'loading' ? 'Researching…' : reportState?.status === 'ready' ? (reportExpanded ? 'Hide report' : 'Show report') : 'Generate Report'}
++        </button>
++      </div>
++
++      {reportExpanded && reportState && (
++        <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface)]/70 p-3">
++          {reportState.status === 'loading' && <div className="text-sm text-[var(--muted)]">Gathering public details and sources…</div>}
++          {reportState.status === 'error' && <div className="text-sm text-[var(--red)]">{reportState.error ?? 'Report generation failed.'}</div>}
++          {reportState.status === 'ready' && reportState.report && (
++            <div className="space-y-3">
++              <div>
++                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Snapshot</div>
++                <div className="space-y-1 text-sm text-[var(--muted)]">
++                  {reportState.report.snapshot.foundedYear && <div>Founded: {renderInline(reportState.report.snapshot.foundedYear)}</div>}
++                  {reportState.report.snapshot.founders && reportState.report.snapshot.founders.length > 0 && <div>Founders: {renderInline(reportState.report.snapshot.founders.join(', '))}</div>}
++                  {reportState.report.snapshot.fundingRaised && <div>Funding: {renderInline(reportState.report.snapshot.fundingRaised)}</div>}
++                  {reportState.report.snapshot.whatTheyBuilt && <div>Built: {renderInline(reportState.report.snapshot.whatTheyBuilt)}</div>}
++                </div>
++              </div>
++              <div>
++                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Timeline</div>
++                <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
++                  {reportState.report.timeline.map((entry, entryIndex) => (
++                    <li key={`${entry.label}-${entryIndex}`}><span className="text-white">{entry.label}</span>: {renderInline(entry.detail)}</li>
++                  ))}
++                </ul>
++              </div>
++              <div>
++                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">What happened</div>
++                <p className="text-sm text-[var(--muted)] leading-relaxed">{renderInline(reportState.report.analysis)}</p>
++              </div>
++              {reportState.report.sources.length > 0 && (
++                <div>
++                  <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Sources</div>
++                  <ul className="space-y-1 text-sm">
++                    {reportState.report.sources.map((source, sourceIndex) => (
++                      <li key={`${source.url}-${sourceIndex}`}>
++                        <a href={source.url} target="_blank" rel="noreferrer" className="text-[var(--mint)] hover:text-white underline decoration-dotted">
++                          {source.title || source.url}
++                        </a>
++                      </li>
++                    ))}
++                  </ul>
++                </div>
++              )}
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
++
+ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '', isPrimary = false, companyReports, onGenerateCompanyReport }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string; isPrimary?: boolean; companyReports: Record<string, CompanyReportState>; onGenerateCompanyReport: (companyName: string) => Promise<void> }) {
+   const [expanded, setExpanded] = useState(isPrimary);
+-  const [reportExpanded, setReportExpanded] = useState(false);
+   const typeColors: Record<string, string> = {
+     analysis: 'var(--indigo-light)',
+     market: 'var(--mint)',
+@@ -781,11 +910,11 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+       )}
+ 
+       {card.type === 'analysis' && (
+-        <ul className="space-y-2">
++        <ul className="space-y-3">
+           {(normalizedContent.points ?? []).map((pt: any, i: number) => (
+-            <li key={i} className="flex justify-between items-center text-sm border-b border-[var(--border)] border-dashed pb-2 last:border-0">
+-              <span className="text-[var(--muted)]">{pt.label}</span>
+-              <span className="font-mono text-white">{pt.value}</span>
++            <li key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline gap-1 sm:gap-4 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
++              <span className="text-[var(--muted)] sm:shrink-0">{pt.label}</span>
++              <span className="font-mono text-white sm:text-right">{pt.value}</span>
+             </li>
+           ))}
+         </ul>
+@@ -830,96 +959,14 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+ 
+       {card.type === 'precedent' && (
+         <div className="space-y-3">
+-          {(normalizedContent.precedents ?? []).map((p: any, i: number) => {
+-            const reportKey = p.company ? normalizeCompanyKey(String(p.company)) : null;
+-            const reportState = reportKey ? companyReports[reportKey] : undefined;
+-            return (
+-              <div
+-                key={i}
+-                className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]"
+-              >
+-                <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
+-                  <div className="flex items-baseline gap-2">
+-                    <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
+-                    <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
+-                  </div>
+-                  {p.outcome && (
+-                    <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
+-                      {p.outcome}
+-                    </span>
+-                  )}
+-                </div>
+-                <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
+-                <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
+-
+-                <div className="mt-3 flex flex-wrap items-center gap-2">
+-                  <button
+-                    type="button"
+-                    onClick={async () => {
+-                      if (!p.company) return;
+-                      if (reportState?.status === 'loading') return;
+-                      if (reportState?.status === 'ready') {
+-                        setReportExpanded(v => !v);
+-                        return;
+-                      }
+-                      setReportExpanded(true);
+-                      await onGenerateCompanyReport(String(p.company));
+-                    }}
+-                    className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] disabled:cursor-wait disabled:opacity-70"
+-                    disabled={reportState?.status === 'loading'}
+-                  >
+-                    {reportState?.status === 'loading' ? 'Researching…' : reportState?.status === 'ready' ? (reportExpanded ? 'Hide report' : 'Show report') : 'Generate Report'}
+-                  </button>
+-                </div>
+-
+-                {reportExpanded && reportState && (
+-                  <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface)]/70 p-3">
+-                    {reportState.status === 'loading' && <div className="text-sm text-[var(--muted)]">Gathering public details and sources…</div>}
+-                    {reportState.status === 'error' && <div className="text-sm text-[var(--red)]">{reportState.error ?? 'Report generation failed.'}</div>}
+-                    {reportState.status === 'ready' && reportState.report && (
+-                      <div className="space-y-3">
+-                        <div>
+-                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Snapshot</div>
+-                          <div className="space-y-1 text-sm text-[var(--muted)]">
+-                            {reportState.report.snapshot.foundedYear && <div>Founded: {renderInline(reportState.report.snapshot.foundedYear)}</div>}
+-                            {reportState.report.snapshot.founders && reportState.report.snapshot.founders.length > 0 && <div>Founders: {renderInline(reportState.report.snapshot.founders.join(', '))}</div>}
+-                            {reportState.report.snapshot.fundingRaised && <div>Funding: {renderInline(reportState.report.snapshot.fundingRaised)}</div>}
+-                            {reportState.report.snapshot.whatTheyBuilt && <div>Built: {renderInline(reportState.report.snapshot.whatTheyBuilt)}</div>}
+-                          </div>
+-                        </div>
+-                        <div>
+-                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Timeline</div>
+-                          <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+-                            {reportState.report.timeline.map((entry, entryIndex) => (
+-                              <li key={`${entry.label}-${entryIndex}`}><span className="text-white">{entry.label}</span>: {renderInline(entry.detail)}</li>
+-                            ))}
+-                          </ul>
+-                        </div>
+-                        <div>
+-                          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">What happened</div>
+-                          <p className="text-sm text-[var(--muted)] leading-relaxed">{renderInline(reportState.report.analysis)}</p>
+-                        </div>
+-                        {reportState.report.sources.length > 0 && (
+-                          <div>
+-                            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Sources</div>
+-                            <ul className="space-y-1 text-sm">
+-                              {reportState.report.sources.map((source, sourceIndex) => (
+-                                <li key={`${source.url}-${sourceIndex}`}>
+-                                  <a href={source.url} target="_blank" rel="noreferrer" className="text-[var(--mint)] hover:text-white underline decoration-dotted">
+-                                    {source.title || source.url}
+-                                  </a>
+-                                </li>
+-                              ))}
+-                            </ul>
+-                          </div>
+-                        )}
+-                      </div>
+-                    )}
+-                  </div>
+-                )}
+-              </div>
+-            );
+-          })}
++          {(normalizedContent.precedents ?? []).map((p: any, i: number) => (
++            <PrecedentEntry
++              key={i}
++              precedent={p}
++              companyReports={companyReports}
++              onGenerateCompanyReport={onGenerateCompanyReport}
++            />
++          ))}
+         </div>
+       )}
+ 
