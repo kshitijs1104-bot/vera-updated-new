@@ -263,6 +263,29 @@ export function VenusPage() {
               Elite business intelligence. No hedging. Pure signal.
             </p>
 
+            <form
+              onSubmit={e => { e.preventDefault(); handleSend(); }}
+              className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
+            >
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder="Ask Venus for unvarnished analysis..."
+                rows={1}
+                className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || analyzeMutation.isPending}
+                className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+              </button>
+            </form>
+
             <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
               {EXAMPLE_PROMPTS.map(prompt => (
                 <button
@@ -325,30 +348,32 @@ export function VenusPage() {
         )}
 
         {/* Input */}
-        <div className="p-4 border-t border-[var(--border)] bg-[var(--bg)] shrink-0">
-          <form
-            onSubmit={e => { e.preventDefault(); handleSend(); }}
-            className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-4xl mx-auto"
-          >
-            <textarea
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Ask Venus for unvarnished analysis…"
-              rows={1}
-              className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || analyzeMutation.isPending}
-              className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+        {messages.length > 0 && (
+          <div className="p-4 border-t border-[var(--border)] bg-[var(--bg)] shrink-0">
+            <form
+              onSubmit={e => { e.preventDefault(); handleSend(); }}
+              className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-4xl mx-auto"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-              </svg>
-            </button>
-          </form>
-        </div>
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder="Ask Venus for unvarnished analysis..."
+                rows={1}
+                className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || analyzeMutation.isPending}
+                className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+              </button>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );

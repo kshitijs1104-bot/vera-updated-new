@@ -88,9 +88,9 @@ export async function retrievePrecedents(query: string, opts?: { sector?: string
   const combinedQuery = [query, opts?.businessContext].filter(Boolean).join(" ");
   const queryTokens = new Set(tokenize(combinedQuery));
   const inferredSector = opts?.sector || inferSector(combinedQuery);
-  const sectorCoverageCount = inferredSector ? all.filter((p) => p.sector === inferredSector).length : 0;
+  const sectorCoverageCount = inferredSector ? all.filter((p: Precedent) => p.sector === inferredSector).length : 0;
 
-  const scored: (PrecedentMatch & { overlap: number })[] = all.map((p) => {
+  const scored: (PrecedentMatch & { overlap: number })[] = all.map((p: Precedent) => {
     const haystack = [
       p.embeddingSummary,
       p.decisionContext,

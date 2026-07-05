@@ -7,6 +7,15 @@ import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } f
 
 const router = Router();
 
+function applyModerateTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
+  if (retrieval.tier !== "moderate" || typeof parsed.summary !== "string") return parsed;
+  const label = "Exploratory signal — limited precedent coverage.";
+  if (!parsed.summary.startsWith(label)) {
+    parsed.summary = `${label} ${parsed.summary}`;
+  }
+  return parsed;
+}
+
 function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalResult): object {
   const sectorNote = retrieval.inferredSector
     ? `our verified precedent dataset only has ${retrieval.sectorCoverageCount} record(s) in the "${retrieval.inferredSector}" sector`
@@ -89,12 +98,7 @@ router.post("/ai/analyze", async (req, res) => {
 
     if (parsed) {
       parsed.confidenceTier = retrieval.tier;
-      if (isModerate) {
-        const label = "Exploratory signal — limited precedent coverage.";
-        if (typeof parsed.summary === "string" && !parsed.summary.startsWith(label)) {
-          parsed.summary = `${label} ${parsed.summary}`;
-        }
-      }
+      applyModerateTierLabel(parsed, retrieval);
       return res.json(parsed);
     }
 
@@ -140,7 +144,7 @@ router.post("/ai/idea-review", async (req, res) => {
 
     const retrieval = await retrievePrecedents(body.data.idea, { sector: body.data.industry });
 
-    if (!retrieval.matched) {
+    if (retrieval.tier === "none") {
       return res.json(buildInsufficientPrecedentResponse(body.data.idea, retrieval));
     }
 
@@ -168,6 +172,8 @@ router.post("/ai/idea-review", async (req, res) => {
     );
 
     if (parsed) {
+      parsed.confidenceTier = retrieval.tier;
+      applyModerateTierLabel(parsed, retrieval);
       return res.json(parsed);
     }
     return res.json(buildFallbackVenusResponse(body.data.idea));

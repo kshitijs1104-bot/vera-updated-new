@@ -7,6 +7,21 @@ import { retrievePrecedents, formatPrecedentsForPrompt } from "../lib/retrieval"
 
 const router = Router();
 
+function normalizeHistoryRole(role: unknown): "user" | "assistant" {
+  return role === "user" ? "user" : "assistant";
+}
+
+function normalizeHistory(history: unknown): { role: "user" | "assistant"; content: string }[] {
+  if (!Array.isArray(history)) return [];
+  return history.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as { role?: unknown; content?: unknown };
+    const content = typeof item.content === "string" ? item.content : "";
+    if (!content) return [];
+    return [{ role: normalizeHistoryRole(item.role), content }];
+  });
+}
+
 router.get("/companies", async (req, res) => {
   try {
     const query = ListCompaniesQueryParams.safeParse(req.query);
@@ -16,13 +31,13 @@ router.get("/companies", async (req, res) => {
     let companies = await db.select().from(companiesTable);
 
     if (category && category !== "all") {
-      companies = companies.filter((c) => c.category === category);
+      companies = companies.filter((c: { category: string }) => c.category === category);
     }
 
     if (sort === "name") {
-      companies.sort((a, b) => a.name.localeCompare(b.name));
+      companies.sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
     } else {
-      companies.sort((a, b) => b.yearRange.localeCompare(a.yearRange));
+      companies.sort((a: { yearRange: string }, b: { yearRange: string }) => b.yearRange.localeCompare(a.yearRange));
     }
 
     return res.json(companies);
@@ -34,7 +49,8 @@ router.get("/companies", async (req, res) => {
 
 router.get("/companies/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid company id" });
     const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, id)).limit(1);
     if (!company) return res.status(404).json({ error: "Company not found" });
     return res.json(company);
@@ -46,7 +62,8 @@ router.get("/companies/:id", async (req, res) => {
 
 router.post("/companies/:id/autopsy", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid company id" });
     const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, id)).limit(1);
     if (!company) return res.status(404).json({ error: "Company not found" });
 
@@ -96,7 +113,8 @@ Return JSON: { "rootCause": "The single root cause in 1-2 sharp sentences", "tim
 
 router.post("/companies/:id/autopsy/chat", async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid company id" });
     const [company] = await db.select().from(companiesTable).where(eq(companiesTable.id, id)).limit(1);
     if (!company) return res.status(404).json({ error: "Company not found" });
 
@@ -105,6 +123,7 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
       attempt?: number;
       history?: { role: string; content: string }[];
     };
+    const normalizedHistory = normalizeHistory(history);
 
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
@@ -122,10 +141,10 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
       });
     }
 
-    const isOpening = attempt === 0 && (!history || history.length === 0);
+    const isOpening = attempt === 0 && normalizedHistory.length === 0;
     const isFinal = attempt >= 5;
 
-    const retrievalQuery = `${company.name} ${company.description} ${company.failureReason || ""} ${company.tags.join(" ")} ${message}`;
+    const retrievalQuery = `${company.name} ${company.description} ${company.failureReason || ""} ${(company.tags ?? []).join(" ")} ${message}`;
     const retrieval = await retrievePrecedents(retrievalQuery);
 
     if (!retrieval.matched) {
@@ -174,8 +193,8 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
       });
     } else {
       // Add conversation history
-      for (const h of history) {
-        messages.push({ role: h.role as "user" | "assistant", content: h.content });
+      for (const h of normalizedHistory) {
+        messages.push({ role: h.role, content: h.content });
       }
       if (isFinal) {
         messages.push({
@@ -217,7 +236,15 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
     });
   } catch (err) {
     req.log.error(err);
-    return res.status(500).json({ error: "Failed to process CEO chat" });
+    const id = Number.parseInt(req.params.id, 10);
+    const fallbackCompanyName = Number.isNaN(id) ? "this company" : `company ${id}`;
+    return res.json({
+      reply: `The company simulator hit a transient issue while processing ${fallbackCompanyName}. Please try again in a moment.`,
+      companyState: "Critical",
+      attempt: 0,
+      gameOver: false,
+      outcome: null,
+    });
   }
 });
 
