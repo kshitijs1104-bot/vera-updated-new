@@ -14,6 +14,14 @@ export const settingsTable = pgTable("settings", {
   teamSize: text("team_size"),
   country: text("country"),
   primaryGoal: text("primary_goal"),
+  // Freeform business context Venus AI has learned from the conversation
+  // itself (as opposed to the structured onboarding fields above, which are
+  // filled in explicitly through the onboarding flow). This is what lets
+  // Venus remember "I'm building a B2B SaaS for clinics in India" across
+  // every future question — in this session and in brand new sessions —
+  // without asking again, until the user starts a genuinely different idea.
+  venusBusinessContext: text("venus_business_context"),
+  venusBusinessContextUpdatedAt: timestamp("venus_business_context_updated_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

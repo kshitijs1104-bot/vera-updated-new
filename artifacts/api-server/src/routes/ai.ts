@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 
@@ -92,7 +92,72 @@ function requiresContext(message: string) {
   return (contextNeedWords.test(normalized) || personalBusinessReference) && !isSimpleDefinition;
 }
 
-const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
+const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a|i'm the founder|im the founder|founder of)\b/i;
+
+// A message can BOTH describe the business AND ask a question in the same
+// breath ("I run a clinic booking app — what should I prioritize?"). Only
+// treat a message as a pure context-dump (no question attached) when it has
+// no question mark and none of the decision/question verbs that
+// inferDecisionRouting already treats as a question signal. This is what
+// separates "just telling Venus about the business" from "telling Venus
+// about the business as part of asking something."
+function isPureContextStatement(message: string): boolean {
+  const normalized = normalizeQueryText(message);
+  if (!BUSINESS_CONTEXT_SIGNAL.test(message)) return false;
+  if (message.includes("?")) return false;
+  const questionish = /\b(should|shld|would|could|worth|help|how|what|why|which|when|recommend|advice|suggest|priorit)\b/i.test(normalized);
+  return !questionish;
+}
+
+async function getStoredBusinessContext(sessionId: string): Promise<string | undefined> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    return row?.venusBusinessContext || undefined;
+  } catch {
+    // DB unavailable shouldn't break the chat — just behave as if nothing
+    // is stored yet, which falls back to the existing per-session behavior.
+    return undefined;
+  }
+}
+
+async function saveStoredBusinessContext(sessionId: string, context: string): Promise<void> {
+  try {
+    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    if (existing) {
+      await db.update(settingsTable)
+        .set({ venusBusinessContext: context, venusBusinessContextUpdatedAt: new Date(), updatedAt: new Date() })
+        .where(eq(settingsTable.sessionId, sessionId));
+    } else {
+      await db.insert(settingsTable)
+        .values({ sessionId, venusBusinessContext: context, venusBusinessContextUpdatedAt: new Date() })
+        .onConflictDoNothing({ target: settingsTable.sessionId });
+    }
+  } catch {
+    // Best-effort persistence — if this fails, Venus just falls back to
+    // asking for context again next time rather than crashing the request.
+  }
+}
+
+// Rough signal that a new context-bearing message might describe a DIFFERENT
+// business than what's already stored, rather than adding detail to the same
+// one. Deliberately conservative (word-overlap based, not semantic) — the
+// goal is only to catch clearly unrelated pivots ("my gym" vs "my SaaS
+// startup for clinics") and ask once, not to second-guess every rephrasing
+// of the same business.
+function looksLikeDifferentBusiness(storedContext: string, newMessage: string): boolean {
+  const stopwords = new Set(["the", "and", "for", "with", "that", "this", "have", "has", "are", "was", "were", "been", "being", "into", "from", "about", "just", "also", "very", "really", "will", "would", "could", "should", "their", "them", "they", "your", "you", "our", "ours", "business", "startup", "company"]);
+  const words = (s: string) => new Set(
+    normalizeQueryText(s).split(" ").filter((w) => w.length > 3 && !stopwords.has(w)),
+  );
+  const storedWords = words(storedContext);
+  const newWords = words(newMessage);
+  if (storedWords.size === 0 || newWords.size === 0) return false;
+  let overlap = 0;
+  newWords.forEach((w) => { if (storedWords.has(w)) overlap++; });
+  // If a meaningfully-sized new context statement shares almost no
+  // vocabulary with what's stored, treat it as a likely pivot to confirm.
+  return newWords.size >= 4 && overlap === 0;
+}
 
 function deriveContextFromHistory(sessionHistory?: { role?: string; content?: string }[]): string | undefined {
   if (!sessionHistory || sessionHistory.length === 0) return undefined;
@@ -140,6 +205,36 @@ function buildContextClarification(
     confidence: "exploratory",
     confidenceNote: "The answer is being gated until the essential business context is provided.",
     requiresClarification: true,
+  };
+}
+
+// State: user just described their business with no actual question attached
+// ("I'm the founder of a HealthTech startup helping clinics..."). Per the
+// desired flow, Venus should NOT try to analyze or advise here — there is no
+// question to answer yet. It should just acknowledge that the context has
+// been noted and ask what they'd like help with, then let the human ask the
+// real question next.
+function buildContextAcknowledgment(): object {
+  return {
+    summary: "Got it — noted your business context. What would you like help with?",
+    cards: [],
+    confidence: "exploratory",
+    confidenceNote: "This is an acknowledgment only; no analysis was requested yet.",
+    contextAcknowledged: true,
+  };
+}
+
+// State: business context is already stored from a previous message/session,
+// but the new message reads like it might describe a DIFFERENT business
+// entirely. Ask once rather than silently overwriting or silently ignoring
+// the new context.
+function buildBusinessContextConfirmation(): object {
+  return {
+    summary: "Quick check before I continue — is this related to the business you told me about earlier, or is this a new/different business idea?",
+    cards: [],
+    confidence: "exploratory",
+    confidenceNote: "Waiting to confirm whether this is the same business context or a new one before proceeding.",
+    requiresContextConfirmation: true,
   };
 }
 
@@ -197,10 +292,10 @@ function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalR
 }
 
 router.post("/ai/analyze", async (req, res) => {
-  try {
-    const body = VenusAnalyzeBody.safeParse(req.body);
-    if (!body.success) return res.status(400).json({ error: "Invalid request body" });
+  const body = VenusAnalyzeBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
+  try {
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
     const groq = headerKey
@@ -211,13 +306,47 @@ router.post("/ai/analyze", async (req, res) => {
       return res.json(buildFallbackVenusResponse(body.data.message));
     }
 
-    // Fall back to context inferred from earlier turns in this session whenever a
-    // dedicated businessContext wasn't explicitly provided on this request.
-    const effectiveBusinessContext = body.data.businessContext || deriveContextFromHistory(body.data.sessionHistory);
+    // Business context now persists in three layers, checked in order of
+    // freshness: (1) context explicitly passed on this request, (2) context
+    // mentioned earlier in the CURRENT chat session, (3) context saved to the
+    // database from ANY previous session — this is what makes Venus remember
+    // the business across brand new chats instead of only within one session.
+    const sessionHistoryContext = deriveContextFromHistory(body.data.sessionHistory);
+    const storedContext = await getStoredBusinessContext(sessionId);
+    const effectiveBusinessContext = body.data.businessContext || sessionHistoryContext || storedContext;
 
-    const clarification = buildContextClarification(body.data.message, body.data.businessContext, body.data.sessionHistory);
+    const pureContextStatement = isPureContextStatement(body.data.message);
+
+    // If this message looks like a different business than what's already
+    // stored, don't silently overwrite it or silently keep using the old one
+    // — ask once. Only fires when something is actually stored yet, so a
+    // first-time context statement never triggers this.
+    if (storedContext && pureContextStatement && looksLikeDifferentBusiness(storedContext, body.data.message)) {
+      return res.json(buildBusinessContextConfirmation());
+    }
+
+    // Pure context statement (no question attached): save it and acknowledge
+    // only. Don't run analysis yet — there's nothing to analyze, the human
+    // hasn't asked anything.
+    if (pureContextStatement) {
+      const combinedContext = storedContext && !looksLikeDifferentBusiness(storedContext, body.data.message)
+        ? `${storedContext} | ${body.data.message}`
+        : body.data.message;
+      await saveStoredBusinessContext(sessionId, combinedContext);
+      return res.json(buildContextAcknowledgment());
+    }
+
+    const clarification = buildContextClarification(body.data.message, effectiveBusinessContext, body.data.sessionHistory);
     if (clarification) {
       return res.json(clarification);
+    }
+
+    // A real question arrived (not a pure context statement) and we now have
+    // usable context but nothing persisted yet for this session — e.g. context
+    // came from businessContext or sessionHistory rather than the DB. Persist
+    // it now so it survives into future sessions too.
+    if (effectiveBusinessContext && !storedContext) {
+      await saveStoredBusinessContext(sessionId, effectiveBusinessContext);
     }
 
     const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
@@ -280,7 +409,7 @@ router.post("/ai/analyze", async (req, res) => {
           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
       applyTierLabel(parsed, retrieval);
-      return res.json(parsed);
+      return res.json(sanitizeVenusResponse(parsed));
     }
 
     const shortQueryFallback = buildShortQueryFallback(body.data.message);
@@ -296,10 +425,10 @@ router.post("/ai/analyze", async (req, res) => {
 });
 
 router.post("/ai/idea-review", async (req, res) => {
-  try {
-    const body = IdeaReviewBody.safeParse(req.body);
-    if (!body.success) return res.status(400).json({ error: "Invalid request body" });
+  const body = IdeaReviewBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
+  try {
     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
     const groq = headerKey
@@ -357,7 +486,7 @@ router.post("/ai/idea-review", async (req, res) => {
           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
       applyTierLabel(parsed, retrieval);
-      return res.json(parsed);
+      return res.json(sanitizeVenusResponse(parsed));
     }
     return res.json(buildTransientErrorResponse(body.data.idea));
   } catch (err: any) {

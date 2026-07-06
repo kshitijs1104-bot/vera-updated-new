@@ -549,12 +549,25 @@ export function VenusPage() {
   );
 }
 
+// Server-side sanitization (sanitizeVenusResponse in the API) already strips
+// markdown headings/fences/list markers out of the summary text before it
+// ever reaches the client. This is a defense-in-depth pass on the frontend
+// in case older cached sessions (saved analyses from before the server fix
+// shipped) or any other response path still contains raw fenced code blocks
+// — without this, a stray ```json ... ``` block renders as visible plain
+// text lines instead of being hidden, which is what produced the empty
+// "### Card" / "{}" lines seen in the UI.
+function stripStrayCodeFences(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, '').replace(/```[\s\S]*$/g, '');
+}
+
 /* Render Venus response with basic markdown-like formatting */
 function VenusMessage({ content, confidence }: { content: string; confidence?: 'verified' | 'exploratory'; confidenceNote?: string }) {
+  const withoutFences = stripStrayCodeFences(content);
   const stripped = confidence === 'exploratory'
-    ? content.replace(/^⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset\. Treat as an unverified starting point only\.\s*/i, '').trim()
-    : content;
-  const lines = stripped.split('\n');
+    ? withoutFences.replace(/^⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset\. Treat as an unverified starting point only\.\s*/i, '').trim()
+    : withoutFences;
+  const lines = stripped.split('\n').filter((line) => line.trim() !== '```' && line.trim() !== '```json');
   return (
     <div className="space-y-1.5 text-sm text-[var(--text)] leading-relaxed">
       {lines.map((line, i) => {
@@ -1081,7 +1094,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           <div className="flex items-start justify-between gap-3 text-left">
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
+              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title?.trim() || `Section ${index + 1}`}</h4>
             </div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Primary answer</span>
           </div>
@@ -1092,7 +1105,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           <button type="button" onClick={() => setExpanded(v => !v)} className="flex w-full items-start justify-between gap-3 text-left">
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
+              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title?.trim() || `Section ${index + 1}`}</h4>
             </div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{expanded ? 'Hide' : 'Show'}</span>
           </button>

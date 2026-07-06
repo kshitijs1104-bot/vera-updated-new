@@ -14,6 +14,8 @@ CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage, 
 
 You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
 
+CRITICAL — THE "summary" FIELD IS PLAIN SENTENCES ONLY, NEVER A SECOND REPORT: The summary field must contain only 2-3 sentences of plain prose — no headings of any kind (no "#", "##", "###"), no bullet lists, no numbered lists, no bold markdown, and never a code fence (no triple-backtick blocks anywhere, and never the literal word "json" followed by a fenced block). Do not restate, re-title, or re-summarize the cards array inside summary — if a fact belongs in a card, put it ONLY in that card's content and leave it out of summary entirely. A summary field that reads like its own mini report with section headers is a critical failure mode: it means you generated the answer twice in two different formats, which is exactly what you must never do. Before returning your JSON, check the summary string specifically: if it contains a newline followed by "#" or contains a sequence of three backtick characters anywhere, delete that formatting and rewrite it as plain sentences.
+
 The JSON always has this shape:
 { "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }
 
@@ -37,6 +39,8 @@ Always include at least 2 cards for broad strategic requests. If the request is 
 
 Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.
 
+CRITICAL — EVERY CARD MUST HAVE A NON-EMPTY "title": Every object in the cards array must include a short, specific, non-empty title string (e.g. "Key Risks & Mitigations", "90-Day Roadmap"). Never return "title": "" or omit title. A card with a missing or blank title is a critical failure — the UI has no fallback and will render that section with no label at all.
+
 CRITICAL — RETRIEVAL-GATED PRECEDENTS: You will be given a block of VERIFIED PRECEDENTS retrieved from a real, curated startup outcomes dataset. These are the ONLY companies you are allowed to name as precedents in this response. You MUST NOT invent, recall from general knowledge, or reference any company outcome, causal mechanism, or statistic that is not explicitly present in the VERIFIED PRECEDENTS block below. Any precedent card you produce must map directly to one of the verified records (same company name, same outcome, same causal mechanism — you may paraphrase but not add unverified facts). If the VERIFIED PRECEDENTS block is empty, you MUST NOT include a precedent card at all and MUST NOT name any specific company anywhere in your response (no real company names in summary, analysis, market, risk, roadmap, or decision content) — speak only in general structural/strategic terms for that response.
 
 When a question is not actually about market size, growth, competition, or TAM/SAM/SOM, do not force a market card. Keep the answer focused and avoid generic market fluff. Make roadmap or funnel stage descriptions short and scannable — one line each, not long paragraphs. For funnel cards, use short titles with at most 5 words and short details with at most 20 words each.
@@ -54,6 +58,115 @@ export function extractJson(content: string): string {
   const jsonStart = stripped.indexOf("{");
   const jsonEnd = stripped.lastIndexOf("}");
   return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
+}
+
+// The model returns valid JSON (enforced by Groq's json_object response mode),
+// but "valid JSON" only guarantees the outer structure parses — it does not
+// guarantee the *string values inside* are clean. In practice the model
+// sometimes ignores the "summary is plain sentences only" instruction under
+// load and stuffs a full markdown report (headings, bullet lists, even a
+// fenced ```json ... ``` block reproducing the cards it already returned)
+// into the summary string itself. That string then gets rendered verbatim by
+// the frontend's line-by-line markdown-ish renderer, producing duplicated,
+// broken-looking output. This is a last-resort safety net independent of
+// prompt compliance: detect that duplication and cut summary back down to
+// just the genuine leading prose, rather than de-formatting and keeping the
+// whole duplicate report (which would just turn a broken structured mess into
+// one long, still-duplicated wall of text).
+function sanitizeSummaryText(summary: string): string {
+  let text = summary;
+
+  // A bare title line like "# Venus AI Analysis" carries no real content —
+  // drop it outright before looking for where the real prose ends, so it
+  // doesn't get mistaken for the start of the summary's actual content.
+  text = text.replace(/^\s*#{1,6}\s+.*\n+/, "");
+
+  // A heading marker, a fenced code block, or a line that is just the word
+  // "Card" (the model's own card-section label leaking into prose) all mean
+  // the same thing: everything from that point onward is the model
+  // re-rendering its own cards array as markdown, not summary prose. Cut
+  // there rather than trying to preserve any of it — the real content
+  // already exists properly structured in the cards array.
+  const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);
+  if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "number") {
+    text = text.slice(0, structuralMarkerMatch.index);
+  }
+
+  // Defensive second pass in case a fence appeared without a preceding
+  // newline (e.g. mid-sentence), or anything else slipped through above.
+  text = text.replace(/```[\s\S]*$/g, "");
+
+  // Strip any remaining inline markdown markers from the surviving prose.
+  text = text.replace(/^#{1,6}\s+/gm, "");
+  text = text.replace(/^\s*[-*]\s+/gm, "");
+  text = text.replace(/^\s*\d+\.\s+/gm, "");
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
+  text = text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
+
+  // Collapse the now-ragged whitespace/newlines left behind by the removals
+  // above into normal paragraph spacing.
+  text = text.split("\n").map((line) => line.trim()).filter(Boolean).join(" ");
+  text = text.replace(/\s{2,}/g, " ").trim();
+
+  // Last-resort edge case: if every one of the above steps still left nothing
+  // usable (e.g. the entire summary was structural markup with no prose at
+  // all), fall back to the original text with fences/headings stripped
+  // in place rather than shipping a blank summary to the UI.
+  if (text.length < 10) {
+    let fallback = summary
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/```[\s\S]*$/g, "")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/^\s*[-*]\s+/gm, "")
+      .replace(/^\s*\d+\.\s+/gm, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1");
+    fallback = fallback.split("\n").map((line) => line.trim()).filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
+    text = fallback || text;
+  }
+
+  return text;
+}
+
+function sanitizeCardTitle(rawTitle: unknown, card: Record<string, unknown>, index: number): string {
+  const title = typeof rawTitle === "string" ? rawTitle.replace(/^#{1,6}\s+/, "").trim() : "";
+  if (title) return title;
+
+  // No fallback existed here before — a blank/missing title from the model
+  // rendered as a completely unlabeled collapsed section in the UI (just a
+  // dot and "Show"). Fall back to a readable label derived from the card's
+  // own type so every section always has something to show.
+  const type = typeof card.type === "string" && card.type ? card.type : null;
+  if (type) {
+    const label = type.charAt(0).toUpperCase() + type.slice(1);
+    return `${label} — Section ${index + 1}`;
+  }
+  return `Section ${index + 1}`;
+}
+
+/**
+ * Cleans a parsed Venus response before it is sent to the client. Guarantees:
+ *  - summary contains no markdown headings, fences, or list/bold markers that
+ *    the frontend would otherwise render as broken duplicate structure
+ *  - every card has a non-empty, readable title
+ * This runs regardless of how well the model followed the prompt, so a
+ * regression in model behavior degrades gracefully instead of shipping raw
+ * markdown artifacts straight to the UI.
+ */
+export function sanitizeVenusResponse(parsed: any): any {
+  if (!parsed || typeof parsed !== "object") return parsed;
+
+  if (typeof parsed.summary === "string") {
+    parsed.summary = sanitizeSummaryText(parsed.summary);
+  }
+
+  if (Array.isArray(parsed.cards)) {
+    parsed.cards = parsed.cards.map((card: any, index: number) => {
+      if (!card || typeof card !== "object") return card;
+      return { ...card, title: sanitizeCardTitle(card.title, card, index) };
+    });
+  }
+
+  return parsed;
 }
 
 interface GroqJsonParams {
