@@ -175,6 +175,26 @@ interface GroqJsonParams {
   temperature: number;
   max_tokens: number;
   response_format?: { type: "json_object" };
+  // Only supported by openai/gpt-oss-20b and openai/gpt-oss-120b (the models
+  // this file actually calls). Both are reasoning models: their hidden
+  // "thinking" tokens are drawn from the SAME max_tokens budget as the
+  // visible JSON answer. Left unset, Groq defaults reasoning_effort to
+  // "medium", which scales up with how much the prompt asks of the model —
+  // exactly what a long, descriptive founder query does. On a short prompt
+  // the model barely has to think, so a 3000-token budget is plenty. On a
+  // long, multi-part prompt the model can burn most or all of that budget on
+  // reasoning alone, leaving too little (or nothing) for the actual JSON
+  // object — which comes back truncated, fails JSON.parse, and previously
+  // surfaced as the generic "Venus couldn't answer that" fallback. Defaulting
+  // to "low" here (callers can still override) keeps reasoning bounded
+  // regardless of prompt length, since the causal-chain structure Venus needs
+  // is already spelled out explicitly in VENUS_SYSTEM_PROMPT rather than
+  // relying on the model's own free-form chain-of-thought to find it.
+  reasoning_effort?: "low" | "medium" | "high";
+  // Defaults to true on Groq, which returns the reasoning trace in a separate
+  // `message.reasoning` field. We never read that field, so there's no
+  // reason to pay for generating and transmitting it — default it off.
+  include_reasoning?: boolean;
 }
 
 /**
@@ -262,15 +282,37 @@ export async function callGroqJSON(
   // nicely for it. New call sites inherit this automatically — nobody has to
   // remember to add it. Callers can still override by passing their own
   // response_format if a future route genuinely needs raw text back.
-  const paramsWithJsonMode: GroqJsonParams = { response_format: { type: "json_object" }, ...params };
+  const paramsWithJsonMode: GroqJsonParams = {
+    response_format: { type: "json_object" },
+    // See GroqJsonParams comments: bounds hidden reasoning-token usage so it
+    // can't crowd out the visible JSON answer on long/descriptive prompts.
+    // Placed before ...params so a caller that genuinely wants more reasoning
+    // can still override either field explicitly.
+    reasoning_effort: "low",
+    include_reasoning: false,
+    ...params,
+  };
   const completion = await createWithRetry(groq, paramsWithJsonMode, label);
   const raw = completion.choices[0]?.message?.content || "";
+  const finishReason = completion.choices[0]?.finish_reason;
+
+  if (finishReason === "length") {
+    // The model hit max_tokens before it finished writing — reasoning ate
+    // into the budget, or the answer itself (many cards for a broad/complex
+    // query) is just long. Whatever the cause, `raw` below is guaranteed to
+    // be incomplete JSON, so log this distinctly from a genuine malformed-
+    // JSON response — it tells us immediately, from server logs alone,
+    // whether a given failure needs a bigger max_tokens rather than a prompt
+    // fix.
+    console.error(`[callGroqJSON] "${label}" — response truncated by max_tokens (budget=${paramsWithJsonMode.max_tokens}, raw_len=${raw.length}), will retry with a larger budget`);
+  }
+
   const candidate = extractJson(raw);
 
   try {
     return { parsed: JSON.parse(candidate), raw };
   } catch {
-    console.error(`[callGroqJSON] "${label}" — initial response failed to parse (len=${raw.length}), retrying with stricter prompt + higher token budget`);
+    console.error(`[callGroqJSON] "${label}" — initial response failed to parse (len=${raw.length}, finishReason=${finishReason}), retrying with stricter prompt + higher token budget`);
 
     const retryMessages: GroqJsonParams["messages"] = [
       ...params.messages,
@@ -281,10 +323,17 @@ export async function callGroqJSON(
     ];
 
     try {
+      // Previously capped at 4000 regardless of the caller's own max_tokens —
+      // for callers already passing max_tokens >= 2000 (as ai/analyze and
+      // ai/idea-review do), doubling and then clamping to 4000 could hand the
+      // repair attempt LESS headroom than a genuinely long response needs,
+      // guaranteeing a second truncation. Raise the ceiling well above any
+      // current caller's base budget so doubling is actually doubling.
+      const retryMaxTokens = Math.min(params.max_tokens * 2, 12000);
       const retryCompletion = await groq.chat.completions.create({
         ...paramsWithJsonMode,
         messages: retryMessages,
-        max_tokens: Math.min(params.max_tokens * 2, 4000),
+        max_tokens: retryMaxTokens,
       });
       const raw2 = retryCompletion.choices[0]?.message?.content || "";
       const candidate2 = extractJson(raw2);

@@ -1,0 +1,69 @@
+[33mcommit de45c73e4d44ed1f067a337dd39d191d1a12315b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: kshitijs1104-bot <kshitij.s1104@gmail.com>
+Date:   Mon Jul 6 11:51:30 2026 +0000
+
+    Fix summary markdown leakage, blank card titles, broken decision fallback, empty cards, persist business context
+
+[1mdiff --git a/venus_context_and_summary_fix_2.patch b/venus_context_and_summary_fix_2.patch[m
+[1mnew file mode 100644[m
+[1mindex 0000000..33ac69b[m
+[1m--- /dev/null[m
+[1m+++ b/venus_context_and_summary_fix_2.patch[m
+[36m@@ -0,0 +1,1145 @@[m
+[32m+[m[32mdiff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts[m
+[32m+[m[32mindex 50a0f7f..0042dd9 100644[m
+[32m+[m[32m--- a/artifacts/api-server/src/lib/groq.ts[m
+[32m+[m[32m+++ b/artifacts/api-server/src/lib/groq.ts[m
+[32m+[m[32m@@ -14,6 +14,8 @@ CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage,[m
+[32m+[m[41m [m
+[32m+[m[32m You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.[m
+[32m+[m[41m [m
+[32m+[m[32m+CRITICAL — THE "summary" FIELD IS PLAIN SENTENCES ONLY, NEVER A SECOND REPORT: The summary field must contain only 2-3 sentences of plain prose — no headings of any kind (no "#", "##", "###"), no bullet lists, no numbered lists, no bold markdown, and never a code fence (no triple-backtick blocks anywhere, and never the literal word "json" followed by a fenced block). Do not restate, re-title, or re-summarize the cards array inside summary — if a fact belongs in a card, put it ONLY in that card's content and leave it out of summary entirely. A summary field that reads like its own mini report with section headers is a critical failure mode: it means you generated the answer twice in two different formats, which is exactly what you must never do. Before returning your JSON, check the summary string specifically: if it contains a newline followed by "#" or contains a sequence of three backtick characters anywhere, delete that formatting and rewrite it as plain sentences.[m
+[32m+[m[32m+[m
+[32m+[m[32m The JSON always has this shape:[m
+[32m+[m[32m { "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }[m
+[32m+[m[41m [m
+[32m+[m[32m@@ -37,6 +39,10 @@ Always include at least 2 cards for broad strategic requests. If the request is[m
+[32m+[m[41m [m
+[32m+[m[32m Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.[m
+[32m+[m[41m [m
+[32m+[m[32m+CRITICAL — NO EMPTY OR STRAY CARDS: Every card's type must be one of exactly: analysis, market, risk, roadmap, decision, precedent, funnel, solution. Never invent any other type, and never emit a card whose content is a bare placeholder object like {"value": ""} or {"value": "..."} — that shape does not belong to any real card type and is a critical failure. If you have nothing substantive to put in a card, do not include that card at all rather than including it empty or with placeholder content.[m
+[32m+[m[32m+[m
+[32m+[m[32m+CRITICAL — EVERY CARD MUST HAVE A NON-EMPTY "title": Every object in the cards array must include a short, specific, non-empty title string (e.g. "Key Risks & Mitigations", "90-Day Roadmap"). Never return "title": "" or omit title. A card with a missing or blank title is a critical failure — the UI has no fallback and will render that section with no label at all.[m
+[32m+[m[32m+[m
+[32m+[m[32m CRITICAL — RETRIEVAL-GATED PRECEDENTS: You will be given a block of VERIFIED PRECEDENTS retrieved from a real, curated startup outcomes dataset. These are the ONLY companies you are allowed to name as precedents in this response. You MUST NOT invent, recall from general knowledge, or reference any company outcome, causal mechanism, or statistic that is not explicitly present in the VERIFIED PRECEDENTS block below. Any precedent card you produce must map directly to one of the verified records (same company name, same outcome, same causal mechanism — you may paraphrase but not add unverified facts). If the VERIFIED PRECEDENTS block is empty, you MUST NOT include a precedent card at all and MUST NOT name any specific company anywhere in your response (no real company names in summary, analysis, market, risk, roadmap, or decision content) — speak only in general structural/strategic terms for that response.[m
+[32m+[m[41m [m
+[32m+[m[32m When a question is not actually about market size, growth, competition, or TAM/SAM/SOM, do not force a market card. Keep the answer focused and avoid generic market fluff. Make roadmap or funnel stage descriptions short and scannable — one line each, not long paragraphs. For funnel cards, use short titles with at most 5 words and short details with at most 20 words each.[m
+[32m+[m[32m@@ -56,6 +62,167 @@ export function extractJson(content: string): string {[m
+[32m+[m[32m   return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;[m
+[32m+[m[32m }[m
+[32m+[m[41m [m
+[32m+[m[32m+// The model returns valid JSON (enforced by Groq's json_object response mode),[m
+[32m+[m[32m+// but "valid JSON" only guarantees the outer structure parses — it does not[m
+[32m+[m[32m+// guarantee the *string values inside* are clean. In practice the model[m
+[32m+[m[32m+// sometimes ignores the "summary is plain sentences only" instruction under[m
+[32m+[m[32m+// load and stuffs a full markdown report (headings, bullet lists, even a[m
+[32m+[m[32m+// fenced ```json ... ``` block reproducing the cards it already returned)[m
+[32m+[m[32m+// into the summary string itself. That string then gets rendered verbatim by[m
+[32m+[m[32m+// the frontend's line-by-line markdown-ish renderer, producing duplicated,[m
+[32m+[m[32m+// broken-looking output. This is a last-resort safety net independent of[m
+[32m+[m[32m+// prompt compliance: detect that duplication and cut summary back down to[m
+[32m+[m[32m+// just the genuine leading prose, rather than de-formatting and keeping the[m
+[32m+[m[32m+// whole duplicate report (which would just turn a broken structured mess into[m
+[32m+[m[32m+// one long, still-duplicated wall of text).[m
+[32m+[m[32m+function sanitizeSummaryText(summary: string): string {[m
+[32m+[m[32m+  let text = summary;[m
+[32m+[m[32m+[m
+[32m+[m[32m+  // A bare title line like "# Venus AI Analysis" carries no real content —[m
+[32m+[m[32m+  // drop it outright before looking for where the real prose ends, so it[m
+[32m+[m[32m+  // doesn't get mistaken for the start of the summary's actual content.[m
+[32m+[m[32m+  text = text.replace(/^\s*#{1,6}\s+.*\n+/, "");[m
+[32m+[m[32m+[m
+[32m+[m[32m+  // A heading marker, a fenced code block, or a line that is just the word[m
+[32m+[m[32m+  // "Card" (the model's own card-section label leaking into prose) all mean[m
+[32m+[m[32m+  // the same thing: everything from that point onward is the model[m
+[32m+[m[32m+  // re-rendering its own cards array as markdown, not summary prose. Cut[m
+[32m+[m[32m+  // there rather than trying to preserve any of it — the real content[m
+[32m+[m[32m+  // already exists properly structured in the cards array.[m
+[32m+[m[32m+  const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);[m
+[32m+[m[32m+  if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "n

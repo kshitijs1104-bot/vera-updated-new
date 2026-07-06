@@ -394,7 +394,15 @@ router.post("/ai/analyze", async (req, res) => {
 
     const { parsed } = await callGroqJSON(
       groq,
-      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 3000 },
+      // 3000 was tuned against short prompts. A broad/descriptive query can
+      // legitimately ask for a decision card plus several supporting cards
+      // (market, risk, roadmap, precedent) — that alone runs well past 3000
+      // tokens of JSON before reasoning is even counted, which is what was
+      // producing truncated JSON and the generic "couldn't answer" fallback
+      // on longer prompts. 6000 gives real headroom for a full multi-card
+      // response; reasoning itself is now bounded separately (see
+      // callGroqJSON's reasoning_effort default).
+      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 6000 },
       "ai/analyze",
     );
 
@@ -472,7 +480,7 @@ router.post("/ai/idea-review", async (req, res) => {
           },
         ],
         temperature: 0.4,
-        max_tokens: 3000,
+        max_tokens: 6000,
       },
       "ai/idea-review",
     );
@@ -560,7 +568,7 @@ ${articleSnippets.join("\n\n").slice(0, 20000)}`;
           { role: "user", content: prompt },
         ],
         temperature: 0.2,
-        max_tokens: 2000,
+        max_tokens: 3000,
       },
       "ai/company-report",
     );
@@ -632,7 +640,16 @@ router.post("/ai/summarize-article", async (req, res) => {
         },
       ],
       temperature: 0.2,
-      max_tokens: 400,
+      // gpt-oss-20b is also a reasoning model, so it's subject to the same
+      // failure mode as the other routes in this file: hidden reasoning
+      // tokens draw from this same max_tokens budget. This call goes
+      // straight to groq.chat.completions.create instead of through
+      // callGroqJSON, so it doesn't inherit that fix automatically —
+      // reasoning_effort/include_reasoning are set explicitly here instead,
+      // plus a somewhat larger budget since 400 left almost no margin.
+      max_tokens: 700,
+      reasoning_effort: "low",
+      include_reasoning: false,
       response_format: { type: "json_object" },
     });
 
