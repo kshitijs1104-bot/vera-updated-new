@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { db, settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, settingsTable, venusDecisionsTable } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
+import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse } from "../lib/groq";
-import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
+import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 
 const router = Router();
@@ -135,6 +136,64 @@ async function saveStoredBusinessContext(sessionId: string, context: string): Pr
   } catch {
     // Best-effort persistence — if this fails, Venus just falls back to
     // asking for context again next time rather than crashing the request.
+  }
+}
+
+// Turns a decision/roadmap card into a short plain-text recommendation
+// summary for fast future retrieval scoring (see retrieval.ts), without
+// needing to re-parse the full card JSON on every subsequent query.
+function summarizeCardForLogging(card: any): string | null {
+  if (!card || typeof card !== "object") return null;
+  const content = card.content;
+  if (!content || typeof content !== "object") return null;
+
+  if (card.type === "decision") {
+    const topOption = Array.isArray(content.options) && content.options.length > 0 ? content.options[0]?.name : null;
+    const recommendation = typeof content.recommendation === "string" ? content.recommendation : "";
+    return [topOption ? `Considered: ${topOption}` : null, recommendation].filter(Boolean).join(" — ") || null;
+  }
+  if (card.type === "roadmap") {
+    const firstPhase = Array.isArray(content.phases) && content.phases.length > 0 ? content.phases[0] : null;
+    if (!firstPhase) return null;
+    const actions = Array.isArray(firstPhase.actions) ? firstPhase.actions.slice(0, 2).join("; ") : "";
+    return [firstPhase.title, actions].filter(Boolean).join(" — ") || null;
+  }
+  return null;
+}
+
+// Writes a row for every decision/roadmap card Venus returns — this is what
+// makes the memory start building itself from ordinary usage, with no extra
+// action required from the founder. The founder (or a future conversational
+// flow) fills in the outcome later via /ai/decisions/:id/outcome; until then
+// the row just sits as "open" and isn't retrieved for future answers (only
+// resolved decisions are, since an unresolved recommendation has no ground
+// truth in it yet — see retrieveOwnResolvedDecisions).
+async function autoLogDecisionCards(
+  sessionId: string,
+  query: string,
+  businessContext: string | undefined,
+  cards: any[],
+): Promise<void> {
+  if (!Array.isArray(cards) || cards.length === 0) return;
+  try {
+    for (const card of cards) {
+      if (!card || (card.type !== "decision" && card.type !== "roadmap")) continue;
+      const summary = summarizeCardForLogging(card);
+      if (!summary) continue; // don't log a card we can't meaningfully summarize
+      await db.insert(venusDecisionsTable).values({
+        sessionId,
+        query,
+        businessContextSnapshot: businessContext ?? null,
+        cardType: card.type,
+        recommendationSummary: summary,
+        cardContentJson: JSON.stringify(card.content ?? {}),
+        status: "open",
+      });
+    }
+  } catch (err) {
+    // Never let logging failure break the actual chat response — this is
+    // purely additive memory-building, not something the user is waiting on.
+    console.error("[autoLogDecisionCards] failed to log decision card(s)", err);
   }
 }
 
@@ -351,6 +410,14 @@ router.post("/ai/analyze", async (req, res) => {
 
     const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
 
+    // The founder's own resolved decision history — see retrieval.ts and
+    // venus_decisions schema comments for why this is scoped per-session and
+    // treated as stronger evidence than the third-party precedent dataset.
+    const ownDecisions = await retrieveOwnResolvedDecisions(sessionId, body.data.message, { businessContext: effectiveBusinessContext });
+    const ownHistoryBlock = ownDecisions.length > 0
+      ? `YOUR OWN VERIFIED HISTORY WITH THIS FOUNDER (private to this founder, higher trust than the precedent dataset below):\n\n${formatOwnDecisionsForPrompt(ownDecisions)}`
+      : "";
+
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
 
@@ -372,10 +439,10 @@ router.post("/ai/analyze", async (req, res) => {
     const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
       : effectiveBusinessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}`;
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -417,7 +484,11 @@ router.post("/ai/analyze", async (req, res) => {
           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
       applyTierLabel(parsed, retrieval);
-      return res.json(sanitizeVenusResponse(parsed));
+      const sanitized = sanitizeVenusResponse(parsed);
+      // Fire-and-forget: don't make the founder wait on this, and never let
+      // a logging failure affect the response they actually asked for.
+      autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards).catch(() => {});
+      return res.json(sanitized);
     }
 
     const shortQueryFallback = buildShortQueryFallback(body.data.message);
@@ -500,6 +571,105 @@ router.post("/ai/idea-review", async (req, res) => {
   } catch (err: any) {
     req.log.error(err);
     return res.json(buildTransientErrorResponse(body.data.idea, isContentPolicyRefusal(err) ? "policy" : undefined));
+  }
+});
+
+const ReportOutcomeBody = z.object({
+  outcome: z.string().min(1),
+  sentiment: z.enum(["positive", "negative", "mixed"]).optional(),
+});
+
+// Lists the founder's own decisions Venus has logged, most recent first —
+// "open" ones are still waiting on an outcome, "resolved" ones already have
+// one and are feeding retrieval. This is what lets the UI show a founder a
+// running list of "here's what Venus told you and what's still unresolved,"
+// which is also the natural place to prompt them to report back.
+router.get("/ai/decisions", async (req, res) => {
+  try {
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const rows = await db
+      .select()
+      .from(venusDecisionsTable)
+      .where(eq(venusDecisionsTable.sessionId, sessionId))
+      .orderBy(desc(venusDecisionsTable.createdAt))
+      .limit(50);
+    return res.json({ decisions: rows });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to load decision history" });
+  }
+});
+
+// The one human-in-the-loop step that can't be automated: the founder tells
+// Venus what actually happened after acting (or not acting) on a past
+// recommendation. This is what turns a logged-but-unresolved card into real
+// ground truth that future retrieval can cite (see retrieveOwnResolvedDecisions).
+// Venus derives a short causal "lesson" from the reported outcome using the
+// same JSON-calling infrastructure as the main analyze route, so the lesson
+// is immediately usable in future prompts without extra parsing at query time.
+router.post("/ai/decisions/:id/outcome", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid decision id" });
+
+  const body = ReportOutcomeBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Invalid request body — 'outcome' (string) is required" });
+
+  try {
+    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const [existing] = await db
+      .select()
+      .from(venusDecisionsTable)
+      .where(and(eq(venusDecisionsTable.id, id), eq(venusDecisionsTable.sessionId, sessionId)))
+      .limit(1);
+
+    if (!existing) return res.status(404).json({ error: "Decision not found" });
+
+    let lesson: string | null = null;
+    const groq = await getGroqClient(sessionId);
+    if (groq) {
+      const { parsed } = await callGroqJSON(
+        groq,
+        {
+          model: "openai/gpt-oss-120b",
+          messages: [
+            {
+              role: "system",
+              content: `You distill a single short, causal, one-sentence lesson from a resolved founder decision. Return ONLY a JSON object: { "lesson": "one sentence, causal, specific — not generic advice" }. The lesson must state what happened and why, in a form directly reusable to inform a similar future decision for the SAME founder. Never invent facts not present in what you're given.`,
+            },
+            {
+              role: "user",
+              content: `Original question: "${existing.query}"\nWhat Venus recommended: "${existing.recommendationSummary}"\nWhat actually happened (founder's own words): "${body.data.outcome}"`,
+            },
+          ],
+          temperature: 0.3,
+          max_tokens: 300,
+        },
+        "ai/decisions/outcome-lesson",
+      );
+      if (parsed && typeof parsed.lesson === "string" && parsed.lesson.trim()) {
+        lesson = parsed.lesson.trim();
+      }
+    }
+
+    // Missing/unconfigured Groq key, or the lesson call failed, shouldn't
+    // block recording the outcome itself — the raw outcome text is still
+    // genuine ground truth and gets used in retrieval even without a
+    // distilled lesson (formatOwnDecisionsForPrompt handles a null lesson).
+    await db
+      .update(venusDecisionsTable)
+      .set({
+        outcome: body.data.outcome,
+        lesson,
+        outcomeSentiment: body.data.sentiment ?? null,
+        status: "resolved",
+        resolvedAt: new Date(),
+      })
+      .where(eq(venusDecisionsTable.id, id));
+
+    return res.json({ id, status: "resolved", lesson });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to record outcome" });
   }
 });
 

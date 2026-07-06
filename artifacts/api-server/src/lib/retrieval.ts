@@ -1,4 +1,5 @@
-import { db, precedentsTable, type Precedent } from "@workspace/db";
+import { db, precedentsTable, venusDecisionsTable, type Precedent, type VenusDecision } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 export const SECTOR_KEYWORDS: Record<string, string[]> = {
   "SaaS/Enterprise Software": ["saas", "enterprise software", "b2b software", "dashboard", "crm", "collaboration tool", "productivity software"],
@@ -184,6 +185,74 @@ export function formatPrecedentsForPrompt(matches: PrecedentMatch[]): string {
         `Causal mechanism: ${m.precedent.causalMechanism}\n` +
         `Outcome: ${m.precedent.outcome}${m.precedent.timeframeToOutcome ? ` (timeframe: ${m.precedent.timeframeToOutcome})` : ""}\n` +
         `Source: ${m.precedent.sourceCitation}`,
+    )
+    .join("\n\n");
+}
+
+/* ---- The founder's own resolved decisions — Venus's real, growing memory ---- */
+//
+// This is deliberately a SEPARATE, simpler retrieval path from
+// retrievePrecedents above. The third-party precedent dataset is large
+// enough to need real scoring/tiering/thresholds; a single founder's own
+// decision history starts at zero and grows slowly, so simple recency +
+// lexical overlap is sufficient and avoids over-engineering a tiny table.
+// Critically, this is scoped to sessionId — one founder's resolved
+// decisions are never surfaced into another founder's session.
+
+export interface OwnDecisionMatch {
+  decision: VenusDecision;
+  score: number;
+}
+
+const OWN_DECISION_TOP_K = 3;
+
+export async function retrieveOwnResolvedDecisions(
+  sessionId: string,
+  query: string,
+  opts?: { businessContext?: string },
+): Promise<OwnDecisionMatch[]> {
+  const rows = await db
+    .select()
+    .from(venusDecisionsTable)
+    .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "resolved")));
+
+  if (rows.length === 0) return [];
+
+  const combinedQuery = [query, opts?.businessContext].filter(Boolean).join(" ");
+  const queryTokens = new Set(tokenize(combinedQuery));
+
+  const scored: OwnDecisionMatch[] = rows.map((decision: VenusDecision) => {
+    const haystack = [decision.query, decision.recommendationSummary, decision.outcome ?? "", decision.lesson ?? ""].join(" ");
+    const docTokens = new Set(tokenize(haystack));
+    let overlap = 0;
+    for (const t of queryTokens) {
+      if (docTokens.has(t)) overlap++;
+    }
+    // Recency counts here in a way it doesn't for the third-party precedent
+    // dataset: a founder's own decision from last week is more relevant to
+    // "what should I do now" than one from months ago, even at similar topical
+    // overlap, since it reflects the current state of their business.
+    const ageDays = decision.resolvedAt ? (Date.now() - new Date(decision.resolvedAt).getTime()) / 86_400_000 : 9999;
+    const recencyBoost = ageDays < 30 ? 0.15 : ageDays < 90 ? 0.05 : 0;
+    const score = overlap / Math.max(queryTokens.size, 1) + recencyBoost;
+    return { decision, score };
+  });
+
+  return scored
+    .filter((s) => s.score > 0) // never surface a zero-overlap decision just to fill the slot
+    .sort((a, b) => b.score - a.score)
+    .slice(0, OWN_DECISION_TOP_K);
+}
+
+export function formatOwnDecisionsForPrompt(matches: OwnDecisionMatch[]): string {
+  if (matches.length === 0) return "";
+  return matches
+    .map(
+      (m, i) =>
+        `[Your own past decision ${i + 1}] Asked: "${m.decision.query}"\n` +
+        `You recommended: ${m.decision.recommendationSummary}\n` +
+        `What actually happened: ${m.decision.outcome}\n` +
+        `Lesson: ${m.decision.lesson ?? "(not yet derived)"}`,
     )
     .join("\n\n");
 }
