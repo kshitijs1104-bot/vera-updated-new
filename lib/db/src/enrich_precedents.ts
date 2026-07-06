@@ -112,7 +112,8 @@ async function main() {
   async function callWithRetry(c: Candidate, attempt = 0): Promise<any> {
     try {
       return await groq.chat.completions.create({
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
           { role: "user", content: buildUserPrompt(c) },

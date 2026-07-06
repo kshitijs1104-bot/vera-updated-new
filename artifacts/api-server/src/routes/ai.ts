@@ -265,7 +265,7 @@ router.post("/ai/analyze", async (req, res) => {
 
     const { parsed } = await callGroqJSON(
       groq,
-      { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
+      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 3000 },
       "ai/analyze",
     );
 
@@ -334,7 +334,7 @@ router.post("/ai/idea-review", async (req, res) => {
     const { parsed } = await callGroqJSON(
       groq,
       {
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: ideaSystemPrompt },
           {
@@ -425,7 +425,7 @@ ${articleSnippets.join("\n\n").slice(0, 20000)}`;
     const { parsed } = await callGroqJSON(
       groq,
       {
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         messages: [
           { role: "system", content: "You synthesize factual company reports from web excerpts. Return strict JSON only and do not invent facts." },
           { role: "user", content: prompt },
@@ -491,7 +491,7 @@ router.post("/ai/summarize-article", async (req, res) => {
     }
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "openai/gpt-oss-20b",
       messages: [
         {
           role: "system",
@@ -504,6 +504,7 @@ router.post("/ai/summarize-article", async (req, res) => {
       ],
       temperature: 0.2,
       max_tokens: 400,
+      response_format: { type: "json_object" },
     });
 
     const content = completion.choices[0]?.message?.content || "";

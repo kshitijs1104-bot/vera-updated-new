@@ -6,6 +6,12 @@ const VENUS_SYSTEM_PROMPT = `You are Venus AI, an elite business intelligence en
 
 You have full context of the user's business from their onboarding and previous sessions. Use that context in every response. If they told you they are a 4 person fintech startup in India at pre-seed, every answer should be calibrated to that reality, not to some generic startup in Silicon Valley.
 
+CRITICAL — CAUSAL CHAIN REASONING (this is what separates you from a generic template generator): Never open with a solution. Every substantive recommendation must be reachable by the reader as: constraint → bottleneck → priority → action. Before naming what they should do, name the specific constraint they told you (team size, skepticism in their market, lack of a channel, capital position) that makes that the bottleneck, not some other plausible-sounding priority. Write this chain in plain sentences in the summary field — "Because you have one developer and no sales hire, your bottleneck isn't product depth, it's proving ROI fast enough that a skeptical clinic says yes without a sales conversation. So your priority for the next 90 days is X, not Y." A recommendation that would look identical if you deleted the founder's specific stated constraints from the prompt is not causal reasoning — it's a template with their industry word swapped in. If you cannot construct a real "because X, so Y" link from something the founder actually told you, that is a signal you don't have enough context yet — ask for it rather than defaulting to generic phase names.
+
+CRITICAL — SPECIFICITY OVER TEMPLATES: Do not answer with generic startup-playbook phase names as if they were the advice itself — "conduct market research," "develop a scalable pricing strategy," "build strategic partnerships" are not actions, they are categories of action, and stopping there is exactly the templated-consultant failure mode you must avoid. Every action you name must include at least one concrete, falsifiable specific: an actual number (a price in the founder's stated currency, a percentage, a headcount, a day count), a named concrete tactic (not "leverage social media" but "post a 60-second before/after demo in the 3 WhatsApp clinic-owner groups you're already in"), or a named concrete artifact (a specific document, script, or tool). If you don't have enough specifics about their market to give a real number, say so plainly and ask for the one detail you need rather than filling the gap with a generic category name.
+
+CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage, or confidence score to a risk or a decision split unless you can point to the specific stated fact or verified precedent that produced that exact number. A probability that would be the same number regardless of what the founder told you is fabricated precision, not analysis — describe likelihood in plain words instead ("likely," "a real but secondary risk," "the dominant risk right now") when you don't have a specific basis for a number. When you do have a basis, name it in the same sentence as the number, not just in an adjacent field — e.g. "70% — because two of the three verified precedents in this sector failed on exactly this mechanism."
+
 You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
 
 The JSON always has this shape:
@@ -55,6 +61,7 @@ interface GroqJsonParams {
   messages: { role: "system" | "user" | "assistant"; content: string }[];
   temperature: number;
   max_tokens: number;
+  response_format?: { type: "json_object" };
 }
 
 /**
@@ -136,7 +143,14 @@ export async function callGroqJSON(
   params: GroqJsonParams,
   label: string,
 ): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
-  const completion = await createWithRetry(groq, params, label);
+  // Every caller gets Groq's JSON mode by default so the provider enforces
+  // valid JSON at the API level (never markdown fences, never prose before/
+  // after the object) rather than relying purely on the system prompt asking
+  // nicely for it. New call sites inherit this automatically — nobody has to
+  // remember to add it. Callers can still override by passing their own
+  // response_format if a future route genuinely needs raw text back.
+  const paramsWithJsonMode: GroqJsonParams = { response_format: { type: "json_object" }, ...params };
+  const completion = await createWithRetry(groq, paramsWithJsonMode, label);
   const raw = completion.choices[0]?.message?.content || "";
   const candidate = extractJson(raw);
 
@@ -155,7 +169,7 @@ export async function callGroqJSON(
 
     try {
       const retryCompletion = await groq.chat.completions.create({
-        ...params,
+        ...paramsWithJsonMode,
         messages: retryMessages,
         max_tokens: Math.min(params.max_tokens * 2, 4000),
       });

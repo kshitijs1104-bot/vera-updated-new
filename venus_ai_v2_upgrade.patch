@@ -1,0 +1,370 @@
+diff --git a/.agents/memory/MEMORY.md b/.agents/memory/MEMORY.md
+index c889ea7..76608c5 100644
+--- a/.agents/memory/MEMORY.md
++++ b/.agents/memory/MEMORY.md
+@@ -2,4 +2,5 @@
+ - [Vercel/v0 migration checklist](vercel-v0-migration.md) — after copying source into a Vite artifact, verify App.tsx was actually wired to real routes, not left as the scaffold placeholder.
+ - [Reopened-from-GitHub regressions](reopened-from-github-regressions.md) — DB tables can come back empty and CSS theme vars can revert to literal placeholders; check both before assuming a code regression.
+ - [Lexical retrieval-gating false positives](retrieval-gating-lexical-overlap.md) — generic domain vocabulary ("startup","raise","series") inflates keyword-overlap match scores; strip it or gating leaks ungrounded answers.
+-- [Groq small-model JSON robustness](groq-json-retry-pattern.md) — 8b-instant models need extract-braces + retry-with-stricter-prompt to reliably return parseable JSON; also don't mix incompatible output-format instructions in one shared system prompt.
++- [Groq small-model JSON robustness](groq-json-retry-pattern.md) — HISTORICAL: written for `llama-3.1-8b-instant`, which is now deprecated/migrated away from (see the 2026 deprecation note below). The extract-braces + retry-with-stricter-prompt pattern it describes is still live in `callGroqJSON` and still useful context, but the model-choice tradeoff it discusses no longer applies as-is.
++- [Groq 2026 model deprecation migration](groq-model-deprecation-2026.md) — `llama-3.1-8b-instant`/`llama-3.3-70b-versatile` deprecated, migrated to the `gpt-oss` family with a reasoning/lightweight split; also added default `json_object` response mode. Read this before changing any `model:` string in this repo.
+diff --git a/.agents/memory/groq-model-deprecation-2026.md b/.agents/memory/groq-model-deprecation-2026.md
+new file mode 100644
+index 0000000..7aef559
+--- /dev/null
++++ b/.agents/memory/groq-model-deprecation-2026.md
+@@ -0,0 +1,57 @@
++---
++name: Groq 2026 model deprecation migration
++description: llama-3.1-8b-instant and llama-3.3-70b-versatile were deprecated by Groq (announced 2026-06-17); migrated to the gpt-oss family. Read this before changing any `model:` string in this repo.
++---
++
++Groq deprecated `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` (shutdown
++dates on Groq's `/docs/deprecations` page — check that page directly, don't
++trust a cached date here). Every call site in this repo was migrated:
++
++- Reasoning-heavy / user-facing causal analysis (`/ai/analyze`, `/ai/idea-review`,
++  company autopsy + autopsy chat, event ripple analysis, report summaries) →
++  `openai/gpt-oss-120b`.
++- Lighter extraction/summarization tasks (`/ai/company-report`,
++  `/ai/summarize-article`, the offline `enrich_precedents.ts` batch script) →
++  `openai/gpt-oss-20b`.
++
++**Why the split:** both gpt-oss tiers have identical free-tier rate limits on
++Groq (RPM 30 / RPD 1,000 / TPM 8,000 / TPD 200,000 — verify current numbers on
++Groq's `/docs/rate-limits` page, these change), so there's no quota reason to
++use the smaller model anywhere reasoning quality actually matters. Quotas are
++per-model buckets, not shared, so mixing tiers across routes doesn't make one
++endpoint starve another.
++
++**Known tradeoff, don't silently re-optimize around it:** the original switch
++to `llama-3.1-8b-instant` (see `groq-json-retry-pattern.md`) was deliberately
++done to dodge a per-model daily cap. The gpt-oss free-tier RPD (1,000) and TPD
++(200,000) are both *much* tighter than 8b-instant's old RPD (14,400) / TPD
++(500,000). At ~3-7K tokens per `/ai/analyze` turn (system prompt + precedent
++block + history + response), that's roughly 30-40 full conversations/day
++before hitting the wall on the free tier. If you ever see 429s that don't
++match `isRetryableTransient`'s expected shape, check whether it's actually
++"working as intended, tighter free-tier budget" before treating it as a bug.
++The app already supports a per-session custom Groq key (Settings →
++`x-groq-api-key` header path in `getGroqClient`) as a release valve — that's
++a separate quota bucket per key.
++
++**Also fixed in the same pass — do this for any NEW Groq call site too:**
++Added `response_format: { type: "json_object" }` as an automatic default
++inside `callGroqJSON()` (see `groq.ts`) so the provider enforces valid JSON at
++the API level instead of relying purely on system-prompt wording. This is
++Groq's basic/stable JSON mode, not the stricter `json_schema` structured-
++output mode — `json_schema` is officially supported on both gpt-oss models but
++has had mixed reliability reports on deeply nested schemas (see Groq community
++forum threads from late 2025), and this codebase's card schema is deeply
++nested (8 card types, each with its own content shape). `json_object` was the
++safer choice given no way to live-test `json_schema` adherence from outside
++the actual running app. If a future session wants to try upgrading to
++`json_schema` for full schema-level guarantees, test it thoroughly against
++`VENUS_TEST_SUITE.md` Section 5 (rendering integrity) before trusting it in
++production — don't assume the forum reports are stale just because time has
++passed.
++
++**Gotcha if you touch `callGroqJSON` again:** the retry-on-parse-failure path
++used to spread the original `params` (losing any per-call `response_format`
++override) instead of the JSON-mode-defaulted version. Fixed by making sure
++`paramsWithJsonMode` (not `params`) is the base for the retry call's spread.
++Any future refactor of that retry path needs to preserve this.
+diff --git a/VENUS_TEST_SUITE.md b/VENUS_TEST_SUITE.md
+new file mode 100644
+index 0000000..89f350b
+--- /dev/null
++++ b/VENUS_TEST_SUITE.md
+@@ -0,0 +1,128 @@
++# Venus AI — Manual Test Suite
++
++Run this after ANY change to `groq.ts`, `ai.ts`, or `Venus.tsx`. It's built from
++real bugs found in production testing, not hypotheticals — every row here is
++something that actually broke once. Takes ~10 minutes.
++
++I can't call the live Groq API from my sandbox, so I can't run this myself —
++you run it in the actual app, paste me the transcript for anything that fails,
++and that transcript IS the bug report (see "Standard Debug Prompt" at the
++bottom). No more screenshot-by-screenshot back and forth.
++
++**Rule of thumb:** if a change touches the system prompt or the analyze route,
++run all of Section 1–4. If it's a pure UI/CSS change, Section 5 is enough.
++
++---
++
++## Section 1 — Context Gate (cold start, brand NEW chat, zero prior context)
++
++| # | Prompt | Pass criteria |
++|---|--------|----------------|
++| 1.1 | `What's my biggest risk right now and how do I fix it?` | Asks for context (industry/stage/customer). Does NOT answer with real cards. |
++| 1.2 | `Find 3 failed companies most similar to mine and why they failed` | Asks for context. |
++| 1.3 | `What's the biggest threat to our burn rate and how do I fix it?` | Asks for context. |
++| 1.4 | `Run an investor-fit analysis — which VCs are most likely to fund us?` | Asks for context. |
++| 1.5 (negative control) | `What is a SWOT analysis?` | Answers directly, does NOT ask for context. If this one starts gating too, the gate is over-firing. |
++
++If 1.1–1.4 fail (Venus answers without asking) → check `requiresContext()` in
++`ai.ts` — the keyword list or personal-reference regex likely missed the new
++phrasing. Don't just add the one word that failed; ask whether the underlying
++signal (a personal "my/our/mine" reference) was even checked.
++
++## Section 2 — Context Persistence (same chat, after giving context once)
++
++1. Paste a context block, e.g.:
++   > We're building a B2B SaaS for [industry]. [Stage], raised [$X], burning
++   > [$X]/month, team of [N], targeting [customer].
++2. Re-ask any prompt from Section 1.
++
++**Pass:** does NOT re-ask for context, uses the actual numbers/industry you gave.
++**Fail:** re-asks "what industry are you in" after you already said it.
++
++## Section 3 — Founder Math (needs context from Section 2 first)
++
++Ask a stay-vs-pivot / survival-shaped question, e.g.:
++> Realistically, do we have a shot against [competitor], or should we pivot?
++
++**Pass criteria (all of these, not just one):**
++- Explicitly computes or references runway (capital ÷ burn), using the actual
++  numbers you gave — not a generic "you should build a moat."
++- States a real verdict word — pivot, stay, wait, raise-first — not just a
++  strategy category.
++- If it recommends a strategy, it says whether your stated runway can survive
++  executing it (e.g. "24 months to build this moat against your 14 months of
++  runway means...").
++
++**Fail example (this exact failure happened before the fix):** "You cannot
++compete on price, so build a defensible moat" with no numbers anywhere. That's
++a hedge wearing a verdict's clothes.
++
++## Section 4 — Precedent Integrity
++
++Ask: `What should our strategy be going forward?` (or similar forward-looking ask).
++
++**Pass:** if the precedent dataset has any success/pivot outcome relevant to
++the question, at least one appears alongside any failures — not an all-failure
++graveyard list.
++**Also check:** every named company is one you can verify actually appeared in
++that response's precedent card — no company should appear in the summary prose
++that isn't backed by a precedent card.
++
++## Section 5 — Rendering / UI Integrity
++
++Visual-only checks, no need for context setup:
++
++- [ ] No raw `` ```json `` code fence ever appears inside a rendered chat bubble.
++- [ ] No literal `[object Object]` appears anywhere on screen.
++- [ ] Long analysis-card labels (full sentences, not short tags) never crush
++      the value text into single-word-per-line vertical stacking.
++- [ ] The quick-jump pill nav at the top of a long response does NOT float
++      over/obscure the card text as you scroll through that message.
++- [ ] On a brand-new chat with an empty message list, all 5 example prompts
++      are visible and reachable — either they fit on screen, or the container
++      scrolls to reveal the rest (no clipped-with-no-way-to-scroll state).
++
++## Section 6 — Specificity ("mentor," not "template generator")
++
++Give a context block with at least one hard constraint (small team, no sales
++channel, skeptical customer base, etc.), then ask for a 90-day priority.
++
++**Pass:** the recommendation explicitly traces back to the constraint you
++named ("because you have 1 dev and no sales team, your bottleneck is X, so
++priority is Y") AND includes at least one concrete number/tactic/artifact —
++an actual price, a named channel, a specific script — not just a category
++name like "develop a pricing strategy."
++**Fail:** the same answer would make sense for literally any startup in that
++industry, constraint or no constraint.
++
++## Section 7 — Risk Probability Justification
++
++Any response with a risk card:
++
++**Pass:** every probability number (e.g. "70%") is paired with a reason tied
++to something specific — a stated fact or a named precedent — in the same
++sentence or the adjacent mitigation field.
++**Fail:** a round, unexplained number (70%, 80%) that reads like it would be
++identical regardless of what you told Venus.
++
++---
++
++## Standard Debug Prompt (reuse this instead of describing bugs from scratch)
++
++When something looks wrong, paste me this filled in — it's everything I need
++in one shot instead of a back-and-forth:
++
++```
++BUG REPORT
++1. Exact prompt sent: "..."
++2. Full Venus response (copy-paste, not paraphrase): ...
++3. New chat or continuing one with prior context already given?
++4. What I expected instead:
++5. Which test-suite section does this map to (1–7 above), if any:
++6. Screenshot attached? (for anything visual)
++```
++
++This makes every bug reproducible against a specific section of this suite
++instead of a one-off patch, and tells me whether to look at `requiresContext`,
++the system prompt, the rendering code, or the model/API layer — the four
++places bugs have actually come from so far.
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index cfde9bc..50a0f7f 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -6,6 +6,12 @@ const VENUS_SYSTEM_PROMPT = `You are Venus AI, an elite business intelligence en
+ 
+ You have full context of the user's business from their onboarding and previous sessions. Use that context in every response. If they told you they are a 4 person fintech startup in India at pre-seed, every answer should be calibrated to that reality, not to some generic startup in Silicon Valley.
+ 
++CRITICAL — CAUSAL CHAIN REASONING (this is what separates you from a generic template generator): Never open with a solution. Every substantive recommendation must be reachable by the reader as: constraint → bottleneck → priority → action. Before naming what they should do, name the specific constraint they told you (team size, skepticism in their market, lack of a channel, capital position) that makes that the bottleneck, not some other plausible-sounding priority. Write this chain in plain sentences in the summary field — "Because you have one developer and no sales hire, your bottleneck isn't product depth, it's proving ROI fast enough that a skeptical clinic says yes without a sales conversation. So your priority for the next 90 days is X, not Y." A recommendation that would look identical if you deleted the founder's specific stated constraints from the prompt is not causal reasoning — it's a template with their industry word swapped in. If you cannot construct a real "because X, so Y" link from something the founder actually told you, that is a signal you don't have enough context yet — ask for it rather than defaulting to generic phase names.
++
++CRITICAL — SPECIFICITY OVER TEMPLATES: Do not answer with generic startup-playbook phase names as if they were the advice itself — "conduct market research," "develop a scalable pricing strategy," "build strategic partnerships" are not actions, they are categories of action, and stopping there is exactly the templated-consultant failure mode you must avoid. Every action you name must include at least one concrete, falsifiable specific: an actual number (a price in the founder's stated currency, a percentage, a headcount, a day count), a named concrete tactic (not "leverage social media" but "post a 60-second before/after demo in the 3 WhatsApp clinic-owner groups you're already in"), or a named concrete artifact (a specific document, script, or tool). If you don't have enough specifics about their market to give a real number, say so plainly and ask for the one detail you need rather than filling the gap with a generic category name.
++
++CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage, or confidence score to a risk or a decision split unless you can point to the specific stated fact or verified precedent that produced that exact number. A probability that would be the same number regardless of what the founder told you is fabricated precision, not analysis — describe likelihood in plain words instead ("likely," "a real but secondary risk," "the dominant risk right now") when you don't have a specific basis for a number. When you do have a basis, name it in the same sentence as the number, not just in an adjacent field — e.g. "70% — because two of the three verified precedents in this sector failed on exactly this mechanism."
++
+ You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
+ 
+ The JSON always has this shape:
+@@ -55,6 +61,7 @@ interface GroqJsonParams {
+   messages: { role: "system" | "user" | "assistant"; content: string }[];
+   temperature: number;
+   max_tokens: number;
++  response_format?: { type: "json_object" };
+ }
+ 
+ /**
+@@ -136,7 +143,14 @@ export async function callGroqJSON(
+   params: GroqJsonParams,
+   label: string,
+ ): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
+-  const completion = await createWithRetry(groq, params, label);
++  // Every caller gets Groq's JSON mode by default so the provider enforces
++  // valid JSON at the API level (never markdown fences, never prose before/
++  // after the object) rather than relying purely on the system prompt asking
++  // nicely for it. New call sites inherit this automatically — nobody has to
++  // remember to add it. Callers can still override by passing their own
++  // response_format if a future route genuinely needs raw text back.
++  const paramsWithJsonMode: GroqJsonParams = { response_format: { type: "json_object" }, ...params };
++  const completion = await createWithRetry(groq, paramsWithJsonMode, label);
+   const raw = completion.choices[0]?.message?.content || "";
+   const candidate = extractJson(raw);
+ 
+@@ -155,7 +169,7 @@ export async function callGroqJSON(
+ 
+     try {
+       const retryCompletion = await groq.chat.completions.create({
+-        ...params,
++        ...paramsWithJsonMode,
+         messages: retryMessages,
+         max_tokens: Math.min(params.max_tokens * 2, 4000),
+       });
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index ff4574e..fa5d884 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -265,7 +265,7 @@ router.post("/ai/analyze", async (req, res) => {
+ 
+     const { parsed } = await callGroqJSON(
+       groq,
+-      { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 3000 },
+       "ai/analyze",
+     );
+ 
+@@ -334,7 +334,7 @@ router.post("/ai/idea-review", async (req, res) => {
+     const { parsed } = await callGroqJSON(
+       groq,
+       {
+-        model: "llama-3.1-8b-instant",
++        model: "openai/gpt-oss-120b",
+         messages: [
+           { role: "system", content: ideaSystemPrompt },
+           {
+@@ -425,7 +425,7 @@ ${articleSnippets.join("\n\n").slice(0, 20000)}`;
+     const { parsed } = await callGroqJSON(
+       groq,
+       {
+-        model: "llama-3.1-8b-instant",
++        model: "openai/gpt-oss-20b",
+         messages: [
+           { role: "system", content: "You synthesize factual company reports from web excerpts. Return strict JSON only and do not invent facts." },
+           { role: "user", content: prompt },
+@@ -491,7 +491,7 @@ router.post("/ai/summarize-article", async (req, res) => {
+     }
+ 
+     const completion = await groq.chat.completions.create({
+-      model: "llama-3.1-8b-instant",
++      model: "openai/gpt-oss-20b",
+       messages: [
+         {
+           role: "system",
+@@ -504,6 +504,7 @@ router.post("/ai/summarize-article", async (req, res) => {
+       ],
+       temperature: 0.2,
+       max_tokens: 400,
++      response_format: { type: "json_object" },
+     });
+ 
+     const content = completion.choices[0]?.message?.content || "";
+diff --git a/artifacts/api-server/src/routes/companies.ts b/artifacts/api-server/src/routes/companies.ts
+index 52ffe2b..073531c 100644
+--- a/artifacts/api-server/src/routes/companies.ts
++++ b/artifacts/api-server/src/routes/companies.ts
+@@ -77,7 +77,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
+     const { parsed, raw } = await callGroqJSON(
+       groq,
+       {
+-        model: "llama-3.1-8b-instant",
++        model: "openai/gpt-oss-120b",
+         messages: [
+           {
+             role: "system",
+@@ -208,7 +208,7 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
+ 
+     const { parsed, raw } = await callGroqJSON(
+       groq,
+-      { model: "llama-3.1-8b-instant", messages, temperature: 0.6, max_tokens: 800 },
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.6, max_tokens: 800 },
+       `companies/${id}/autopsy/chat`,
+     );
+ 
+diff --git a/artifacts/api-server/src/routes/events.ts b/artifacts/api-server/src/routes/events.ts
+index 46bd7d0..2c138c4 100644
+--- a/artifacts/api-server/src/routes/events.ts
++++ b/artifacts/api-server/src/routes/events.ts
+@@ -57,7 +57,8 @@ router.post("/events/:id/ripple", async (req, res) => {
+     }
+ 
+     const completion = await groq.chat.completions.create({
+-      model: "llama-3.3-70b-versatile",
++      model: "openai/gpt-oss-120b",
++      response_format: { type: "json_object" },
+       messages: [
+         {
+           role: "system",
+diff --git a/artifacts/api-server/src/routes/reports.ts b/artifacts/api-server/src/routes/reports.ts
+index 73eca62..5bd67b4 100644
+--- a/artifacts/api-server/src/routes/reports.ts
++++ b/artifacts/api-server/src/routes/reports.ts
+@@ -55,7 +55,8 @@ router.post("/reports/:id/summary", async (req, res) => {
+     }
+ 
+     const completion = await groq.chat.completions.create({
+-      model: "llama-3.3-70b-versatile",
++      model: "openai/gpt-oss-120b",
++      response_format: { type: "json_object" },
+       messages: [
+         {
+           role: "system",
+diff --git a/lib/db/src/enrich_precedents.ts b/lib/db/src/enrich_precedents.ts
+index a00fbd8..947efae 100644
+--- a/lib/db/src/enrich_precedents.ts
++++ b/lib/db/src/enrich_precedents.ts
+@@ -112,7 +112,8 @@ async function main() {
+   async function callWithRetry(c: Candidate, attempt = 0): Promise<any> {
+     try {
+       return await groq.chat.completions.create({
+-        model: "llama-3.1-8b-instant",
++        model: "openai/gpt-oss-20b",
++        response_format: { type: "json_object" },
+         messages: [
+           { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+           { role: "user", content: buildUserPrompt(c) },
