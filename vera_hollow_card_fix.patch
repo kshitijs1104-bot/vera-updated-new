@@ -1,0 +1,277 @@
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index 5819ec5..b50e09f 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -60,6 +60,86 @@ export function extractJson(content: string): string {
+   return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
+ }
+ 
++/**
++ * When max_tokens cuts the model off mid-response, the cut point is almost
++ * always partway through the `cards` array — e.g. `..."cards": [ {...
++ * complete card...}, {"type": "risk", "title": "Key Risk` with nothing after
++ * it. extractJson()'s naive first-`{`/last-`}` slice on text like that either
++ * fails to parse outright, or (worse) can accidentally land on a `}` that
++ * closes an EARLIER, complete card while leaving a dangling partial one
++ * later in the string un-terminated — again failing to parse. Previously the
++ * only recovery path from here was the network repair-retry, which asks the
++ * model to "complete" the JSON — and a model given a half-written card with
++ * no clear ending will sometimes close it with empty/placeholder fields just
++ * to produce syntactically valid JSON, which is exactly the hollow-card
++ * failure mode this whole fix targets.
++ *
++ * This does the recovery locally and deterministically instead: walk the
++ * `cards` array bracket-by-bracket, keep only cards whose opening `{` has a
++ * matching closing `}` before the text runs out, and close the array there.
++ * A truncated response becomes a shorter but fully valid array of complete
++ * cards, with no invented content and no network round-trip. Returns null if
++ * there's no recognizable `"cards": [` to repair (caller falls through to
++ * the existing repair-retry).
++ */
++export function repairTruncatedCardsArray(content: string): string | null {
++  const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
++  const cardsKeyMatch = stripped.match(/"cards"\s*:\s*\[/);
++  if (!cardsKeyMatch || typeof cardsKeyMatch.index !== "number") return null;
++
++  const arrayStart = cardsKeyMatch.index + cardsKeyMatch[0].length;
++  const completeCardSlices: string[] = [];
++  let i = arrayStart;
++  let sawAnyObjectStart = false;
++
++  while (i < stripped.length) {
++    // Skip whitespace/commas between array elements.
++    while (i < stripped.length && /[\s,]/.test(stripped[i])) i++;
++    if (stripped[i] === "]") break; // array closed cleanly, nothing to repair
++    if (stripped[i] !== "{") break; // not a card object — stop, don't guess
++
++    sawAnyObjectStart = true;
++    const objStart = i;
++    let depth = 0;
++    let inString = false;
++    let escaped = false;
++    let closed = false;
++
++    for (; i < stripped.length; i++) {
++      const ch = stripped[i];
++      if (inString) {
++        if (escaped) escaped = false;
++        else if (ch === "\\") escaped = true;
++        else if (ch === '"') inString = false;
++        continue;
++      }
++      if (ch === '"') { inString = true; continue; }
++      if (ch === "{") depth++;
++      else if (ch === "}") {
++        depth--;
++        if (depth === 0) { i++; closed = true; break; }
++      }
++    }
++
++    if (!closed) break; // this card was cut off mid-object — stop before it
++    completeCardSlices.push(stripped.slice(objStart, i));
++  }
++
++  // Nothing usable recovered — let the caller fall through to repair-retry
++  // rather than fabricating an empty cards array from a response that may
++  // not actually be a truncated-cards case at all.
++  if (!sawAnyObjectStart || completeCardSlices.length === 0) return null;
++
++  const beforeCards = stripped.slice(0, cardsKeyMatch.index + cardsKeyMatch[0].length);
++  const rebuilt = `${beforeCards}${completeCardSlices.join(",")}]}`;
++  try {
++    JSON.parse(rebuilt);
++    return rebuilt;
++  } catch {
++    return null;
++  }
++}
++
+ // The model returns valid JSON (enforced by Groq's json_object response mode),
+ // but "valid JSON" only guarantees the outer structure parses — it does not
+ // guarantee the *string values inside* are clean. In practice the model
+@@ -131,10 +211,14 @@ function sanitizeCardTitle(rawTitle: unknown, card: Record<string, unknown>, ind
+   const title = typeof rawTitle === "string" ? rawTitle.replace(/^#{1,6}\s+/, "").trim() : "";
+   if (title) return title;
+ 
+-  // No fallback existed here before — a blank/missing title from the model
+-  // rendered as a completely unlabeled collapsed section in the UI (just a
+-  // dot and "Show"). Fall back to a readable label derived from the card's
+-  // own type so every section always has something to show.
++  // Fallback only reached for a card that has ALREADY passed
++  // cardHasRealContent below — i.e. it has genuine substance, it's just
++  // missing a title string. Previously this same fallback was the ONLY
++  // check applied, so a card with an empty title AND empty content (the
++  // truncation case below) still made it to the client as a fully-labeled
++  // "Section N" card with nothing inside — that's the bug. Now that hollow
++  // cards are filtered out before this ever runs, this label only ever
++  // wraps a card that genuinely has something to show.
+   const type = typeof card.type === "string" && card.type ? card.type : null;
+   if (type) {
+     const label = type.charAt(0).toUpperCase() + type.slice(1);
+@@ -143,14 +227,86 @@ function sanitizeCardTitle(rawTitle: unknown, card: Record<string, unknown>, ind
+   return `Section ${index + 1}`;
+ }
+ 
++// A non-empty string with real characters in it (not just whitespace/punctuation).
++function hasText(value: unknown): boolean {
++  return typeof value === "string" && value.trim().length > 0;
++}
++
++/**
++ * Detects a card that is structurally present but semantically empty — the
++ * signature shape of a card produced when the model's JSON got cut off
++ * mid-array (max_tokens truncation) and either extractJson()'s brace-matching
++ * or the repair-retry closed the array with a stub object just to make it
++ * parse. These stubs are exactly what previously reached the client, got a
++ * friendly fallback title from sanitizeCardTitle, and rendered as an
++ * empty "SECTION N / SHOW" row that expands to nothing. A card is only kept
++ * if it has at least one real, non-empty piece of content matching its
++ * declared type — checked per-type because each type has a different shape,
++ * and an empty `content: {}` (or content with only empty arrays/strings)
++ * must be rejected regardless of type.
++ */
++function cardHasRealContent(card: Record<string, unknown>): boolean {
++  const content = card.content;
++  if (!content || typeof content !== "object") return false;
++  const c = content as Record<string, unknown>;
++
++  switch (card.type) {
++    case "analysis":
++      return Array.isArray(c.points) && c.points.some(
++        (p: any) => p && typeof p === "object" && (hasText(p.label) || hasText(p.value)),
++      );
++    case "market":
++      return (
++        hasText(c.tam) || hasText(c.sam) || hasText(c.som) || hasText(c.growth) ||
++        hasText(c.whitespace) ||
++        (Array.isArray(c.competitors) && c.competitors.some((x: any) => hasText(x)))
++      );
++    case "risk":
++      return Array.isArray(c.risks) && c.risks.some(
++        (r: any) => r && typeof r === "object" && (hasText(r.name) || hasText(r.mitigation)),
++      );
++    case "roadmap":
++      return Array.isArray(c.phases) && c.phases.some(
++        (p: any) => p && typeof p === "object" && (hasText(p.title) || (Array.isArray(p.actions) && p.actions.some((a: any) => hasText(a)))),
++      );
++    case "decision":
++      return (
++        (Array.isArray(c.options) && c.options.some((o: any) => o && typeof o === "object" && hasText(o.name))) ||
++        hasText(c.recommendation)
++      );
++    case "precedent":
++      return Array.isArray(c.precedents) && c.precedents.some(
++        (p: any) => p && typeof p === "object" && (hasText(p.company) || hasText(p.lesson)),
++      );
++    case "funnel":
++      return Array.isArray(c.stages) && c.stages.some(
++        (s: any) => s && typeof s === "object" && (hasText(s.title) || hasText(s.stage_title) || hasText(s.description) || hasText(s.stage_detail)),
++      );
++    case "solution":
++      return Array.isArray(c.solutions) && c.solutions.some(
++        (s: any) => s && typeof s === "object" && (hasText(s.title) || hasText(s.stage_title) || hasText(s.description) || hasText(s.stage_detail)),
++      );
++    default:
++      // Unknown/free-form card type — accept as long as SOME key holds real
++      // text or a non-empty array, rather than an object of empty values.
++      return Object.values(c).some((v) => {
++        if (hasText(v)) return true;
++        if (Array.isArray(v)) return v.length > 0;
++        return false;
++      });
++  }
++}
++
+ /**
+  * Cleans a parsed Venus response before it is sent to the client. Guarantees:
+  *  - summary contains no markdown headings, fences, or list/bold markers that
+  *    the frontend would otherwise render as broken duplicate structure
+- *  - every card has a non-empty, readable title
++ *  - every remaining card has genuine content AND a non-empty, readable title
++ *  - cards with no real content (the truncation/stub failure mode) are
++ *    dropped entirely rather than shipped as an empty labeled section
+  * This runs regardless of how well the model followed the prompt, so a
+- * regression in model behavior degrades gracefully instead of shipping raw
+- * markdown artifacts straight to the UI.
++ * regression in model behavior (including a mid-response truncation) degrades
++ * gracefully — fewer, fully-formed cards — instead of shipping hollow ones.
+  */
+ export function sanitizeVenusResponse(parsed: any): any {
+   if (!parsed || typeof parsed !== "object") return parsed;
+@@ -160,10 +316,27 @@ export function sanitizeVenusResponse(parsed: any): any {
+   }
+ 
+   if (Array.isArray(parsed.cards)) {
+-    parsed.cards = parsed.cards.map((card: any, index: number) => {
+-      if (!card || typeof card !== "object") return card;
+-      return { ...card, title: sanitizeCardTitle(card.title, card, index) };
++    const droppedIndexes: number[] = [];
++    const kept = parsed.cards.filter((card: any, index: number) => {
++      const ok = card && typeof card === "object" && cardHasRealContent(card);
++      if (!ok) droppedIndexes.push(index);
++      return ok;
+     });
++
++    if (droppedIndexes.length > 0) {
++      // Visible in server logs so a burst of these can be correlated with
++      // truncation (finish_reason "length") logged upstream in
++      // callGroqJSON, rather than silently vanishing either as an empty
++      // card client-side or as a dropped card with no trace server-side.
++      console.error(
++        `[sanitizeVenusResponse] dropped ${droppedIndexes.length} empty/stub card(s) at index ${droppedIndexes.join(", ")} — likely truncated model output`,
++      );
++    }
++
++    parsed.cards = kept.map((card: any, index: number) => ({
++      ...card,
++      title: sanitizeCardTitle(card.title, card, index),
++    }));
+   }
+ 
+   return parsed;
+@@ -312,6 +485,23 @@ export async function callGroqJSON(
+   try {
+     return { parsed: JSON.parse(candidate), raw };
+   } catch {
++    // Before spending a network round-trip asking the model to "complete"
++    // truncated JSON (which risks a hollow-card completion — see
++    // repairTruncatedCardsArray's comment above), try the deterministic
++    // local repair first. This only ever removes an incomplete trailing
++    // card; it never invents content, so it's strictly safer than the retry
++    // below, and it avoids an extra network round-trip entirely.
++    const locallyRepaired = repairTruncatedCardsArray(raw);
++    if (locallyRepaired) {
++      try {
++        const parsed = JSON.parse(locallyRepaired);
++        console.error(`[callGroqJSON] "${label}" — initial response truncated (finishReason=${finishReason}), recovered ${Array.isArray(parsed?.cards) ? parsed.cards.length : 0} complete card(s) locally without a retry`);
++        return { parsed, raw };
++      } catch {
++        // fall through to network repair-retry below
++      }
++    }
++
+     console.error(`[callGroqJSON] "${label}" — initial response failed to parse (len=${raw.length}, finishReason=${finishReason}), retrying with stricter prompt + higher token budget`);
+ 
+     const retryMessages: GroqJsonParams["messages"] = [
+@@ -340,6 +530,21 @@ export async function callGroqJSON(
+       try {
+         return { parsed: JSON.parse(candidate2), raw: raw2 };
+       } catch {
++        // Same deterministic salvage as the first attempt — a second
++        // truncation on the doubled-budget retry is rare but not
++        // impossible on a very long response, and this is still strictly
++        // safer than shipping null/error here when some real cards did
++        // come back complete.
++        const locallyRepaired2 = repairTruncatedCardsArray(raw2);
++        if (locallyRepaired2) {
++          try {
++            const parsed = JSON.parse(locallyRepaired2);
++            console.error(`[callGroqJSON] "${label}" — retry also truncated, recovered ${Array.isArray(parsed?.cards) ? parsed.cards.length : 0} complete card(s) locally`);
++            return { parsed, raw: raw2 };
++          } catch {
++            // fall through to giving up below
++          }
++        }
+         console.error(`[callGroqJSON] "${label}" — retry ALSO failed to parse (len=${raw2.length}). Giving up, surfacing raw content to caller. raw2_head=${raw2.slice(0, 300)}`);
+         return { parsed: null, raw: raw2, errorType: "parse" };
+       }
