@@ -1,0 +1,1091 @@
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index 50a0f7f..6eba2d6 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -14,6 +14,8 @@ CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage,
+ 
+ You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
+ 
++CRITICAL — THE "summary" FIELD IS PLAIN SENTENCES ONLY, NEVER A SECOND REPORT: The summary field must contain only 2-3 sentences of plain prose — no headings of any kind (no "#", "##", "###"), no bullet lists, no numbered lists, no bold markdown, and never a code fence (no triple-backtick blocks anywhere, and never the literal word "json" followed by a fenced block). Do not restate, re-title, or re-summarize the cards array inside summary — if a fact belongs in a card, put it ONLY in that card's content and leave it out of summary entirely. A summary field that reads like its own mini report with section headers is a critical failure mode: it means you generated the answer twice in two different formats, which is exactly what you must never do. Before returning your JSON, check the summary string specifically: if it contains a newline followed by "#" or contains a sequence of three backtick characters anywhere, delete that formatting and rewrite it as plain sentences.
++
+ The JSON always has this shape:
+ { "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }
+ 
+@@ -37,6 +39,8 @@ Always include at least 2 cards for broad strategic requests. If the request is
+ 
+ Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.
+ 
++CRITICAL — EVERY CARD MUST HAVE A NON-EMPTY "title": Every object in the cards array must include a short, specific, non-empty title string (e.g. "Key Risks & Mitigations", "90-Day Roadmap"). Never return "title": "" or omit title. A card with a missing or blank title is a critical failure — the UI has no fallback and will render that section with no label at all.
++
+ CRITICAL — RETRIEVAL-GATED PRECEDENTS: You will be given a block of VERIFIED PRECEDENTS retrieved from a real, curated startup outcomes dataset. These are the ONLY companies you are allowed to name as precedents in this response. You MUST NOT invent, recall from general knowledge, or reference any company outcome, causal mechanism, or statistic that is not explicitly present in the VERIFIED PRECEDENTS block below. Any precedent card you produce must map directly to one of the verified records (same company name, same outcome, same causal mechanism — you may paraphrase but not add unverified facts). If the VERIFIED PRECEDENTS block is empty, you MUST NOT include a precedent card at all and MUST NOT name any specific company anywhere in your response (no real company names in summary, analysis, market, risk, roadmap, or decision content) — speak only in general structural/strategic terms for that response.
+ 
+ When a question is not actually about market size, growth, competition, or TAM/SAM/SOM, do not force a market card. Keep the answer focused and avoid generic market fluff. Make roadmap or funnel stage descriptions short and scannable — one line each, not long paragraphs. For funnel cards, use short titles with at most 5 words and short details with at most 20 words each.
+@@ -56,6 +60,115 @@ export function extractJson(content: string): string {
+   return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
+ }
+ 
++// The model returns valid JSON (enforced by Groq's json_object response mode),
++// but "valid JSON" only guarantees the outer structure parses — it does not
++// guarantee the *string values inside* are clean. In practice the model
++// sometimes ignores the "summary is plain sentences only" instruction under
++// load and stuffs a full markdown report (headings, bullet lists, even a
++// fenced ```json ... ``` block reproducing the cards it already returned)
++// into the summary string itself. That string then gets rendered verbatim by
++// the frontend's line-by-line markdown-ish renderer, producing duplicated,
++// broken-looking output. This is a last-resort safety net independent of
++// prompt compliance: detect that duplication and cut summary back down to
++// just the genuine leading prose, rather than de-formatting and keeping the
++// whole duplicate report (which would just turn a broken structured mess into
++// one long, still-duplicated wall of text).
++function sanitizeSummaryText(summary: string): string {
++  let text = summary;
++
++  // A bare title line like "# Venus AI Analysis" carries no real content —
++  // drop it outright before looking for where the real prose ends, so it
++  // doesn't get mistaken for the start of the summary's actual content.
++  text = text.replace(/^\s*#{1,6}\s+.*\n+/, "");
++
++  // A heading marker, a fenced code block, or a line that is just the word
++  // "Card" (the model's own card-section label leaking into prose) all mean
++  // the same thing: everything from that point onward is the model
++  // re-rendering its own cards array as markdown, not summary prose. Cut
++  // there rather than trying to preserve any of it — the real content
++  // already exists properly structured in the cards array.
++  const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);
++  if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "number") {
++    text = text.slice(0, structuralMarkerMatch.index);
++  }
++
++  // Defensive second pass in case a fence appeared without a preceding
++  // newline (e.g. mid-sentence), or anything else slipped through above.
++  text = text.replace(/```[\s\S]*$/g, "");
++
++  // Strip any remaining inline markdown markers from the surviving prose.
++  text = text.replace(/^#{1,6}\s+/gm, "");
++  text = text.replace(/^\s*[-*]\s+/gm, "");
++  text = text.replace(/^\s*\d+\.\s+/gm, "");
++  text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
++  text = text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
++
++  // Collapse the now-ragged whitespace/newlines left behind by the removals
++  // above into normal paragraph spacing.
++  text = text.split("\n").map((line) => line.trim()).filter(Boolean).join(" ");
++  text = text.replace(/\s{2,}/g, " ").trim();
++
++  // Last-resort edge case: if every one of the above steps still left nothing
++  // usable (e.g. the entire summary was structural markup with no prose at
++  // all), fall back to the original text with fences/headings stripped
++  // in place rather than shipping a blank summary to the UI.
++  if (text.length < 10) {
++    let fallback = summary
++      .replace(/```[\s\S]*?```/g, "")
++      .replace(/```[\s\S]*$/g, "")
++      .replace(/^#{1,6}\s+/gm, "")
++      .replace(/^\s*[-*]\s+/gm, "")
++      .replace(/^\s*\d+\.\s+/gm, "")
++      .replace(/\*\*([^*]+)\*\*/g, "$1");
++    fallback = fallback.split("\n").map((line) => line.trim()).filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
++    text = fallback || text;
++  }
++
++  return text;
++}
++
++function sanitizeCardTitle(rawTitle: unknown, card: Record<string, unknown>, index: number): string {
++  const title = typeof rawTitle === "string" ? rawTitle.replace(/^#{1,6}\s+/, "").trim() : "";
++  if (title) return title;
++
++  // No fallback existed here before — a blank/missing title from the model
++  // rendered as a completely unlabeled collapsed section in the UI (just a
++  // dot and "Show"). Fall back to a readable label derived from the card's
++  // own type so every section always has something to show.
++  const type = typeof card.type === "string" && card.type ? card.type : null;
++  if (type) {
++    const label = type.charAt(0).toUpperCase() + type.slice(1);
++    return `${label} — Section ${index + 1}`;
++  }
++  return `Section ${index + 1}`;
++}
++
++/**
++ * Cleans a parsed Venus response before it is sent to the client. Guarantees:
++ *  - summary contains no markdown headings, fences, or list/bold markers that
++ *    the frontend would otherwise render as broken duplicate structure
++ *  - every card has a non-empty, readable title
++ * This runs regardless of how well the model followed the prompt, so a
++ * regression in model behavior degrades gracefully instead of shipping raw
++ * markdown artifacts straight to the UI.
++ */
++export function sanitizeVenusResponse(parsed: any): any {
++  if (!parsed || typeof parsed !== "object") return parsed;
++
++  if (typeof parsed.summary === "string") {
++    parsed.summary = sanitizeSummaryText(parsed.summary);
++  }
++
++  if (Array.isArray(parsed.cards)) {
++    parsed.cards = parsed.cards.map((card: any, index: number) => {
++      if (!card || typeof card !== "object") return card;
++      return { ...card, title: sanitizeCardTitle(card.title, card, index) };
++    });
++  }
++
++  return parsed;
++}
++
+ interface GroqJsonParams {
+   model: string;
+   messages: { role: "system" | "user" | "assistant"; content: string }[];
+@@ -171,7 +284,7 @@ export async function callGroqJSON(
+       const retryCompletion = await groq.chat.completions.create({
+         ...paramsWithJsonMode,
+         messages: retryMessages,
+-        max_tokens: Math.min(params.max_tokens * 2, 4000),
++        max_tokens: Math.min(params.max_tokens * 2, 7000),
+       });
+       const raw2 = retryCompletion.choices[0]?.message?.content || "";
+       const candidate2 = extractJson(raw2);
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index fa5d884..0b14086 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -2,7 +2,7 @@ import { Router } from "express";
+ import { db, settingsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
+ import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
+-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE } from "../lib/groq";
++import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse } from "../lib/groq";
+ import { retrievePrecedents, formatPrecedentsForPrompt, type RetrievalResult } from "../lib/retrieval";
+ import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
+ 
+@@ -35,37 +35,17 @@ function buildDecisionRoutingInstruction(message: string) {
+   return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
+ }
+ 
+-function buildShortQueryFallback(message: string) {
+-  const routing = inferDecisionRouting(message);
+-  if (!routing) return null;
+-
+-  const recommendation = routing.subtype === "multi-option"
+-    ? "Choose the option that best avoids the strongest risk you just identified."
+-    : "Give a direct yes/no or wait/launch verdict based on the stated situation.";
+-
+-  return {
+-    summary: "Direct decision query received. Venus will answer the choice directly rather than treating the prompt as malformed input.",
+-    confidence: "exploratory",
+-    confidenceNote: "The response is a structured fallback because the model did not return a fully parsed response for this short-form query.",
+-    cards: [
+-      {
+-        type: "decision",
+-        title: "Decision",
+-        content: {
+-          options: [
+-            {
+-              name: "Primary path",
+-              scores: { viability: 6, speed: 7, defensibility: 6, capital_efficiency: 6 },
+-              verdict: "The request should be handled as a direct decision question.",
+-            },
+-          ],
+-          recommendation,
+-        },
+-      },
+-    ],
+-    confidenceTier: "none",
+-  };
+-}
++// NOTE: buildShortQueryFallback was removed. It returned a templated stub
++// ("Direct decision query received. Venus will answer the choice directly...")
++// with placeholder scores (6/7/6/6) and a placeholder verdict string instead
++// of ever actually answering the founder's question — it described what
++// Venus's routing logic decided to do rather than doing it. That is worse
++// than useless when it fires on any query containing a bare decision word
++// like "should", regardless of how long or detailed the actual question was.
++// The real fix for "the model didn't return valid JSON" is to give the model
++// more room to finish (see the raised max_tokens below) and, if it still
++// fails, say so honestly via buildTransientErrorResponse rather than
++// fabricating a fake structured answer.
+ 
+ function requiresContext(message: string) {
+   const normalized = normalizeQueryText(message);
+@@ -92,7 +72,72 @@ function requiresContext(message: string) {
+   return (contextNeedWords.test(normalized) || personalBusinessReference) && !isSimpleDefinition;
+ }
+ 
+-const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
++const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a|i'm the founder|im the founder|founder of)\b/i;
++
++// A message can BOTH describe the business AND ask a question in the same
++// breath ("I run a clinic booking app — what should I prioritize?"). Only
++// treat a message as a pure context-dump (no question attached) when it has
++// no question mark and none of the decision/question verbs that
++// inferDecisionRouting already treats as a question signal. This is what
++// separates "just telling Venus about the business" from "telling Venus
++// about the business as part of asking something."
++function isPureContextStatement(message: string): boolean {
++  const normalized = normalizeQueryText(message);
++  if (!BUSINESS_CONTEXT_SIGNAL.test(message)) return false;
++  if (message.includes("?")) return false;
++  const questionish = /\b(should|shld|would|could|worth|help|how|what|why|which|when|recommend|advice|suggest|priorit)\b/i.test(normalized);
++  return !questionish;
++}
++
++async function getStoredBusinessContext(sessionId: string): Promise<string | undefined> {
++  try {
++    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
++    return row?.venusBusinessContext || undefined;
++  } catch {
++    // DB unavailable shouldn't break the chat — just behave as if nothing
++    // is stored yet, which falls back to the existing per-session behavior.
++    return undefined;
++  }
++}
++
++async function saveStoredBusinessContext(sessionId: string, context: string): Promise<void> {
++  try {
++    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
++    if (existing) {
++      await db.update(settingsTable)
++        .set({ venusBusinessContext: context, venusBusinessContextUpdatedAt: new Date(), updatedAt: new Date() })
++        .where(eq(settingsTable.sessionId, sessionId));
++    } else {
++      await db.insert(settingsTable)
++        .values({ sessionId, venusBusinessContext: context, venusBusinessContextUpdatedAt: new Date() })
++        .onConflictDoNothing({ target: settingsTable.sessionId });
++    }
++  } catch {
++    // Best-effort persistence — if this fails, Venus just falls back to
++    // asking for context again next time rather than crashing the request.
++  }
++}
++
++// Rough signal that a new context-bearing message might describe a DIFFERENT
++// business than what's already stored, rather than adding detail to the same
++// one. Deliberately conservative (word-overlap based, not semantic) — the
++// goal is only to catch clearly unrelated pivots ("my gym" vs "my SaaS
++// startup for clinics") and ask once, not to second-guess every rephrasing
++// of the same business.
++function looksLikeDifferentBusiness(storedContext: string, newMessage: string): boolean {
++  const stopwords = new Set(["the", "and", "for", "with", "that", "this", "have", "has", "are", "was", "were", "been", "being", "into", "from", "about", "just", "also", "very", "really", "will", "would", "could", "should", "their", "them", "they", "your", "you", "our", "ours", "business", "startup", "company"]);
++  const words = (s: string) => new Set(
++    normalizeQueryText(s).split(" ").filter((w) => w.length > 3 && !stopwords.has(w)),
++  );
++  const storedWords = words(storedContext);
++  const newWords = words(newMessage);
++  if (storedWords.size === 0 || newWords.size === 0) return false;
++  let overlap = 0;
++  newWords.forEach((w) => { if (storedWords.has(w)) overlap++; });
++  // If a meaningfully-sized new context statement shares almost no
++  // vocabulary with what's stored, treat it as a likely pivot to confirm.
++  return newWords.size >= 4 && overlap === 0;
++}
+ 
+ function deriveContextFromHistory(sessionHistory?: { role?: string; content?: string }[]): string | undefined {
+   if (!sessionHistory || sessionHistory.length === 0) return undefined;
+@@ -143,6 +188,36 @@ function buildContextClarification(
+   };
+ }
+ 
++// State: user just described their business with no actual question attached
++// ("I'm the founder of a HealthTech startup helping clinics..."). Per the
++// desired flow, Venus should NOT try to analyze or advise here — there is no
++// question to answer yet. It should just acknowledge that the context has
++// been noted and ask what they'd like help with, then let the human ask the
++// real question next.
++function buildContextAcknowledgment(): object {
++  return {
++    summary: "Got it — noted your business context. What would you like help with?",
++    cards: [],
++    confidence: "exploratory",
++    confidenceNote: "This is an acknowledgment only; no analysis was requested yet.",
++    contextAcknowledged: true,
++  };
++}
++
++// State: business context is already stored from a previous message/session,
++// but the new message reads like it might describe a DIFFERENT business
++// entirely. Ask once rather than silently overwriting or silently ignoring
++// the new context.
++function buildBusinessContextConfirmation(): object {
++  return {
++    summary: "Quick check before I continue — is this related to the business you told me about earlier, or is this a new/different business idea?",
++    cards: [],
++    confidence: "exploratory",
++    confidenceNote: "Waiting to confirm whether this is the same business context or a new one before proceeding.",
++    requiresContextConfirmation: true,
++  };
++}
++
+ function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
+   if (typeof parsed.summary !== "string") return parsed;
+ 
+@@ -197,10 +272,10 @@ function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalR
+ }
+ 
+ router.post("/ai/analyze", async (req, res) => {
+-  try {
+-    const body = VenusAnalyzeBody.safeParse(req.body);
+-    if (!body.success) return res.status(400).json({ error: "Invalid request body" });
++  const body = VenusAnalyzeBody.safeParse(req.body);
++  if (!body.success) return res.status(400).json({ error: "Invalid request body" });
+ 
++  try {
+     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+     const groq = headerKey
+@@ -211,15 +286,49 @@ router.post("/ai/analyze", async (req, res) => {
+       return res.json(buildFallbackVenusResponse(body.data.message));
+     }
+ 
+-    // Fall back to context inferred from earlier turns in this session whenever a
+-    // dedicated businessContext wasn't explicitly provided on this request.
+-    const effectiveBusinessContext = body.data.businessContext || deriveContextFromHistory(body.data.sessionHistory);
++    // Business context now persists in three layers, checked in order of
++    // freshness: (1) context explicitly passed on this request, (2) context
++    // mentioned earlier in the CURRENT chat session, (3) context saved to the
++    // database from ANY previous session — this is what makes Venus remember
++    // the business across brand new chats instead of only within one session.
++    const sessionHistoryContext = deriveContextFromHistory(body.data.sessionHistory);
++    const storedContext = await getStoredBusinessContext(sessionId);
++    const effectiveBusinessContext = body.data.businessContext || sessionHistoryContext || storedContext;
++
++    const pureContextStatement = isPureContextStatement(body.data.message);
++
++    // If this message looks like a different business than what's already
++    // stored, don't silently overwrite it or silently keep using the old one
++    // — ask once. Only fires when something is actually stored yet, so a
++    // first-time context statement never triggers this.
++    if (storedContext && pureContextStatement && looksLikeDifferentBusiness(storedContext, body.data.message)) {
++      return res.json(buildBusinessContextConfirmation());
++    }
++
++    // Pure context statement (no question attached): save it and acknowledge
++    // only. Don't run analysis yet — there's nothing to analyze, the human
++    // hasn't asked anything.
++    if (pureContextStatement) {
++      const combinedContext = storedContext && !looksLikeDifferentBusiness(storedContext, body.data.message)
++        ? `${storedContext} | ${body.data.message}`
++        : body.data.message;
++      await saveStoredBusinessContext(sessionId, combinedContext);
++      return res.json(buildContextAcknowledgment());
++    }
+ 
+-    const clarification = buildContextClarification(body.data.message, body.data.businessContext, body.data.sessionHistory);
++    const clarification = buildContextClarification(body.data.message, effectiveBusinessContext, body.data.sessionHistory);
+     if (clarification) {
+       return res.json(clarification);
+     }
+ 
++    // A real question arrived (not a pure context statement) and we now have
++    // usable context but nothing persisted yet for this session — e.g. context
++    // came from businessContext or sessionHistory rather than the DB. Persist
++    // it now so it survives into future sessions too.
++    if (effectiveBusinessContext && !storedContext) {
++      await saveStoredBusinessContext(sessionId, effectiveBusinessContext);
++    }
++
+     const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
+ 
+     const isModerate = retrieval.tier === "moderate";
+@@ -265,7 +374,7 @@ router.post("/ai/analyze", async (req, res) => {
+ 
+     const { parsed } = await callGroqJSON(
+       groq,
+-      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 3000 },
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 5000 },
+       "ai/analyze",
+     );
+ 
+@@ -280,15 +389,15 @@ router.post("/ai/analyze", async (req, res) => {
+           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
+           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
+       applyTierLabel(parsed, retrieval);
+-      return res.json(parsed);
++      return res.json(sanitizeVenusResponse(parsed));
+     }
+ 
+-    const shortQueryFallback = buildShortQueryFallback(body.data.message);
+     // A parse failure (model didn't return usable JSON even after the repair
+-    // retry in callGroqJSON) is just another case of "nothing usable came
+-    // back" — it gets the same short, plain, honest fallback as any other
+-    // exhausted-retries case, not its own diagnostic card.
+-    return res.json(shortQueryFallback || buildTransientErrorResponse(body.data.message));
++    // retry in callGroqJSON) is a genuine failure — return the one honest
++    // "something didn't work" response rather than fabricating a fake
++    // structured answer. See the note above buildShortQueryFallback's old
++    // location for why a templated stub is never shown here.
++    return res.json(buildTransientErrorResponse(body.data.message));
+   } catch (err: any) {
+     req.log.error(err);
+     return res.json(buildTransientErrorResponse(body.data.message, isContentPolicyRefusal(err) ? "policy" : undefined));
+@@ -296,10 +405,10 @@ router.post("/ai/analyze", async (req, res) => {
+ });
+ 
+ router.post("/ai/idea-review", async (req, res) => {
+-  try {
+-    const body = IdeaReviewBody.safeParse(req.body);
+-    if (!body.success) return res.status(400).json({ error: "Invalid request body" });
++  const body = IdeaReviewBody.safeParse(req.body);
++  if (!body.success) return res.status(400).json({ error: "Invalid request body" });
+ 
++  try {
+     const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
+     const groq = headerKey
+@@ -343,7 +452,7 @@ router.post("/ai/idea-review", async (req, res) => {
+           },
+         ],
+         temperature: 0.4,
+-        max_tokens: 3000,
++        max_tokens: 5000,
+       },
+       "ai/idea-review",
+     );
+@@ -357,7 +466,7 @@ router.post("/ai/idea-review", async (req, res) => {
+           ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
+           : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
+       applyTierLabel(parsed, retrieval);
+-      return res.json(parsed);
++      return res.json(sanitizeVenusResponse(parsed));
+     }
+     return res.json(buildTransientErrorResponse(body.data.idea));
+   } catch (err: any) {
+diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+index c3842eb..b1b1b2d 100644
+--- a/artifacts/vera-nexus/src/pages/Venus.tsx
++++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+@@ -549,12 +549,25 @@ export function VenusPage() {
+   );
+ }
+ 
++// Server-side sanitization (sanitizeVenusResponse in the API) already strips
++// markdown headings/fences/list markers out of the summary text before it
++// ever reaches the client. This is a defense-in-depth pass on the frontend
++// in case older cached sessions (saved analyses from before the server fix
++// shipped) or any other response path still contains raw fenced code blocks
++// — without this, a stray ```json ... ``` block renders as visible plain
++// text lines instead of being hidden, which is what produced the empty
++// "### Card" / "{}" lines seen in the UI.
++function stripStrayCodeFences(text: string): string {
++  return text.replace(/```[\s\S]*?```/g, '').replace(/```[\s\S]*$/g, '');
++}
++
+ /* Render Venus response with basic markdown-like formatting */
+ function VenusMessage({ content, confidence }: { content: string; confidence?: 'verified' | 'exploratory'; confidenceNote?: string }) {
++  const withoutFences = stripStrayCodeFences(content);
+   const stripped = confidence === 'exploratory'
+-    ? content.replace(/^⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset\. Treat as an unverified starting point only\.\s*/i, '').trim()
+-    : content;
+-  const lines = stripped.split('\n');
++    ? withoutFences.replace(/^⚠️ No verified precedent match — this is general strategic reasoning, not backed by Venus AI's dataset\. Treat as an unverified starting point only\.\s*/i, '').trim()
++    : withoutFences;
++  const lines = stripped.split('\n').filter((line) => line.trim() !== '```' && line.trim() !== '```json');
+   return (
+     <div className="space-y-1.5 text-sm text-[var(--text)] leading-relaxed">
+       {lines.map((line, i) => {
+@@ -1081,7 +1094,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+           <div className="flex items-start justify-between gap-3 text-left">
+             <div className="flex items-center gap-2">
+               <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+-              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
++              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title?.trim() || `Section ${index + 1}`}</h4>
+             </div>
+             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Primary answer</span>
+           </div>
+@@ -1092,7 +1105,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+           <button type="button" onClick={() => setExpanded(v => !v)} className="flex w-full items-start justify-between gap-3 text-left">
+             <div className="flex items-center gap-2">
+               <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+-              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title}</h4>
++              <h4 className="text-xs font-mono uppercase tracking-wider" style={{ color }}>{card.title?.trim() || `Section ${index + 1}`}</h4>
+             </div>
+             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{expanded ? 'Hide' : 'Show'}</span>
+           </button>
+diff --git a/lib/db/src/schema/settings.ts b/lib/db/src/schema/settings.ts
+index 272c118..904a267 100644
+--- a/lib/db/src/schema/settings.ts
++++ b/lib/db/src/schema/settings.ts
+@@ -14,6 +14,14 @@ export const settingsTable = pgTable("settings", {
+   teamSize: text("team_size"),
+   country: text("country"),
+   primaryGoal: text("primary_goal"),
++  // Freeform business context Venus AI has learned from the conversation
++  // itself (as opposed to the structured onboarding fields above, which are
++  // filled in explicitly through the onboarding flow). This is what lets
++  // Venus remember "I'm building a B2B SaaS for clinics in India" across
++  // every future question — in this session and in brand new sessions —
++  // without asking again, until the user starts a genuinely different idea.
++  venusBusinessContext: text("venus_business_context"),
++  venusBusinessContextUpdatedAt: timestamp("venus_business_context_updated_at"),
+   createdAt: timestamp("created_at").defaultNow(),
+   updatedAt: timestamp("updated_at").defaultNow(),
+ });
+diff --git a/venus_ai_final_polish.patch b/venus_ai_final_polish.patch
+deleted file mode 100644
+index 2e75417..0000000
+--- a/venus_ai_final_polish.patch
++++ /dev/null
+@@ -1,41 +0,0 @@
+-diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+-index afcaac2..cfde9bc 100644
+---- a/artifacts/api-server/src/lib/groq.ts
+-+++ b/artifacts/api-server/src/lib/groq.ts
+-@@ -37,6 +37,10 @@ When a question is not actually about market size, growth, competition, or TAM/S
+- 
+- Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.
+- 
+-+CRITICAL — FORWARD-LOOKING FOUNDER MATH: Whenever the business context or conversation history contains concrete numbers (capital raised, monthly burn, team size, revenue, runway, a funding stage), you must actually use those numbers in your reasoning, not just repeat generic strategic advice on top of them. For any stay-vs-pivot, build-vs-buy, hire-vs-wait, or similar survival-shaped decision, calculate the implied runway (capital remaining divided by monthly burn) and weigh it explicitly against the realistic time required to execute whatever you are recommending. State that math plainly — e.g. "14 months of runway against a 24-month moat-building timeline means you need to either raise again within 10 months or narrow the plan." Recommending a strategy ("build a defensible moat") without addressing whether the founder's own stated runway can survive building it is an incomplete answer, not a real recommendation — treat it as a hedge, not a verdict.
+-+
+-+PRECEDENT BALANCE: Do not exclusively cite failed or collapsed precedents when the founder is asking what they should do going forward rather than what killed comparable companies. If the VERIFIED PRECEDENTS block contains any precedent with a successful or successfully-pivoted outcome relevant to the question, cite at least one of those alongside any failures — a forward-looking strategy question deserves a model of what worked, not only a list of what didn't. This does not override the retrieval-gated precedent rule above: still only cite precedents actually present in the VERIFIED PRECEDENTS block, never invented ones.
+-+
+- Your entire response must be a single JSON object matching the shape above — nothing before it, nothing after it, no markdown fences.`;
+- 
+- export function extractJson(content: string): string {
+-diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+-index 39bef04..c3842eb 100644
+---- a/artifacts/vera-nexus/src/pages/Venus.tsx
+-+++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+-@@ -785,7 +785,7 @@ function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'expl
+- 
+- function ResponseJumpNav({ cards }: { cards: any[] }) {
+-   return (
+--    <div className="sticky top-2 z-10 mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2 backdrop-blur">
+-+    <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2">
+-       {cards.map((card, index) => (
+-         <a key={index} href={`#venus-card-${index}`} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] hover:border-[var(--indigo)] hover:text-white">
+-           {card.title?.replace(/\s+/g, ' ').trim() || `Section ${index + 1}`}
+-@@ -922,9 +922,9 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+-       {card.type === 'analysis' && (
+-         <ul className="space-y-3">
+-           {(normalizedContent.points ?? []).map((pt: any, i: number) => (
+--            <li key={i} className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline gap-1 sm:gap-4 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
+--              <span className="text-[var(--muted)] sm:shrink-0">{pt.label}</span>
+--              <span className="font-mono text-white sm:text-right">{pt.value}</span>
+-+            <li key={i} className="flex flex-col gap-1 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
+-+              <span className="text-[var(--dim)] text-[11px] font-mono uppercase tracking-wide">{pt.label}</span>
+-+              <span className="text-white leading-relaxed">{pt.value}</span>
+-             </li>
+-           ))}
+-         </ul>
+diff --git a/venus_ai_fixes.patch b/venus_ai_fixes.patch
+deleted file mode 100644
+index 983483a..0000000
+--- a/venus_ai_fixes.patch
++++ /dev/null
+@@ -1,141 +0,0 @@
+-diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+-index 8281b09..ff4574e 100644
+---- a/artifacts/api-server/src/routes/ai.ts
+-+++ b/artifacts/api-server/src/routes/ai.ts
+-@@ -71,10 +71,25 @@ function requiresContext(message: string) {
+-   const normalized = normalizeQueryText(message);
+-   if (!normalized) return false;
+- 
+--  const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription)/i;
+--  const isSimpleDefinition = /(what is|what's|define|framework|concept|difference between|explain)/i;
+--
+--  return contextNeedWords.test(normalized) && !isSimpleDefinition.test(normalized);
+-+  const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription|risk|risks|threat|threats|weakness|weaknesses|vulnerability|vulnerabilities|priority|priorities|bottleneck|blocker|blockers|mistake|mistakes|blind spot|moat|differentiation|runway|burn)/i;
+-+
+-+  // The fixed keyword list above can never fully anticipate every phrasing.
+-+  // Any message that personally references "my/our/mine" (or asks someone to
+-+  // fund/back/hire/acquire "us") is inherently about THIS specific company,
+-+  // regardless of which noun follows — e.g. "what's MY biggest risk",
+-+  // "companies similar to MINE", "most likely to fund US". Without this, a
+-+  // query using none of the exact keywords above (like "risk") slips through
+-+  // the gate entirely and Venus starts guessing instead of asking.
+-+  const personalBusinessReference = /\b(my|our|mine|ours)\b/i.test(normalized)
+-+    || /\b(fund|back|hire|acquire|invest in|work with)\s+us\b/i.test(normalized);
+-+
+-+  // Don't gate genuinely generic definition questions ("what is a moat?"),
+-+  // but a definition-style opener followed by "my/our/mine" is still a
+-+  // personal question ("what's MY biggest risk") and must still be gated.
+-+  const isSimpleDefinition = /(what is|what's|define|framework|concept|difference between|explain)/i.test(normalized)
+-+    && !/\b(my|our|mine|ours)\b/i.test(normalized);
+-+
+-+  return (contextNeedWords.test(normalized) || personalBusinessReference) && !isSimpleDefinition;
+- }
+- 
+- const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a)\b/i;
+-diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+-index 278b193..39bef04 100644
+---- a/artifacts/vera-nexus/src/pages/Venus.tsx
+-+++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+-@@ -374,52 +374,62 @@ export function VenusPage() {
+- 
+-         {/* Messages */}
+-         {messages.length === 0 ? (
+--          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+--            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
+--              <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
+--                <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
+--                <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
+-+          // NOTE: the outer div is scrollable and the inner div uses `m-auto`
+-+          // instead of the parent using `justify-center`. A centered flex
+-+          // parent with overflow content clips symmetrically and there is no
+-+          // way to scroll up to reach the clipped top — which is exactly what
+-+          // was hiding the example prompts on shorter viewports. `m-auto`
+-+          // still centers when everything fits, but collapses to 0 and lets
+-+          // the container scroll normally once content is taller than the
+-+          // available space.
+-+          <div className="flex-1 overflow-y-auto flex flex-col items-center p-8 text-center">
+-+            <div className="m-auto flex flex-col items-center w-full py-4">
+-+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
+-+                <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
+-+                  <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
+-+                  <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
+-+                </div>
+-               </div>
+--            </div>
+--            <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
+--            <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
+--              Elite business intelligence. No hedging. Pure signal.
+--            </p>
+-+              <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
+-+              <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
+-+                Elite business intelligence. No hedging. Pure signal.
+-+              </p>
+- 
+--            <form
+--              onSubmit={e => { e.preventDefault(); handleSend(); }}
+--              className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
+--            >
+--              <textarea
+--                value={input}
+--                onChange={e => setInput(e.target.value)}
+--                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+--                placeholder="Ask Venus for unvarnished analysis..."
+--                rows={1}
+--                className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+--              />
+--              <button
+--                type="submit"
+--                disabled={!input.trim() || analyzeMutation.isPending}
+--                className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+-+              <form
+-+                onSubmit={e => { e.preventDefault(); handleSend(); }}
+-+                className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
+-               >
+--                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+--                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+--                </svg>
+--              </button>
+--            </form>
+--
+--            <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
+--              {EXAMPLE_PROMPTS.map(prompt => (
+-+                <textarea
+-+                  value={input}
+-+                  onChange={e => setInput(e.target.value)}
+-+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+-+                  placeholder="Ask Venus for unvarnished analysis..."
+-+                  rows={1}
+-+                  className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+-+                />
+-                 <button
+--                  key={prompt}
+--                  onClick={() => handleSend(prompt)}
+--                  className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+-+                  type="submit"
+-+                  disabled={!input.trim() || analyzeMutation.isPending}
+-+                  className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+-                 >
+--                  <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
+--                  {prompt}
+-+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+-+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+-+                  </svg>
+-                 </button>
+--              ))}
+-+              </form>
+-+
+-+              <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
+-+                {EXAMPLE_PROMPTS.map(prompt => (
+-+                  <button
+-+                    key={prompt}
+-+                    onClick={() => handleSend(prompt)}
+-+                    className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+-+                  >
+-+                    <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
+-+                    {prompt}
+-+                  </button>
+-+                ))}
+-+              </div>
+-             </div>
+-           </div>
+-         ) : (
+diff --git a/venus_ai_v2_upgrade.patch b/venus_ai_v2_upgrade.patch
+deleted file mode 100644
+index a65b172..0000000
+--- a/venus_ai_v2_upgrade.patch
++++ /dev/null
+@@ -1,370 +0,0 @@
+-diff --git a/.agents/memory/MEMORY.md b/.agents/memory/MEMORY.md
+-index c889ea7..76608c5 100644
+---- a/.agents/memory/MEMORY.md
+-+++ b/.agents/memory/MEMORY.md
+-@@ -2,4 +2,5 @@
+- - [Vercel/v0 migration checklist](vercel-v0-migration.md) — after copying source into a Vite artifact, verify App.tsx was actually wired to real routes, not left as the scaffold placeholder.
+- - [Reopened-from-GitHub regressions](reopened-from-github-regressions.md) — DB tables can come back empty and CSS theme vars can revert to literal placeholders; check both before assuming a code regression.
+- - [Lexical retrieval-gating false positives](retrieval-gating-lexical-overlap.md) — generic domain vocabulary ("startup","raise","series") inflates keyword-overlap match scores; strip it or gating leaks ungrounded answers.
+--- [Groq small-model JSON robustness](groq-json-retry-pattern.md) — 8b-instant models need extract-braces + retry-with-stricter-prompt to reliably return parseable JSON; also don't mix incompatible output-format instructions in one shared system prompt.
+-+- [Groq small-model JSON robustness](groq-json-retry-pattern.md) — HISTORICAL: written for `llama-3.1-8b-instant`, which is now deprecated/migrated away from (see the 2026 deprecation note below). The extract-braces + retry-with-stricter-prompt pattern it describes is still live in `callGroqJSON` and still useful context, but the model-choice tradeoff it discusses no longer applies as-is.
+-+- [Groq 2026 model deprecation migration](groq-model-deprecation-2026.md) — `llama-3.1-8b-instant`/`llama-3.3-70b-versatile` deprecated, migrated to the `gpt-oss` family with a reasoning/lightweight split; also added default `json_object` response mode. Read this before changing any `model:` string in this repo.
+-diff --git a/.agents/memory/groq-model-deprecation-2026.md b/.agents/memory/groq-model-deprecation-2026.md
+-new file mode 100644
+-index 0000000..7aef559
+---- /dev/null
+-+++ b/.agents/memory/groq-model-deprecation-2026.md
+-@@ -0,0 +1,57 @@
+-+---
+-+name: Groq 2026 model deprecation migration
+-+description: llama-3.1-8b-instant and llama-3.3-70b-versatile were deprecated by Groq (announced 2026-06-17); migrated to the gpt-oss family. Read this before changing any `model:` string in this repo.
+-+---
+-+
+-+Groq deprecated `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` (shutdown
+-+dates on Groq's `/docs/deprecations` page — check that page directly, don't
+-+trust a cached date here). Every call site in this repo was migrated:
+-+
+-+- Reasoning-heavy / user-facing causal analysis (`/ai/analyze`, `/ai/idea-review`,
+-+  company autopsy + autopsy chat, event ripple analysis, report summaries) →
+-+  `openai/gpt-oss-120b`.
+-+- Lighter extraction/summarization tasks (`/ai/company-report`,
+-+  `/ai/summarize-article`, the offline `enrich_precedents.ts` batch script) →
+-+  `openai/gpt-oss-20b`.
+-+
+-+**Why the split:** both gpt-oss tiers have identical free-tier rate limits on
+-+Groq (RPM 30 / RPD 1,000 / TPM 8,000 / TPD 200,000 — verify current numbers on
+-+Groq's `/docs/rate-limits` page, these change), so there's no quota reason to
+-+use the smaller model anywhere reasoning quality actually matters. Quotas are
+-+per-model buckets, not shared, so mixing tiers across routes doesn't make one
+-+endpoint starve another.
+-+
+-+**Known tradeoff, don't silently re-optimize around it:** the original switch
+-+to `llama-3.1-8b-instant` (see `groq-json-retry-pattern.md`) was deliberately
+-+done to dodge a per-model daily cap. The gpt-oss free-tier RPD (1,000) and TPD
+-+(200,000) are both *much* tighter than 8b-instant's old RPD (14,400) / TPD
+-+(500,000). At ~3-7K tokens per `/ai/analyze` turn (system prompt + precedent
+-+block + history + response), that's roughly 30-40 full conversations/day
+-+before hitting the wall on the free tier. If you ever see 429s that don't
+-+match `isRetryableTransient`'s expected shape, check whether it's actually
+-+"working as intended, tighter free-tier budget" before treating it as a bug.
+-+The app already supports a per-session custom Groq key (Settings →
+-+`x-groq-api-key` header path in `getGroqClient`) as a release valve — that's
+-+a separate quota bucket per key.
+-+
+-+**Also fixed in the same pass — do this for any NEW Groq call site too:**
+-+Added `response_format: { type: "json_object" }` as an automatic default
+-+inside `callGroqJSON()` (see `groq.ts`) so the provider enforces valid JSON at
+-+the API level instead of relying purely on system-prompt wording. This is
+-+Groq's basic/stable JSON mode, not the stricter `json_schema` structured-
+-+output mode — `json_schema` is officially supported on both gpt-oss models but
+-+has had mixed reliability reports on deeply nested schemas (see Groq community
+-+forum threads from late 2025), and this codebase's card schema is deeply
+-+nested (8 card types, each with its own content shape). `json_object` was the
+-+safer choice given no way to live-test `json_schema` adherence from outside
+-+the actual running app. If a future session wants to try upgrading to
+-+`json_schema` for full schema-level guarantees, test it thoroughly against
+-+`VENUS_TEST_SUITE.md` Section 5 (rendering integrity) before trusting it in
+-+production — don't assume the forum reports are stale just because time has
+-+passed.
+-+
+-+**Gotcha if you touch `callGroqJSON` again:** the retry-on-parse-failure path
+-+used to spread the original `params` (losing any per-call `response_format`
+-+override) instead of the JSON-mode-defaulted version. Fixed by making sure
+-+`paramsWithJsonMode` (not `params`) is the base for the retry call's spread.
+-+Any future refactor of that retry path needs to preserve this.
+-diff --git a/VENUS_TEST_SUITE.md b/VENUS_TEST_SUITE.md
+-new file mode 100644
+-index 0000000..89f350b
+---- /dev/null
+-+++ b/VENUS_TEST_SUITE.md
+-@@ -0,0 +1,128 @@
+-+# Venus AI — Manual Test Suite
+-+
+-+Run this after ANY change to `groq.ts`, `ai.ts`, or `Venus.tsx`. It's built from
+-+real bugs found in production testing, not hypotheticals — every row here is
+-+something that actually broke once. Takes ~10 minutes.
+-+
+-+I can't call the live Groq API from my sandbox, so I can't run this myself —
+-+you run it in the actual app, paste me the transcript for anything that fails,
+-+and that transcript IS the bug report (see "Standard Debug Prompt" at the
+-+bottom). No more screenshot-by-screenshot back and forth.
+-+
+-+**Rule of thumb:** if a change touches the system prompt or the analyze route,
+-+run all of Section 1–4. If it's a pure UI/CSS change, Section 5 is enough.
+-+
+-+---
+-+
+-+## Section 1 — Context Gate (cold start, brand NEW chat, zero prior context)
+-+
+-+| # | Prompt | Pass criteria |
+-+|---|--------|----------------|
+-+| 1.1 | `What's my biggest risk right now and how do I fix it?` | Asks for context (industry/stage/customer). Does NOT answer with real cards. |
+-+| 1.2 | `Find 3 failed companies most similar to mine and why they failed` | Asks for context. |
+-+| 1.3 | `What's the biggest threat to our burn rate and how do I fix it?` | Asks for context. |
+-+| 1.4 | `Run an investor-fit analysis — which VCs are most likely to fund us?` | Asks for context. |
+-+| 1.5 (negative control) | `What is a SWOT analysis?` | Answers directly, does NOT ask for context. If this one starts gating too, the gate is over-firing. |
+-+
+-+If 1.1–1.4 fail (Venus answers without asking) → check `requiresContext()` in
+-+`ai.ts` — the keyword list or personal-reference regex likely missed the new
+-+phrasing. Don't just add the one word that failed; ask whether the underlying
+-+signal (a personal "my/our/mine" reference) was even checked.
+-+
+-+## Section 2 — Context Persistence (same chat, after giving context once)
+-+
+-+1. Paste a context block, e.g.:
+-+   > We're building a B2B SaaS for [industry]. [Stage], raised [$X], burning
+-+   > [$X]/month, team of [N], targeting [customer].
+-+2. Re-ask any prompt from Section 1.
+-+
+-+**Pass:** does NOT re-ask for context, uses the actual numbers/industry you gave.
+-+**Fail:** re-asks "what industry are you in" after you already said it.
+-+
+-+## Section 3 — Founder Math (needs context from Section 2 first)
+-+
+-+Ask a stay-vs-pivot / survival-shaped question, e.g.:
+-+> Realistically, do we have a shot against [competitor], or should we pivot?
+-+
+-+**Pass criteria (all of these, not just one):**
+-+- Explicitly computes or references runway (capital ÷ burn), using the actual
+-+  numbers you gave — not a generic "you should build a moat."
+-+- States a real verdict word — pivot, stay, wait, raise-first — not just a
+-+  strategy category.
+-+- If it recommends a strategy, it says whether your stated runway can survive
+-+  executing it (e.g. "24 months to build this moat against your 14 months of
+-+  runway means...").
+-+
+-+**Fail example (this exact failure happened before the fix):** "You cannot
+-+compete on price, so build a defensible moat" with no numbers anywhere. That's
+-+a hedge wearing a verdict's clothes.
+-+
+-+## Section 4 — Precedent Integrity
+-+
+-+Ask: `What should our strategy be going forward?` (or similar forward-looking ask).
+-+
+-+**Pass:** if the precedent dataset has any success/pivot outcome relevant to
+-+the question, at least one appears alongside any failures — not an all-failure
+-+graveyard list.
+-+**Also check:** every named company is one you can verify actually appeared in
+-+that response's precedent card — no company should appear in the summary prose
+-+that isn't backed by a precedent card.
+-+
+-+## Section 5 — Rendering / UI Integrity
+-+
+-+Visual-only checks, no need for context setup:
+-+
+-+- [ ] No raw `` ```json `` code fence ever appears inside a rendered chat bubble.
+-+- [ ] No literal `[object Object]` appears anywhere on screen.
+-+- [ ] Long analysis-card labels (full sentences, not short tags) never crush
+-+      the value text into single-word-per-line vertical stacking.
+-+- [ ] The quick-jump pill nav at the top of a long response does NOT float
+-+      over/obscure the card text as you scroll through that message.
+-+- [ ] On a brand-new chat with an empty message list, all 5 example prompts
+-+      are visible and reachable — either they fit on screen, or the container
+-+      scrolls to reveal the rest (no clipped-with-no-way-to-scroll state).
+-+
+-+## Section 6 — Specificity ("mentor," not "template generator")
+-+
+-+Give a context block with at least one hard constraint (small team, no sales
+-+channel, skeptical customer base, etc.), then ask for a 90-day priority.
+-+
+-+**Pass:** the recommendation explicitly traces back to the constraint you
+-+named ("because you have 1 dev and no sales team, your bottleneck is X, so
+-+priority is Y") AND includes at least one concrete number/tactic/artifact —
+-+an actual price, a named channel, a specific script — not just a category
+-+name like "develop a pricing strategy."
+-+**Fail:** the same answer would make sense for literally any startup in that
+-+industry, constraint or no constraint.
+-+
+-+## Section 7 — Risk Probability Justification
+-+
+-+Any response with a risk card:
+-+
+-+**Pass:** every probability number (e.g. "70%") is paired with a reason tied
+-+to something specific — a stated fact or a named precedent — in the same
+-+sentence or the adjacent mitigation field.
+-+**Fail:** a round, unexplained number (70%, 80%) that reads like it would be
+-+identical regardless of what you told Venus.
+-+
+-+---
+-+
+-+## Standard Debug Prompt (reuse this instead of describing bugs from scratch)
+-+
+-+When something looks wrong, paste me this filled in — it's everything I need
+-+in one shot instead of a back-and-forth:
+-+
+-+```
+-+BUG REPORT
+-+1. Exact prompt sent: "..."
+-+2. Full Venus response (copy-paste, not paraphrase): ...
+-+3. New chat or continuing one with prior context already given?
+-+4. What I expected instead:
+-+5. Which test-suite section does this map to (1–7 above), if any:
+-+6. Screenshot attached? (for anything visual)
+-+```
+-+
+-+This makes every bug reproducible against a specific section of this suite
+-+instead of a one-off patch, and tells me whether to look at `requiresContext`,
+-+the system prompt, the rendering code, or the model/API layer — the four
+-+places bugs have actually come from so far.
+-diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+-index cfde9bc..50a0f7f 100644
+---- a/artifacts/api-server/src/lib/groq.ts
+-+++ b/artifacts/api-server/src/lib/groq.ts
+-@@ -6,6 +6,12 @@ const VENUS_SYSTEM_PROMPT = `You are Venus AI, an elite business intelligence en
+- 
+- You have full context of the user's business from their onboarding and previous sessions. Use that context in every response. If they told you they are a 4 person fintech startup in India at pre-seed, every answer should be calibrated to that reality, not to some generic startup in Silicon Valley.
+- 
+-+CRITICAL — CAUSAL CHAIN REASONING (this is what separates you from a generic template generator): Never open with a solution. Every substantive recommendation must be reachable by the reader as: constraint → bottleneck → priority → action. Before naming what they should do, name the specific constraint they told you (team size, skepticism in their market, lack of a channel, capital position) that makes that the bottleneck, not some other plausible-sounding priority. Write this chain in plain sentences in the summary field — "Because you have one developer and no sales hire, your bottleneck isn't product depth, it's proving ROI fast enough that a skeptical clinic says yes without a sales conversation. So your priority for the next 90 days is X, not Y." A recommendation that would look identical if you deleted the founder's specific stated constraints from the prompt is not causal reasoning — it's a template with their industry word swapped in. If you cannot construct a real "because X, so Y" link from something the founder actually told you, that is a signal you don't have enough context yet — ask for it rather than defaulting to generic phase names.
+-+
+-+CRITICAL — SPECIFICITY OVER TEMPLATES: Do not answer with generic startup-playbook phase names as if they were the advice itself — "conduct market research," "develop a scalable pricing strategy," "build strategic partnerships" are not actions, they are categories of action, and stopping there is exactly the templated-consultant failure mode you must avoid. Every action you name must include at least one concrete, falsifiable specific: an actual number (a price in the founder's stated currency, a percentage, a headcount, a day count), a named concrete tactic (not "leverage social media" but "post a 60-second before/after demo in the 3 WhatsApp clinic-owner groups you're already in"), or a named concrete artifact (a specific document, script, or tool). If you don't have enough specifics about their market to give a real number, say so plainly and ask for the one detail you need rather than filling the gap with a generic category name.
+-+
+-+CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage, or confidence score to a risk or a decision split unless you can point to the specific stated fact or verified precedent that produced that exact number. A probability that would be the same number regardless of what the founder told you is fabricated precision, not analysis — describe likelihood in plain words instead ("likely," "a real but secondary risk," "the dominant risk right now") when you don't have a specific basis for a number. When you do have a basis, name it in the same sentence as the number, not just in an adjacent field — e.g. "70% — because two of the three verified precedents in this sector failed on exactly this mechanism."
+-+
+- You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
+- 
+- The JSON always has this shape:
+-@@ -55,6 +61,7 @@ interface GroqJsonParams {
+-   messages: { role: "system" | "user" | "assistant"; content: string }[];
+-   temperature: number;
+-   max_tokens: number;
+-+  response_format?: { type: "json_object" };
+- }
+- 
+- /**
+-@@ -136,7 +143,14 @@ export async function callGroqJSON(
+-   params: GroqJsonParams,
+-   label: string,
+- ): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
+--  const completion = await createWithRetry(groq, params, label);
+-+  // Every caller gets Groq's JSON mode by default so the provider enforces
+-+  // valid JSON at the API level (never markdown fences, never prose before/
+-+  // after the object) rather than relying purely on the system prompt asking
+-+  // nicely for it. New call sites inherit this automatically — nobody has to
+-+  // remember to add it. Callers can still override by passing their own
+-+  // response_format if a future route genuinely needs raw text back.
+-+  const paramsWithJsonMode: GroqJsonParams = { response_format: { type: "json_object" }, ...params };
+-+  const completion = await createWithRetry(groq, paramsWithJsonMode, label);
+-   const raw = completion.choices[0]?.message?.content || "";
+-   const candidate = extractJson(raw);
+- 
+-@@ -155,7 +169,7 @@ export async function callGroqJSON(
+- 
+-     try {
+-       const retryCompletion = await groq.chat.completions.create({
+--        ...params,
+-+        ...paramsWithJsonMode,
+-         messages: retryMessages,
+-         max_tokens: Math.min(params.max_tokens * 2, 4000),
+-       });
+-diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+-index ff4574e..fa5d884 100644
+---- a/artifacts/api-server/src/routes/ai.ts
+-+++ b/artifacts/api-server/src/routes/ai.ts
+-@@ -265,7 +265,7 @@ router.post("/ai/analyze", async (req, res) => {
+- 
+-     const { parsed } = await callGroqJSON(
+-       groq,
+--      { model: "llama-3.1-8b-instant", messages, temperature: 0.4, max_tokens: 3000 },
+-+      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 3000 },
+-       "ai/analyze",
+-     );
+- 
+-@@ -334,7 +334,7 @@ router.post("/ai/idea-review", async (req, res) => {
+-     const { parsed } = await callGroqJSON(
+-       groq,
+-       {
+--        model: "llama-3.1-8b-instant",
+-+        model: "openai/gpt-oss-120b",
+-         messages: [
+-           { role: "system", content: ideaSystemPrompt },
+-           {
+-@@ -425,7 +425,7 @@ ${articleSnippets.join("\n\n").slice(0, 20000)}`;
+-     const { parsed } = await callGroqJSON(
+-       groq,
+-       {
+--        model: "llama-3.1-8b-instant",
+-+        model: "openai/gpt-oss-20b",
+-         messages: [
+-           { role: "system", content: "You synthesize factual company reports from web excerpts. Return strict JSON only and do not invent facts." },
+-           { role: "user", content: prompt },
+-@@ -491,7 +491,7 @@ router.post("/ai/summarize-article", async (req, res) => {
+-     }
+- 
+-     const completion = await groq.chat.completions.create({
+--      model: "llama-3.1-8b-instant",
+-+      model: "openai/gpt-oss-20b",
+-       messages: [
+-         {
+-           role: "system",
+-@@ -504,6 +504,7 @@ router.post("/ai/summarize-article", async (req, res) => {
+-       ],
+-       temperature: 0.2,
+-       max_tokens: 400,
+-+      response_format: { type: "json_object" },
+-     });
+- 
+-     const content = completion.choices[0]?.message?.content || "";
+-diff --git a/artifacts/api-server/src/routes/companies.ts b/artifacts/api-server/src/routes/companies.ts
+-index 52ffe2b..073531c 100644
+---- a/artifacts/api-server/src/routes/companies.ts
+-+++ b/artifacts/api-server/src/routes/companies.ts
+-@@ -77,7 +77,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
+-     const { parsed, raw } = await callGroqJSON(
+-       groq,
+-       {
+--        model: "llama-3.1-8b-instant",
+-+        model: "openai/gpt-oss-120b",
+-         messages: [
+-           {
+-             role: "system",
+-@@ -208,7 +208,7 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
+- 
+-     const { parsed, raw } = await callGroqJSON(
+-       groq,
+--      { model: "llama-3.1-8b-instant", messages, temperature: 0.6, max_tokens: 800 },
+-+      { model: "openai/gpt-oss-120b", messages, temperature: 0.6, max_tokens: 800 },
+-       `companies/${id}/autopsy/chat`,
+-     );
+- 
+-diff --git a/artifacts/api-server/src/routes/events.ts b/artifacts/api-server/src/routes/events.ts
+-index 46bd7d0..2c138c4 100644
+---- a/artifacts/api-server/src/routes/events.ts
+-+++ b/artifacts/api-server/src/routes/events.ts
+-@@ -57,7 +57,8 @@ router.post("/events/:id/ripple", async (req, res) => {
+-     }
+- 
+-     const completion = await groq.chat.completions.create({
+--      model: "llama-3.3-70b-versatile",
+-+      model: "openai/gpt-oss-120b",
+-+      response_format: { type: "json_object" },
+-       messages: [
+-         {
+-           role: "system",
+-diff --git a/artifacts/api-server/src/routes/reports.ts b/artifacts/api-server/src/routes/reports.ts
+-index 73eca62..5bd67b4 100644
+---- a/artifacts/api-server/src/routes/reports.ts
+-+++ b/artifacts/api-server/src/routes/reports.ts
+-@@ -55,7 +55,8 @@ router.post("/reports/:id/summary", async (req, res) => {
+-     }
+- 
+-     const completion = await groq.chat.completions.create({
+--      model: "llama-3.3-70b-versatile",
+-+      model: "openai/gpt-oss-120b",
+-+      response_format: { type: "json_object" },
+-       messages: [
+-         {
+-           role: "system",
+-diff --git a/lib/db/src/enrich_precedents.ts b/lib/db/src/enrich_precedents.ts
+-index a00fbd8..947efae 100644
+---- a/lib/db/src/enrich_precedents.ts
+-+++ b/lib/db/src/enrich_precedents.ts
+-@@ -112,7 +112,8 @@ async function main() {
+-   async function callWithRetry(c: Candidate, attempt = 0): Promise<any> {
+-     try {
+-       return await groq.chat.completions.create({
+--        model: "llama-3.1-8b-instant",
+-+        model: "openai/gpt-oss-20b",
+-+        response_format: { type: "json_object" },
+-         messages: [
+-           { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+-           { role: "user", content: buildUserPrompt(c) },
