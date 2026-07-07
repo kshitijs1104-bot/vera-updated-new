@@ -261,8 +261,10 @@ function buildContextClarification(
         },
       },
     ],
-    confidence: "exploratory",
-    confidenceNote: "The answer is being gated until the essential business context is provided.",
+    // Deliberately no confidence/confidenceNote here — this is a clarifying
+    // question, not an analysis, so a confidence badge on it is meaningless
+    // and reads as if Venus is unsure of itself rather than just asking a
+    // normal follow-up question. The badge is reserved for actual answers.
     requiresClarification: true,
   };
 }
@@ -277,8 +279,10 @@ function buildContextAcknowledgment(): object {
   return {
     summary: "Got it — noted your business context. What would you like help with?",
     cards: [],
-    confidence: "exploratory",
-    confidenceNote: "This is an acknowledgment only; no analysis was requested yet.",
+    // No confidence badge — this is a plain acknowledgment, not an answer,
+    // so "exploratory"/"verified" doesn't mean anything here and previously
+    // just showed a confusing orange "Exploratory" badge on a message that
+    // isn't making any claim that could be more or less confident.
     contextAcknowledged: true,
   };
 }
@@ -291,8 +295,8 @@ function buildBusinessContextConfirmation(): object {
   return {
     summary: "Quick check before I continue — is this related to the business you told me about earlier, or is this a new/different business idea?",
     cards: [],
-    confidence: "exploratory",
-    confidenceNote: "Waiting to confirm whether this is the same business context or a new one before proceeding.",
+    // No confidence badge — same reasoning as buildContextAcknowledgment
+    // above, this is a clarifying question, not an analysis.
     requiresContextConfirmation: true,
   };
 }

@@ -775,6 +775,15 @@ function CompetitorList({ competitors }: { competitors: unknown }) {
 }
 
 function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'exploratory'; note?: string }) {
+  // No confidence value means this message isn't a real analysis — a plain
+  // acknowledgment ("noted your context") or a clarifying question ("which
+  // business do you mean"). Previously this fell through to the "false"
+  // branch below and rendered a "Verified precedent" badge on messages that
+  // were never any kind of precedent-backed answer at all, which was
+  // confusing and made a plain follow-up question look like a confident
+  // analytical claim. Render nothing in that case.
+  if (!confidence) return null;
+
   const isExploratory = confidence === 'exploratory';
   const label = isExploratory ? 'Exploratory — no precedent match' : 'Verified precedent';
   const classes = isExploratory
