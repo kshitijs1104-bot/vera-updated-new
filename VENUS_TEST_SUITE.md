@@ -10,7 +10,9 @@ and that transcript IS the bug report (see "Standard Debug Prompt" at the
 bottom). No more screenshot-by-screenshot back and forth.
 
 **Rule of thumb:** if a change touches the system prompt or the analyze route,
-run all of Section 1–4. If it's a pure UI/CSS change, Section 5 is enough.
+run all of Section 1–4. If it's a pure UI/CSS change, Section 5 is enough. If
+a change touches `max_tokens`, retry logic, or anything in `groq.ts`'s
+request-sizing, run Section 8.
 
 ---
 
@@ -106,6 +108,42 @@ sentence or the adjacent mitigation field.
 identical regardless of what you told Venus.
 
 ---
+
+## Section 8 — TPM Budget Guard (413 "payload too large")
+
+Only needs re-running if you touch `max_tokens`, `clampMaxTokensToTpmBudget`,
+`createWithRetry`, or `shrinkMessages` in `groq.ts`, or add a new call site to
+`callGroqJSON`.
+
+Background: the free-tier Groq TPM limit (8000) is charged against prompt
+tokens PLUS the requested `max_tokens`, and `VENUS_SYSTEM_PROMPT` alone is
+~4,900 tokens — so on `/ai/analyze` there's genuinely very little headroom
+left for the actual response, even on a short message. This section exists
+because the previous version of this bug looked identical on every message
+length ("shrinking messages and retrying" 3x, then a 413) since the retry
+loop shrunk dynamic message content but never `max_tokens`, and the protected
+system prompt left nothing to shrink on a short message.
+
+| # | Prompt | Pass criteria |
+|---|--------|----------------|
+| 8.1 | Brand new chat, send the shortest possible message: `hi` or `?` | No 413 in server logs. You get either a real response or the "ask one clarifying question" fallback — never a hard error. |
+| 8.2 | Same, but a message that will miss the verified-precedent dataset (triggers the live web-search block, the largest dynamic addition to the prompt) — e.g. ask about an obscure/made-up product name | No 413. Check server logs for a `clamping max_tokens from 6000 to N` line — confirms the pre-flight clamp fired instead of relying on a failed request to discover the problem. |
+| 8.3 | A long follow-up in a chat with 5+ prior turns (exercises `sessionHistory` growth) | No 413. If response looks unusually short/thin, check logs for `response truncated by max_tokens` — that's the clamp doing its job (protecting the TPM budget) but at a quality cost worth knowing about, not a bug. |
+
+**Fail:** any 413 in server logs, on any message length. **Also fail:** the
+same 413 repeating 2-3 times with an unchanged token count in the log line —
+that means a retry is happening without `max_tokens` actually shrinking.
+
+**Known tradeoff, don't "fix" this by silently raising the clamp back up:**
+because the system prompt already consumes the majority of the 8000 TPM
+budget, the clamp frequently caps `max_tokens` down near its 1,200-token
+floor on the free tier — expect shorter, sometimes single-card responses
+under load rather than the full multi-card format. That's the honest
+consequence of an ~5,000-token system prompt against an 8,000 TPM ceiling,
+not a regression in this fix. The actual fix for response *quality* (as
+opposed to the crash) is either trimming `VENUS_SYSTEM_PROMPT` materially or
+moving off the Groq free tier — see the comment above `GROQ_TPM_LIMIT` in
+`groq.ts`.
 
 ## Standard Debug Prompt (reuse this instead of describing bugs from scratch)
 
