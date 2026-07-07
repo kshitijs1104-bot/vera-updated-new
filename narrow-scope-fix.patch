@@ -1,0 +1,200 @@
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 32fc4ce..219ed95 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -36,6 +36,82 @@ function buildDecisionRoutingInstruction(message: string) {
+   return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
+ }
+ 
++// ---- Query scope classification (prompt-size routing) ----
++//
++// WHY THIS EXISTS: without it, every message — including a two-word
++// clarification like "what's a SAM?" or "what did you mean by that" — gets
++// assembled into the exact same system prompt as a full "help me decide
++// whether to raise a seed round" question: full 8-turn history, up to 4
++// third-party precedents (each a dense multi-field block), up to 3 of the
++// founder's own resolved decisions, and (when no precedent matches) a full
++// web search block. On a real account that's ~6000+ tokens of prompt before
++// the model writes a single token back. That's not just slow — on a
++// constrained TPM budget it forces callGroqJSON's clampMaxTokensToTpmBudget
++// to shrink max_tokens so far that the multi-card JSON response gets
++// truncated, which is what was producing the empty/stub cards and the
++// 30-60s multi-retry latency in production logs. Shrinking the prompt for
++// the (common) case where the question doesn't need all of that context is
++// the actual fix — it helps on every provider and every tier, not just the
++// free one.
++//
++// This is deliberately a narrow/broad classification, not a fine-grained
++// token budget calculator — cheap regex heuristics, same style as
++// inferDecisionRouting and isPureContextStatement above. Ambiguous cases
++// default to "broad" (the existing, unchanged behavior) so this can only
++// ever shrink prompts it's confident don't need the full context; it can
++// never accidentally starve a question that does.
++export type QueryScope = "narrow" | "broad";
++
++// Cheap signal that a message is a plain definition/clarification ask with
++// no personal business framing — "what's a SAM?", "what does CAC mean",
++// "explain runway". Reuses the same what-is/define/explain pattern already
++// established by isSimpleDefinition's logic further up this file, kept
++// separate here since scope classification needs to run standalone (a
++// narrow message might not even reach requiresContext's call site).
++//
++// IMPORTANT: this is matched against normalizeQueryText's OUTPUT, not the
++// raw message — normalizeQueryText strips apostrophes to a bare space
++// rather than deleting them entirely (see its regex above), so "what's"
++// becomes "what s", not "whats". The pattern below is written to match that
++// actual normalized form. Also matches "what does X mean" — normalizeQueryText
++// already strips filler stopwords nowhere in its own logic, so "does" is
++// still present in the normalized string and must be handled explicitly
++// rather than assumed away.
++const DEFINITION_ASK = /^(what\s?('?s|\s+is|\s+does)|define|explain|meaning of|difference between)\b/i;
++
++// Narrow follow-up phrasing: refers back to "that/it/this" or explicitly
++// says "the one you mentioned" etc., rather than introducing a new topic.
++const FOLLOW_UP_REFERENCE = /\b(that|it|this|the one|the above|earlier|previous|last (one|answer|point|card))\b/i;
++
++function classifyQueryScope(
++  message: string,
++  sessionHistory?: { role?: string; content?: string }[],
++): QueryScope {
++  const normalized = normalizeQueryText(message);
++  if (!normalized) return "broad";
++
++  const wordCount = normalized.split(" ").filter(Boolean).length;
++  const hasHistory = Boolean(sessionHistory && sessionHistory.length > 0);
++
++  // A plain definition/clarification question is narrow regardless of
++  // history — it's asking Venus to explain a term or concept, not to
++  // reason over the founder's precedent/decision context.
++  if (DEFINITION_ASK.test(normalized) && wordCount <= 12) return "narrow";
++
++  // A short message that explicitly references "that/it/this" AND there is
++  // prior conversation to refer back to is a narrow follow-up — answering
++  // it well means looking at the last couple of turns, not re-deriving
++  // precedent/web-search context from scratch.
++  if (hasHistory && wordCount <= 15 && FOLLOW_UP_REFERENCE.test(normalized)) return "narrow";
++
++  // Anything longer, or with no history to be "narrow" relative to, or
++  // that reads as a genuinely new strategic question (decision-ish,
++  // context-needing — see requiresContext/inferDecisionRouting) stays broad.
++  // This is the safe default: only messages that clearly match one of the
++  // narrow patterns above ever get the reduced-context treatment.
++  return "broad";
++}
++
+ function buildShortQueryFallback(message: string) {
+   const routing = inferDecisionRouting(message);
+   if (!routing) return null;
+@@ -407,12 +483,24 @@ router.post("/ai/analyze", async (req, res) => {
+       await saveStoredBusinessContext(sessionId, effectiveBusinessContext);
+     }
+ 
++    // Classify BEFORE running any of the expensive retrieval/web-search work
++    // below, so a narrow query can skip cost, not just get truncated after
++    // the fact. See classifyQueryScope's comment for the full rationale —
++    // this is what actually shrinks the prompt for the common "quick doubt"
++    // case instead of relying on callGroqJSON's token clamp to react to an
++    // already-oversized request after the fact.
++    const queryScope = classifyQueryScope(body.data.message, body.data.sessionHistory);
++    const isNarrowScope = queryScope === "narrow";
++
+     const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
+ 
+     // The founder's own resolved decision history — see retrieval.ts and
+     // venus_decisions schema comments for why this is scoped per-session and
+     // treated as stronger evidence than the third-party precedent dataset.
+-    const ownDecisions = await retrieveOwnResolvedDecisions(sessionId, body.data.message, { businessContext: effectiveBusinessContext });
++    // On a narrow query, only the single strongest match is worth the tokens
++    // — a definition ask or one-line follow-up doesn't need three of them.
++    const ownDecisionsRaw = await retrieveOwnResolvedDecisions(sessionId, body.data.message, { businessContext: effectiveBusinessContext });
++    const ownDecisions = isNarrowScope ? ownDecisionsRaw.slice(0, 1) : ownDecisionsRaw;
+     const ownHistoryBlock = ownDecisions.length > 0
+       ? `YOUR OWN VERIFIED HISTORY WITH THIS FOUNDER (private to this founder, higher trust than the precedent dataset below):\n\n${formatOwnDecisionsForPrompt(ownDecisions)}`
+       : "";
+@@ -424,18 +512,39 @@ router.post("/ai/analyze", async (req, res) => {
+     // means go find real information instead. This is fully generic: whatever
+     // the user asked about (a named app, a niche concept, anything), the raw
+     // message itself is the search query. Never special-cased to any topic.
+-    const webResult = isNone ? await webSearch(body.data.message) : null;
++    // Skipped on a narrow query: a plain definition ask ("what's a SAM?") or
++    // a short follow-up referring back to the last turn doesn't need a fresh
++    // web search — it needs the term explained or the prior context
++    // clarified, both of which the model can do from general knowledge and
++    // the (still-included) recent history. This also removes a real network
++    // round-trip from the narrow-query path, not just tokens.
++    const webResult = isNone && !isNarrowScope ? await webSearch(body.data.message) : null;
+     const webSearchBlock = webResult ? formatWebSearchForPrompt(webResult) : "";
+ 
+-    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
++    // Narrow queries keep at most the single strongest precedent instead of
++    // the full top-4 — same reasoning as ownDecisions above: a quick doubt
++    // doesn't need four dense precedent blocks to be answered well, and the
++    // model still gets one grounded example rather than none.
++    const precedentMatches = isNarrowScope ? retrieval.precedents.slice(0, 1) : retrieval.precedents;
++    const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(precedentMatches)}`;
+ 
+     const venusPromptForTier = isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT;
++    // Narrow queries get the last 3 turns instead of 8 — enough to resolve
++    // "what did you mean by that" without paying for a near-full history
++    // reinjection on every short clarification in a long-running chat.
++    const historyTurnCount = isNarrowScope ? 3 : 8;
+     const historyContext = body.data.sessionHistory && body.data.sessionHistory.length > 0
+-      ? `Conversation context so far:\n${body.data.sessionHistory.slice(-8).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
++      ? `Conversation context so far:\n${body.data.sessionHistory.slice(-historyTurnCount).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
+       : "Conversation context so far: none.";
+     const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template with at least 2 cards.`;
+     const decisionRoutingInstruction = buildDecisionRoutingInstruction(body.data.message);
+-    const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
++    // isNarrowScope note: webResult is intentionally null for a narrow query
++    // (see webResult assignment above) — the instruction text below must not
++    // claim a search ran when it didn't, or the model may reference a
++    // "WEB SEARCH RESULTS" section that isn't actually present in the prompt.
++    const noPrecedentInstruction = isNarrowScope
++      ? `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. This looks like a quick clarification or definition-style question, so no web search was run for it — answer directly from your own general knowledge, staying specific and concrete rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from general knowledge is reasoning, not a "Precedent" card.`
++      : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
+ 
+     const systemPrompt = isNone
+       ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
+@@ -447,8 +556,13 @@ router.post("/ai/analyze", async (req, res) => {
+       { role: "system", content: systemPrompt },
+     ];
+ 
++    // Mirrors historyTurnCount above — the raw message history sent as
++    // actual chat turns shrinks the same way the text summary in
++    // historyContext does, for the same reason: a narrow follow-up doesn't
++    // need 10 prior turns replayed as messages to be answered correctly.
++    const messageHistoryTurnCount = isNarrowScope ? 4 : 10;
+     if (body.data.sessionHistory && body.data.sessionHistory.length > 0) {
+-      for (const h of body.data.sessionHistory.slice(-10)) {
++      for (const h of body.data.sessionHistory.slice(-messageHistoryTurnCount)) {
+         if (h.content) {
+           const role = h.role === "user" ? "user" : "assistant";
+           messages.push({ role, content: h.content });
+@@ -458,6 +572,15 @@ router.post("/ai/analyze", async (req, res) => {
+ 
+     messages.push({ role: "user", content: body.data.message });
+ 
++    // A narrow query (definition ask, short follow-up) legitimately needs
++    // far fewer output tokens than a full multi-card strategic answer —
++    // asking for less here means callGroqJSON's TPM clamp has more natural
++    // headroom before it ever needs to intervene, on top of the prompt
++    // itself already being smaller. 1800 is comfortably above
++    // MIN_USABLE_MAX_TOKENS (1200) so a narrow answer with 1-2 cards has
++    // real room without reserving 6000 tokens of budget it won't use.
++    const requestedMaxTokens = isNarrowScope ? 1800 : 6000;
++
+     const { parsed } = await callGroqJSON(
+       groq,
+       // 3000 was tuned against short prompts. A broad/descriptive query can
+@@ -467,8 +590,9 @@ router.post("/ai/analyze", async (req, res) => {
+       // producing truncated JSON and the generic "couldn't answer" fallback
+       // on longer prompts. 6000 gives real headroom for a full multi-card
+       // response; reasoning itself is now bounded separately (see
+-      // callGroqJSON's reasoning_effort default).
+-      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: 6000 },
++      // callGroqJSON's reasoning_effort default). Narrow queries request
++      // less (see requestedMaxTokens above) since they don't need it.
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: requestedMaxTokens },
+       "ai/analyze",
+     );
+ 
