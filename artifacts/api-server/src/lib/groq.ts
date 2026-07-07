@@ -401,6 +401,55 @@ function isRetryableTransient(err: any): boolean {
   return status === 429 || (status >= 500 && status < 600) || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET";
 }
 
+// Groq's TPM limit is charged against prompt tokens PLUS the requested
+// max_tokens (it reserves the full completion budget up front, whether or
+// not the model actually uses it). A fixed max_tokens that doesn't account
+// for how large THIS request's prompt already is can make the request
+// oversized from the very first attempt — no amount of retrying at the same
+// size fixes that, because shrinkMessages() (below) deliberately protects
+// the static VENUS_SYSTEM_PROMPT from being trimmed, so on a short message
+// with little/no dynamic content there is nothing left to shrink. The
+// symptom is the same 413 repeating on every retry attempt.
+//
+// Free-tier TPM for both gpt-oss models is 8000 (see
+// .agents/memory/groq-model-deprecation-2026.md — verify current value on
+// Groq's /docs/rate-limits page, these change over time).
+const GROQ_TPM_LIMIT = 8000;
+// Stay under this fraction of the hard ceiling since estimateTokens() below
+// is a cheap chars/4 approximation, not the provider's real tokenizer.
+const TPM_SAFETY_MARGIN = 0.85;
+// Floor for max_tokens: below this, JSON responses (multi-card schema) don't
+// reliably complete before truncating, so there's no point shrinking further
+// — better to surface a clear failure than a guaranteed-truncated response.
+const MIN_USABLE_MAX_TOKENS = 1200;
+
+// Rough, provider-agnostic token estimate (~4 chars/token for English
+// prose). Exactness doesn't matter here, only staying safely under the
+// ceiling does — this is a budgeting heuristic, not a billing calculation.
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+// Sizes max_tokens DOWN to fit the TPM ceiling given this request's actual
+// prompt size, before the request is ever sent. This is what actually fixes
+// the "even the shortest message fails" case: previously max_tokens was a
+// fixed value chosen for the largest expected response, so a short prompt
+// with a big fixed max_tokens could still exceed the ceiling on attempt 1
+// with zero dynamic content available to shrink. Never raises max_tokens —
+// only clamps it down when the prompt is big enough to require it.
+function clampMaxTokensToTpmBudget(params: GroqJsonParams, label: string): GroqJsonParams {
+  const promptTokens = params.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+  const budget = Math.floor(GROQ_TPM_LIMIT * TPM_SAFETY_MARGIN);
+  const available = budget - promptTokens;
+  if (available >= params.max_tokens) return params;
+
+  const clamped = Math.max(MIN_USABLE_MAX_TOKENS, available);
+  console.error(
+    `[callGroqJSON] "${label}" — prompt is ~${promptTokens} est. tokens, clamping max_tokens from ${params.max_tokens} to ${clamped} to fit the ${GROQ_TPM_LIMIT} TPM ceiling (est., ${Math.round(TPM_SAFETY_MARGIN * 100)}% safety margin)`,
+  );
+  return { ...params, max_tokens: clamped };
+}
+
 function isOversizedPayload(err: any): boolean {
   const status = err?.status ?? err?.response?.status;
   if (status === 413) return true;
@@ -490,8 +539,21 @@ async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string
         // final structural guarantee that the request can never end up
         // missing the word "json" that Groq's json_object response format
         // requires, regardless of what shrinking does to the other messages.
-        console.error(`[callGroqJSON] "${label}" — payload too large (status=${status}), shrinking messages and retrying (${i + 1}/${attempts - 1})`);
-        currentParams = { ...currentParams, messages: ensureJsonWordPresent(shrinkMessages(currentParams.messages, 0.5)) };
+        //
+        // max_tokens is ALSO shrunk here, not just message content. The
+        // static system prompt is deliberately protected from shrinking, so
+        // on a short message there may be little or no dynamic content left
+        // to trim — in that case max_tokens is the only remaining lever, and
+        // leaving it fixed meant every retry re-sent an equally oversized
+        // request and got the same 413 back (see clampMaxTokensToTpmBudget
+        // above for the pre-flight version of this same fix).
+        const shrunkMaxTokens = Math.max(MIN_USABLE_MAX_TOKENS, Math.floor(currentParams.max_tokens * 0.6));
+        console.error(`[callGroqJSON] "${label}" — payload too large (status=${status}), shrinking messages (max_tokens ${currentParams.max_tokens} -> ${shrunkMaxTokens}) and retrying (${i + 1}/${attempts - 1})`);
+        currentParams = {
+          ...currentParams,
+          max_tokens: shrunkMaxTokens,
+          messages: ensureJsonWordPresent(shrinkMessages(currentParams.messages, 0.5)),
+        };
         if (i === attempts - 1) throw err;
         continue;
       }
@@ -515,16 +577,19 @@ export async function callGroqJSON(
   // nicely for it. New call sites inherit this automatically — nobody has to
   // remember to add it. Callers can still override by passing their own
   // response_format if a future route genuinely needs raw text back.
-  const paramsWithJsonMode: GroqJsonParams = {
-    response_format: { type: "json_object" },
-    // See GroqJsonParams comments: bounds hidden reasoning-token usage so it
-    // can't crowd out the visible JSON answer on long/descriptive prompts.
-    // Placed before ...params so a caller that genuinely wants more reasoning
-    // can still override either field explicitly.
-    reasoning_effort: "low",
-    include_reasoning: false,
-    ...params,
-  };
+  const paramsWithJsonMode: GroqJsonParams = clampMaxTokensToTpmBudget(
+    {
+      response_format: { type: "json_object" },
+      // See GroqJsonParams comments: bounds hidden reasoning-token usage so it
+      // can't crowd out the visible JSON answer on long/descriptive prompts.
+      // Placed before ...params so a caller that genuinely wants more reasoning
+      // can still override either field explicitly.
+      reasoning_effort: "low",
+      include_reasoning: false,
+      ...params,
+    },
+    label,
+  );
   const completion = await createWithRetry(groq, paramsWithJsonMode, label);
   const raw = completion.choices[0]?.message?.content || "";
   const finishReason = completion.choices[0]?.finish_reason;
@@ -580,11 +645,16 @@ export async function callGroqJSON(
       // guaranteeing a second truncation. Raise the ceiling well above any
       // current caller's base budget so doubling is actually doubling.
       const retryMaxTokens = Math.min(params.max_tokens * 2, 12000);
-      const retryCompletion = await groq.chat.completions.create({
-        ...paramsWithJsonMode,
-        messages: retryMessages,
-        max_tokens: retryMaxTokens,
-      });
+      // This retry adds a whole extra "please repair this" message on top of
+      // the original prompt AND doubles max_tokens — exactly the combination
+      // that can turn a request that only barely fit under the TPM ceiling
+      // into one that doesn't. Route it through the same clamp used for the
+      // initial call rather than trusting retryMaxTokens directly.
+      const retryParams = clampMaxTokensToTpmBudget(
+        { ...paramsWithJsonMode, messages: retryMessages, max_tokens: retryMaxTokens },
+        `${label} (repair retry)`,
+      );
+      const retryCompletion = await groq.chat.completions.create(retryParams);
       const raw2 = retryCompletion.choices[0]?.message?.content || "";
       const candidate2 = extractJson(raw2);
       try {
