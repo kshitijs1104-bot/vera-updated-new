@@ -409,28 +409,41 @@ function isOversizedPayload(err: any): boolean {
 }
 
 // Shrinks the largest message(s) in the array to a target fraction of their
-// current length, preserving the system prompt's structural instructions as
-// much as possible by trimming from the end of long content blocks. Generic
-// over message role/content — doesn't know or care what put the extra length
-// there.
+// current length, preserving the system prompt's fixed structural
+// instructions (VENUS_PROMPT itself) intact, and trimming from the end of
+// long content blocks. Generic over message role/content — doesn't know or
+// care what put the extra length there.
+//
+// IMPORTANT: the system message is NOT a fixed-size block. ai/analyze (and
+// other routes) build it by concatenating VENUS_PROMPT with a large amount of
+// genuinely dynamic, per-request content appended after it — business
+// context, conversation history, verified-precedent blocks, web search
+// results, this founder's own past decisions. That appended content, not
+// VENUS_PROMPT, is almost always the actual source of payload bloat, and it
+// scales with conversation length exactly like user/assistant history does.
+// A previous version of this function protected the ENTIRE system message
+// from shrinking on the theory that the system message was just the static
+// prompt — that assumption is no longer true, and protecting the wrong ~half
+// of the payload meant retries kept resending an oversized request and
+// getting the same 413 back every time (see the "payload too large" retry
+// loop this was written to fix).
+//
+// The fix: only protect the first VENUS_PROMPT.length characters of any
+// system message (the actual fixed instructions, guaranteed to contain the
+// "json" keyword Groq's json_object mode requires). Everything after that
+// prefix — the dynamic context appended by the caller — is shrunk exactly
+// like any other message's content.
 function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
   return messages.map((m) => {
-    // Never shrink the system message. It's not the source of payload bloat
-    // — that's almost always long user messages or conversation history —
-    // and blindly slicing it is actively dangerous: this prompt's own
-    // "return a single valid JSON object" instruction (and every other
-    // occurrence of the word "json") lives partway through the string, so a
-    // second shrink pass (e.g. 0.5 applied twice = 25% kept) can slice past
-    // every occurrence of "json" in the prompt. Groq's API hard-rejects any
-    // request using response_format: json_object unless the literal word
-    // "json" appears somewhere in messages — so a shrunk system prompt can
-    // silently turn a recoverable "payload too large" retry into a totally
-    // different, confusing 400 error instead of the model just answering
-    // with a smaller prompt. Truncating the actual instructions the model
-    // follows on every retry is also a correctness problem on its own,
-    // independent of this specific failure — a founder should never get an
-    // answer generated from a partially-cut system prompt.
-    if (m.role === "system") return m;
+    if (m.role === "system") {
+      const protectedLen = Math.min(VENUS_SYSTEM_PROMPT.length, m.content.length);
+      const head = m.content.slice(0, protectedLen);
+      const dynamicTail = m.content.slice(protectedLen);
+      if (dynamicTail.length === 0) return m;
+      const targetLen = Math.floor(dynamicTail.length * keepFraction);
+      const shrunkTail = targetLen < dynamicTail.length ? dynamicTail.slice(0, targetLen) : dynamicTail;
+      return { ...m, content: head + shrunkTail };
+    }
 
     const targetLen = Math.floor(m.content.length * keepFraction);
     return targetLen < m.content.length ? { ...m, content: m.content.slice(0, targetLen) } : m;
