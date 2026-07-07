@@ -298,21 +298,16 @@ function buildBusinessContextConfirmation(): object {
 }
 
 function applyTierLabel(parsed: { summary?: unknown }, retrieval: RetrievalResult) {
-  if (typeof parsed.summary !== "string") return parsed;
-
-  // "none" tier no longer gets a forced ⚠️ prefix here — the confidence badge
-  // already surfaces that in the UI, and the model is instructed to weave in
-  // a brief natural mention itself rather than have one bolted on top. Forcing
-  // both created a duplicated, alarmist-feeling wall of caveats on every
-  // answer that simply wasn't in the curated precedent dataset.
-  const label = retrieval.tier === "moderate"
-    ? "Exploratory signal — limited precedent coverage."
-    : null;
-
-  if (!label) return parsed;
-  if (!parsed.summary.startsWith(label)) {
-    parsed.summary = `${label} ${parsed.summary}`;
-  }
+  // Deliberately does nothing to the summary field anymore. This used to
+  // prepend "Exploratory signal — limited precedent coverage." as a forced
+  // first line on every moderate-tier answer — on top of the prompt (see
+  // MODERATE_TIER_PRECEDENT_NOTE) already asking the model to open with the
+  // same phrase, so it doubled up and made every thinner-precedent answer
+  // read as a product disclaimer rather than a real recommendation. The
+  // lower-confidence signal is now carried only in confidenceNote (a small,
+  // secondary badge in the UI, not the lede of the actual answer) — see
+  // confidenceNote assignment below, which already softens the wording to a
+  // brief caveat rather than a warning.
   return parsed;
 }
 
@@ -478,11 +473,11 @@ router.post("/ai/analyze", async (req, res) => {
       parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
       parsed.confidenceNote = retrieval.tier === "none"
         ? (webResult && !webResult.empty
-            ? "No verified precedents matched this request, so this answer is grounded in a live web search plus general reasoning rather than the curated dataset."
-            : "No verified precedents matched this request and the web search didn't return usable results, so this answer is general reasoning rather than dataset-grounded analysis.")
+            ? "Grounded in a live web search plus general reasoning — no direct match in the curated dataset for this specific question."
+            : "Grounded in general strategic reasoning — no direct match in the curated dataset for this specific question.")
         : retrieval.tier === "moderate"
-          ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
-          : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
+          ? "Grounded in a small or adjacent set of precedents — a slightly thinner evidence base than a direct match."
+          : "Grounded in verified precedent coverage.";
       applyTierLabel(parsed, retrieval);
       const sanitized = sanitizeVenusResponse(parsed);
       // Fire-and-forget: don't make the founder wait on this, and never let
@@ -560,10 +555,10 @@ router.post("/ai/idea-review", async (req, res) => {
       parsed.confidenceTier = retrieval.tier;
       parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
       parsed.confidenceNote = retrieval.tier === "none"
-        ? "No verified precedents matched this request, so the answer is general strategic reasoning rather than dataset-grounded analysis."
+        ? "Grounded in general strategic reasoning — no direct match in the curated dataset for this specific question."
         : retrieval.tier === "moderate"
-          ? "The answer is grounded in a small or adjacent precedent set, so treat it as an exploratory signal rather than a firm verdict."
-          : "The answer is grounded in verified precedent coverage and should be treated as a stronger, evidence-backed view.";
+          ? "Grounded in a small or adjacent set of precedents — a slightly thinner evidence base than a direct match."
+          : "Grounded in verified precedent coverage.";
       applyTierLabel(parsed, retrieval);
       return res.json(sanitizeVenusResponse(parsed));
     }

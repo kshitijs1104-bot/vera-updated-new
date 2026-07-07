@@ -752,6 +752,9 @@ components:
         cards:
           type: array
           items: { $ref: "#/components/schemas/VenusCard" }
+        confidence: { type: string, enum: [verified, exploratory] }
+        confidenceNote: { type: string }
+        confidenceTier: { type: string }
 
     ArticleSummaryInput:
       type: object

@@ -221,7 +221,7 @@ export function VenusPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       setCompanyReports(prev => {
-        const updated = { ...prev, [key]: { status: 'error', error: message } };
+        const updated = { ...prev, [key]: { status: 'error' as const, error: message } };
         persistCompanyReportCache(updated);
         return updated;
       });
@@ -916,7 +916,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
   };
   const color = typeColors[card.type] ?? 'var(--dim)';
   const content = parseMaybeJson(card.content);
-  const normalizedContent = isRecord(content) ? content : { value: content };
+  const normalizedContent: Record<string, any> = isRecord(content) ? content : { value: content };
   const shouldRenderMarket = card.type !== 'market' || isMarketQueryRelevant(contextQuery);
   const changedScopeNote = previousContextQuery && contextQuery && previousContextQuery !== contextQuery ? 'Refined for current scope' : null;
   const primary = Boolean(isPrimary || card.role === 'primary');

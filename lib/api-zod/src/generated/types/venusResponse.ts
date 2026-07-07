@@ -10,4 +10,7 @@ import type { VenusCard } from './venusCard';
 export interface VenusResponse {
   summary: string;
   cards: VenusCard[];
+  confidence?: 'verified' | 'exploratory';
+  confidenceNote?: string;
+  confidenceTier?: string;
 }

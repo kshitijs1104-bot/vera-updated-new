@@ -229,6 +229,9 @@ export interface VenusCard {
 export interface VenusResponse {
   summary: string;
   cards: VenusCard[];
+  confidence?: 'verified' | 'exploratory';
+  confidenceNote?: string;
+  confidenceTier?: string;
 }
 
 export interface ArticleSummaryInput {
@@ -283,4 +286,3 @@ export type GetStockQuotesParams = {
  */
 symbols: string;
 };
-
