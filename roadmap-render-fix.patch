@@ -1,0 +1,59 @@
+diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+index 5318be7..73842e5 100644
+--- a/artifacts/vera-nexus/src/pages/Venus.tsx
++++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+@@ -971,21 +971,40 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery =
+           {normalizedContent.horizon && (
+             <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Horizon: {String(normalizedContent.horizon)}</div>
+           )}
+-          {(normalizedContent.phases ?? normalizedContent.milestones ?? []).map((m: any, i: number) => (
+-            <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
+-              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+-                <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
+-                {m.title && <div className="text-sm font-semibold text-white">{m.title}</div>}
++          {(normalizedContent.phases ?? normalizedContent.milestones ?? []).map((m: any, i: number) => {
++            // The backend's roadmap schema (see VENUS_SYSTEM_PROMPT's roadmap
++            // card spec) only ever produces { period, title, actions, metric }
++            // — it has never included a "goal" or "description" field. That
++            // means the old fallback chain `m.goal ?? m.description ??
++            // renderStructuredValue(m)` was falling through to
++            // renderStructuredValue(m) on EVERY well-formed phase, dumping
++            // the entire phase object (including actions/metric, which are
++            // also rendered properly just below) as raw stringified JSON
++            // above the real content. renderStructuredValue(m) is still
++            // useful as a genuine last resort for a malformed/unexpected
++            // phase shape (e.g. a truncated or hallucinated object with none
++            // of the expected fields) — it just needs to only fire when the
++            // phase actually has nothing else to show, not whenever
++            // goal/description happen to be absent (which is always, by
++            // design).
++            const hasExpectedFields = Boolean(m.title) || (Array.isArray(m.actions) && m.actions.length > 0) || Boolean(m.metric);
++            const summaryLine = m.goal ?? m.description ?? (hasExpectedFields ? null : renderStructuredValue(m));
++            return (
++              <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
++                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
++                  <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
++                  {m.title && <div className="text-sm font-semibold text-white">{m.title}</div>}
++                </div>
++                {summaryLine && <div className="text-sm text-[var(--muted)] mb-2">{summaryLine}</div>}
++                {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
++                  <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)] mt-2">
++                    {m.actions.map((action: string, actionIndex: number) => <li key={actionIndex}>{renderInline(String(action))}</li>)}
++                  </ul>
++                )}
++                {m.metric && <div className="mt-2 text-[11px] font-mono text-[var(--mint)]">Metric: {renderInline(String(m.metric))}</div>}
+               </div>
+-              <div className="text-sm text-[var(--muted)] mb-2">{m.goal ?? m.description ?? renderStructuredValue(m)}</div>
+-              {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
+-                <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)] mt-2">
+-                  {m.actions.map((action: string, actionIndex: number) => <li key={actionIndex}>{renderInline(String(action))}</li>)}
+-                </ul>
+-              )}
+-              {m.metric && <div className="mt-2 text-[11px] font-mono text-[var(--mint)]">Metric: {renderInline(String(m.metric))}</div>}
+-            </div>
+-          ))}
++            );
++          })}
+         </div>
+       )}
+ 
