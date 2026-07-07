@@ -415,9 +415,40 @@ function isOversizedPayload(err: any): boolean {
 // there.
 function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
   return messages.map((m) => {
+    // Never shrink the system message. It's not the source of payload bloat
+    // — that's almost always long user messages or conversation history —
+    // and blindly slicing it is actively dangerous: this prompt's own
+    // "return a single valid JSON object" instruction (and every other
+    // occurrence of the word "json") lives partway through the string, so a
+    // second shrink pass (e.g. 0.5 applied twice = 25% kept) can slice past
+    // every occurrence of "json" in the prompt. Groq's API hard-rejects any
+    // request using response_format: json_object unless the literal word
+    // "json" appears somewhere in messages — so a shrunk system prompt can
+    // silently turn a recoverable "payload too large" retry into a totally
+    // different, confusing 400 error instead of the model just answering
+    // with a smaller prompt. Truncating the actual instructions the model
+    // follows on every retry is also a correctness problem on its own,
+    // independent of this specific failure — a founder should never get an
+    // answer generated from a partially-cut system prompt.
+    if (m.role === "system") return m;
+
     const targetLen = Math.floor(m.content.length * keepFraction);
     return targetLen < m.content.length ? { ...m, content: m.content.slice(0, targetLen) } : m;
   });
+}
+
+// Last-resort structural guarantee: if, for any reason (a future prompt
+// rewrite, a different shrink strategy, a system message that itself somehow
+// lacks the word "json"), the outgoing messages array doesn't contain the
+// word "json" anywhere, Groq's API will hard-reject the request when
+// response_format is json_object — turning what should be a normal retry
+// into an opaque 400. This is cheap insurance against that entire failure
+// class: append a minimal, harmless system message guaranteeing the
+// requirement is met, without altering any of the model's real instructions.
+function ensureJsonWordPresent(messages: GroqJsonParams["messages"]): GroqJsonParams["messages"] {
+  const hasJsonWord = messages.some((m) => /json/i.test(m.content));
+  if (hasJsonWord) return messages;
+  return [...messages, { role: "system", content: "Respond with a single valid json object as instructed above." }];
 }
 
 export function isContentPolicyRefusal(err: any): boolean {
@@ -441,9 +472,13 @@ async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string
       if (isContentPolicyRefusal(err)) throw err;
       if (isOversizedPayload(err)) {
         // Halve message sizes each retry — generic degradation, not a fix
-        // targeted at any specific source of bloat.
+        // targeted at any specific source of bloat. System messages are
+        // never shrunk (see shrinkMessages), and ensureJsonWordPresent is a
+        // final structural guarantee that the request can never end up
+        // missing the word "json" that Groq's json_object response format
+        // requires, regardless of what shrinking does to the other messages.
         console.error(`[callGroqJSON] "${label}" — payload too large (status=${status}), shrinking messages and retrying (${i + 1}/${attempts - 1})`);
-        currentParams = { ...currentParams, messages: shrinkMessages(currentParams.messages, 0.5) };
+        currentParams = { ...currentParams, messages: ensureJsonWordPresent(shrinkMessages(currentParams.messages, 0.5)) };
         if (i === attempts - 1) throw err;
         continue;
       }
