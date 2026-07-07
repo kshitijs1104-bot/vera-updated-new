@@ -4,30 +4,41 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
+// PORT and BASE_PATH are only actually consumed below by the dev/preview
+// server settings (server.port, preview.port, base) — a production `vite
+// build` never reads them. Previously these were required unconditionally,
+// which meant `vite build` (e.g. run directly in CI, or via a plain
+// `pnpm run build` outside Replit's own dev environment where PORT/BASE_PATH
+// get injected automatically) failed immediately even though the build
+// itself doesn't need either value. `process.argv` includes the vite
+// subcommand ("build", "dev", "preview"), so this checks specifically
+// whether we're in a mode that actually needs a live server port.
+const isServeMode = process.argv.includes("dev") || process.argv.includes("preview") || process.argv.includes("serve");
+
 const rawPort = process.env.PORT;
 
-if (!rawPort) {
+if (isServeMode && !rawPort) {
   throw new Error(
     "PORT environment variable is required but was not provided.",
   );
 }
 
-const port = Number(rawPort);
+const port = rawPort ? Number(rawPort) : 5173;
 
-if (Number.isNaN(port) || port <= 0) {
+if (isServeMode && (Number.isNaN(port) || port <= 0)) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
 const basePath = process.env.BASE_PATH;
 
-if (!basePath) {
+if (isServeMode && !basePath) {
   throw new Error(
     "BASE_PATH environment variable is required but was not provided.",
   );
 }
 
 export default defineConfig({
-  base: basePath,
+  base: basePath ?? "/",
   plugins: [
     react(),
     tailwindcss(),
