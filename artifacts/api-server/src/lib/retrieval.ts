@@ -85,7 +85,32 @@ const MODERATE_MIN_RAW_OVERLAP = 1;
 const MODERATE_TOP_K = 3;
 
 export async function retrievePrecedents(query: string, opts?: { sector?: string; businessContext?: string }): Promise<RetrievalResult> {
-  const all = await db.select().from(precedentsTable);
+  let all: Precedent[];
+  try {
+    all = await db.select().from(precedentsTable);
+  } catch (err) {
+    // This is the same failure class already fixed for venus_decisions in
+    // retrieveOwnResolvedDecisions below (missing table/migration, or the DB
+    // connection being down for an unrelated reason) — but this call sits
+    // earlier in /ai/analyze and runs unconditionally for every real
+    // question, so leaving it unguarded meant ANY precedents-table hiccup
+    // threw an uncaught rejection straight past retrieveOwnResolvedDecisions'
+    // own protection and out to the route's top-level catch, turning into
+    // the generic "couldn't answer that right now" fallback on every single
+    // message — never reaching the isNone/web-search degradation path this
+    // system already has for "no precedent data available." Log it and
+    // degrade to "no precedent match" instead, exactly like a genuine
+    // zero-match query already behaves.
+    console.error("[retrievePrecedents] query failed, continuing with no precedent coverage (has the precedents table/migration been set up?)", err);
+    return {
+      matched: false,
+      tier: "none",
+      confidence: 0,
+      inferredSector: opts?.sector || inferSector([query, opts?.businessContext].filter(Boolean).join(" ")),
+      precedents: [],
+      sectorCoverageCount: 0,
+    };
+  }
 
   const combinedQuery = [query, opts?.businessContext].filter(Boolean).join(" ");
   const queryTokens = new Set(tokenize(combinedQuery));
