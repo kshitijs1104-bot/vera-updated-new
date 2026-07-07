@@ -211,10 +211,25 @@ export async function retrieveOwnResolvedDecisions(
   query: string,
   opts?: { businessContext?: string },
 ): Promise<OwnDecisionMatch[]> {
-  const rows = await db
-    .select()
-    .from(venusDecisionsTable)
-    .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "resolved")));
+  let rows: VenusDecision[];
+  try {
+    rows = await db
+      .select()
+      .from(venusDecisionsTable)
+      .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "resolved")));
+  } catch (err) {
+    // This table is newly added and its migration may not have run yet in
+    // every environment (or the connection may be down for an unrelated
+    // reason). Retrieval here is a pure enhancement — the founder's own
+    // history makes future answers better, but its absence must NEVER take
+    // down the actual chat response, which is what happened before this
+    // try/catch existed: a missing table turned into an uncaught rejection
+    // that propagated all the way up to the generic "couldn't answer that
+    // right now" fallback on every single message. Log it and degrade to
+    // "no own-history available yet" instead.
+    console.error("[retrieveOwnResolvedDecisions] query failed, continuing without own-history context (has the venus_decisions migration been run?)", err);
+    return [];
+  }
 
   if (rows.length === 0) return [];
 
