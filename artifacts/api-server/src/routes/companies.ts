@@ -77,7 +77,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
     const { parsed, raw } = await callGroqJSON(
       groq,
       {
-        model: "openai/gpt-oss-120b",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
         messages: [
           {
             role: "system",
@@ -208,7 +208,7 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
 
     const { parsed, raw } = await callGroqJSON(
       groq,
-      { model: "openai/gpt-oss-120b", messages, temperature: 0.6, max_tokens: 800 },
+      { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages, temperature: 0.6, max_tokens: 800 },
       `companies/${id}/autopsy/chat`,
     );
 

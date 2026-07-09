@@ -415,10 +415,22 @@ function isRetryableTransient(err: any): boolean {
 // with little/no dynamic content there is nothing left to shrink. The
 // symptom is the same 413 repeating on every retry attempt.
 //
-// Free-tier TPM for both gpt-oss models is 8000 (see
-// .agents/memory/groq-model-deprecation-2026.md — verify current value on
-// Groq's /docs/rate-limits page, these change over time).
-const GROQ_TPM_LIMIT = 8000;
+// Migrated from openai/gpt-oss-120b (8000 TPM) to meta-llama/llama-4-scout-
+// 17b-16e-instruct (30000 TPM free tier) on 2026-07-10, after an A/B test
+// (scripts/src/venus-provider-ab-test.ts) showed gpt-oss-120b hitting real
+// 429 rate-limit failures on 3/4 back-to-back test queries, while scout
+// answered all 4 with comparable-or-better bottleneck-first reasoning and
+// correctly grounded confidenceNote tiering. See that script's file header
+// for the full comparison methodology. Verify current value on Groq's
+// /docs/rate-limits page before trusting this number long-term — these
+// change over time and were last confirmed 2026-07-10 via Groq's own docs
+// plus multiple independent sources.
+//
+// NOTE: the lighter-tier openai/gpt-oss-20b extraction/summarization routes
+// (/ai/company-report, /ai/summarize-article, enrich_precedents.ts) were
+// NOT part of this test and were not switched — they stay on gpt-oss-20b
+// unless a separate test justifies moving them too.
+const GROQ_TPM_LIMIT = 30000;
 // Stay under this fraction of the hard ceiling since estimateTokens() below
 // is a cheap chars/4 approximation, not the provider's real tokenizer.
 const TPM_SAFETY_MARGIN = 0.85;

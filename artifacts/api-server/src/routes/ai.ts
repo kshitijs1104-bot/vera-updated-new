@@ -592,7 +592,7 @@ router.post("/ai/analyze", async (req, res) => {
       // response; reasoning itself is now bounded separately (see
       // callGroqJSON's reasoning_effort default). Narrow queries request
       // less (see requestedMaxTokens above) since they don't need it.
-      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: requestedMaxTokens },
+      { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages, temperature: 0.4, max_tokens: requestedMaxTokens },
       "ai/analyze",
     );
 
@@ -665,7 +665,7 @@ router.post("/ai/idea-review", async (req, res) => {
     const { parsed } = await callGroqJSON(
       groq,
       {
-        model: "openai/gpt-oss-120b",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
         messages: [
           { role: "system", content: ideaSystemPrompt },
           {
@@ -753,7 +753,7 @@ router.post("/ai/decisions/:id/outcome", async (req, res) => {
       const { parsed } = await callGroqJSON(
         groq,
         {
-          model: "openai/gpt-oss-120b",
+          model: "meta-llama/llama-4-scout-17b-16e-instruct",
           messages: [
             {
               role: "system",

@@ -55,3 +55,50 @@ used to spread the original `params` (losing any per-call `response_format`
 override) instead of the JSON-mode-defaulted version. Fixed by making sure
 `paramsWithJsonMode` (not `params`) is the base for the retry call's spread.
 Any future refactor of that retry path needs to preserve this.
+
+---
+
+## Update, 2026-07-10: reasoning-heavy routes moved off gpt-oss-120b to llama-4-scout
+
+The TPM split documented above (both gpt-oss tiers at 8,000 TPM) became a real
+production problem: `openai/gpt-oss-120b`'s 8K TPM ceiling was too tight given
+this app's actual prompt size (~6-7K tokens per `/ai/analyze` call once
+business context + precedent block + history are included), causing frequent
+429s on ordinary back-to-back usage, not just heavy load.
+
+Ran an A/B test (`scripts/src/venus-provider-ab-test.ts`, standalone, not
+wired into the app) comparing `openai/gpt-oss-120b` (8K TPM) against
+`meta-llama/llama-4-scout-17b-16e-instruct` (30K TPM free tier, confirmed via
+Groq's own rate-limits docs — verify current value, these change). Result:
+gpt-oss-120b hit real 429 rate-limit errors on 3 of 4 back-to-back test
+queries; llama-4-scout answered all 4, with comparable-or-better
+bottleneck-first reasoning and correctly grounded `confidenceNote` tiering
+(consistent with the mentor-voice prompt merge — see the CRITICAL blocks in
+`VENUS_SYSTEM_PROMPT` in `groq.ts`).
+
+**What changed:**
+- Every reasoning-heavy call site previously on `openai/gpt-oss-120b`
+  (`ai.ts` — `/ai/analyze`, idea-review, company autopsy chat; `companies.ts`
+  — company report + autopsy; `events.ts` — event ripple analysis;
+  `reports.ts` — report summaries) now uses
+  `meta-llama/llama-4-scout-17b-16e-instruct`.
+- `GROQ_TPM_LIMIT` in `groq.ts` updated from `8000` to `30000` to match.
+- The lighter-tier `openai/gpt-oss-20b` routes (`/ai/company-report`
+  extraction variant, `/ai/summarize-article`, `enrich_precedents.ts`) were
+  **not** touched — they weren't part of this test.
+
+**Known open question, not yet resolved:** one test response (seed-round
+query) named a company ("DocGenius") with a specific funding outcome and
+lesson that could not be verified against this repo's actual
+`VERIFIED PRECEDENTS` dataset, since the standalone test script doesn't wire
+in real retrieval. This is exactly the kind of fabrication the
+`NEVER FABRICATE` / retrieval-gated-precedents rules in `VENUS_SYSTEM_PROMPT`
+exist to prevent. Worth specifically testing the live app (with real
+precedent retrieval active) for fabricated-sounding precedent names on
+`llama-4-scout` before fully trusting this model choice — don't assume this
+was a one-off just because it only showed up once in a 4-query test.
+
+**If TPM problems return:** check Groq's `/docs/rate-limits` page first for
+the current llama-4-scout ceiling before assuming code regression — these
+limits are explicitly noted as changing over time in every source that
+documents them.
