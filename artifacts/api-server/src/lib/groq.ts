@@ -421,18 +421,18 @@ function isRetryableTransient(err: any): boolean {
 // 429 rate-limit failures on 3/4 back-to-back test queries, while scout
 // answered all 4 with comparable-or-better bottleneck-first reasoning and
 // correctly grounded confidenceNote tiering. See that script's file header
-// for the full comparison methodology. Verify current value on Groq's
-// /docs/rate-limits page before trusting this number long-term — these
+// for the full comparison methodology. Verify current values on Groq's
+// /docs/rate-limits page before trusting these numbers long-term — these
 // change over time and were last confirmed 2026-07-10 via Groq's own docs
 // plus multiple independent sources.
 //
 // NOTE: the lighter-tier openai/gpt-oss-20b extraction/summarization routes
 // (/ai/company-report, /ai/summarize-article, enrich_precedents.ts) were
 // NOT part of this test and were not switched — they stay on gpt-oss-20b
-// unless a separate test justifies moving them too.
-const GROQ_TPM_LIMIT = 30000;
-// Stay under this fraction of the hard ceiling since estimateTokens() below
-// is a cheap chars/4 approximation, not the provider's real tokenizer.
+// unless a separate test justifies moving them too. Since gpt-oss-20b's real
+// ceiling (8000 TPM) is well below llama-4-scout's (30000 TPM), the TPM
+// limit below is a PER-MODEL map, not a single constant — see
+// GROQ_TPM_LIMIT_BY_MODEL a few lines down.
 const TPM_SAFETY_MARGIN = 0.85;
 // Floor for max_tokens: below this, JSON responses (multi-card schema) don't
 // reliably complete before truncating, so there's no point shrinking further
@@ -446,6 +446,22 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+const GROQ_TPM_LIMIT_BY_MODEL: Record<string, number> = {
+  "meta-llama/llama-4-scout-17b-16e-instruct": 30000,
+  "openai/gpt-oss-20b": 8000,
+  "openai/gpt-oss-120b": 8000, // no longer called by this file as of the
+  // 2026-07-10 migration, kept here in case a future rollback or a new call
+  // site reintroduces it — removing the entry would silently fall through
+  // to DEFAULT_GROQ_TPM_LIMIT below.
+};
+const DEFAULT_GROQ_TPM_LIMIT = 8000; // conservative fallback for any model
+// string not in the map above (e.g. a new model added later without
+// updating this file) — better to over-clamp an unrecognized model than
+// find out it's wrong via a 429 in production.
+function tpmLimitForModel(model: string): number {
+  return GROQ_TPM_LIMIT_BY_MODEL[model] ?? DEFAULT_GROQ_TPM_LIMIT;
+}
+
 // Sizes max_tokens DOWN to fit the TPM ceiling given this request's actual
 // prompt size, before the request is ever sent. This is what actually fixes
 // the "even the shortest message fails" case: previously max_tokens was a
@@ -454,14 +470,15 @@ function estimateTokens(text: string): number {
 // with zero dynamic content available to shrink. Never raises max_tokens —
 // only clamps it down when the prompt is big enough to require it.
 function clampMaxTokensToTpmBudget(params: GroqJsonParams, label: string): GroqJsonParams {
+  const tpmLimit = tpmLimitForModel(params.model);
   const promptTokens = params.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
-  const budget = Math.floor(GROQ_TPM_LIMIT * TPM_SAFETY_MARGIN);
+  const budget = Math.floor(tpmLimit * TPM_SAFETY_MARGIN);
   const available = budget - promptTokens;
   if (available >= params.max_tokens) return params;
 
   const clamped = Math.max(MIN_USABLE_MAX_TOKENS, available);
   console.error(
-    `[callGroqJSON] "${label}" — prompt is ~${promptTokens} est. tokens, clamping max_tokens from ${params.max_tokens} to ${clamped} to fit the ${GROQ_TPM_LIMIT} TPM ceiling (est., ${Math.round(TPM_SAFETY_MARGIN * 100)}% safety margin)`,
+    `[callGroqJSON] "${label}" (model=${params.model}) — prompt is ~${promptTokens} est. tokens, clamping max_tokens from ${params.max_tokens} to ${clamped} to fit the ${tpmLimit} TPM ceiling (est., ${Math.round(TPM_SAFETY_MARGIN * 100)}% safety margin)`,
   );
   return { ...params, max_tokens: clamped };
 }
@@ -593,6 +610,17 @@ export async function callGroqJSON(
   // nicely for it. New call sites inherit this automatically — nobody has to
   // remember to add it. Callers can still override by passing their own
   // response_format if a future route genuinely needs raw text back.
+  // reasoning_effort and include_reasoning are ONLY supported by Groq's
+  // gpt-oss family (see GroqJsonParams comments above) — llama-4-scout and
+  // any other non-gpt-oss model reject them outright with a 400
+  // "not supported with this model" error (this is exactly what happened in
+  // production immediately after the 2026-07-10 model migration to
+  // llama-4-scout — every /ai/analyze call failed until this was fixed).
+  // Only inject these defaults when the target model actually supports
+  // them; a caller explicitly passing either field is still respected via
+  // ...params below regardless of model, since that's an intentional
+  // override, not this function's guess.
+  const supportsReasoningEffort = params.model.startsWith("openai/gpt-oss");
   const paramsWithJsonMode: GroqJsonParams = clampMaxTokensToTpmBudget(
     {
       response_format: { type: "json_object" },
@@ -600,8 +628,9 @@ export async function callGroqJSON(
       // can't crowd out the visible JSON answer on long/descriptive prompts.
       // Placed before ...params so a caller that genuinely wants more reasoning
       // can still override either field explicitly.
-      reasoning_effort: "low",
-      include_reasoning: false,
+      ...(supportsReasoningEffort
+        ? { reasoning_effort: "low" as const, include_reasoning: false }
+        : {}),
       ...params,
     },
     label,
