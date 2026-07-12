@@ -178,11 +178,23 @@ const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my compan
 // inferDecisionRouting already treats as a question signal. This is what
 // separates "just telling Venus about the business" from "telling Venus
 // about the business as part of asking something."
+//
+// FIX: the original questionish list (should/would/could/help/how/what/
+// why/which/when/recommend/advice/suggest/priorit) only covers
+// interrogative phrasing. A real, substantive request phrased as an
+// imperative — "Map the causal chain for my business from the most
+// significant market shifts right now" — contains "my business" (matching
+// BUSINESS_CONTEXT_SIGNAL), has no "?", and uses none of those words, so it
+// was misclassified as a pure context statement and swallowed into a bare
+// "Got it — noted" acknowledgment instead of ever reaching analysis. Added
+// the imperative/analytical-verb family below to close that gap. This is a
+// syntactic fix (imperative vs. declarative mood), not a judgment call, so
+// it belongs here in the classifier rather than in the LLM prompt.
 function isPureContextStatement(message: string): boolean {
   const normalized = normalizeQueryText(message);
   if (!BUSINESS_CONTEXT_SIGNAL.test(message)) return false;
   if (message.includes("?")) return false;
-  const questionish = /\b(should|shld|would|could|worth|help|how|what|why|which|when|recommend|advice|suggest|priorit)\b/i.test(normalized);
+  const questionish = /\b(should|shld|would|could|worth|help|how|what|why|which|when|recommend|advice|suggest|priorit|map|analyz|identify|outline|breakdown|break down|walk me|walk through|compare|evaluat|assess|review|explain|tell me|give me|show me|list|summariz|forecast|plan|project|estimate|calculat)\b/i.test(normalized);
   return !questionish;
 }
 
