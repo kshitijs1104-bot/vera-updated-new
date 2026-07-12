@@ -182,6 +182,23 @@
   --green: #22c55e;
   --red: #ef4444;
 
+  /* Vera concept v7 theme — used by the Venus AI page */
+  --v7-bg: #0e0f14;
+  --v7-bg-raised: #181a21;
+  --v7-bg-raised-2: #20232c;
+  --v7-border: rgba(230,235,245,0.07);
+  --v7-border-strong: rgba(230,235,245,0.15);
+  --v7-text: #eef0f6;
+  --v7-text-dim: #9498a8;
+  --v7-text-mute: #5a5f6f;
+  --v7-cyan: #2ce8d6;
+  --v7-pink: #ff7ad1;
+  --v7-cyan-soft: rgba(44,232,214,0.14);
+  --v7-cyan-strong: rgba(44,232,214,0.42);
+  --v7-pink-soft: rgba(255,122,209,0.14);
+  --v7-font-round: 'M PLUS Rounded 1c', sans-serif;
+  --v7-font-mono: 'IBM Plex Mono', monospace;
+
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
@@ -447,4 +464,13 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+}
+
+/* Vera concept v7 — hero mark breathing glow, used on Venus.tsx empty state */
+@keyframes v7-breathe {
+  0%, 100% { box-shadow: 0 0 30px -10px rgba(44,232,214,0.35); }
+  50% { box-shadow: 0 0 40px -8px rgba(44,232,214,0.55); }
+}
+.venus-hero-mark {
+  animation: v7-breathe 3.4s ease-in-out infinite;
 }

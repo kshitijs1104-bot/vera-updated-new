@@ -245,44 +245,72 @@ export function VenusPage() {
   const savedGroups = groupSavedByType(saved);
 
   return (
-    <div className="flex h-screen w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
+    <div
+      className="flex h-screen w-full overflow-hidden"
+      style={{
+        background: 'var(--v7-bg)',
+        color: 'var(--v7-text)',
+        fontFamily: 'var(--v7-font-round)',
+      }}
+    >
       {/* Left Sidebar */}
-      <aside className="w-[240px] border-r border-[var(--border)] flex flex-col shrink-0 bg-[var(--surface)]">
+      <aside
+        className="w-[260px] flex flex-col shrink-0 sticky top-0 h-screen"
+        style={{ background: 'var(--v7-bg-raised)', borderRight: '1px solid var(--v7-border)', padding: '20px 14px' }}
+      >
         {/* Back link */}
-        <div className="p-4 border-b border-[var(--border)]">
-          <button
-            onClick={() => navigate('/line')}
-            className="text-xs font-mono text-[var(--dim)] hover:text-white transition-colors flex items-center gap-1.5"
-          >
-            ← Back to Vera Nexus
-          </button>
-        </div>
+        <button
+          onClick={() => navigate('/line')}
+          className="flex items-center gap-[7px] text-[13px] font-medium transition-colors"
+          style={{ color: 'var(--v7-text-mute)', padding: '8px 8px 22px' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5"><path d="M15 5L8 12L15 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Back to Vera Nexus
+        </button>
 
-        {/* New Chat + History */}
-        <div className="p-3 border-b border-[var(--border)]">
-          <button
-            onClick={handleNewChat}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--indigo)]/20 border border-[var(--indigo)]/40 text-[var(--indigo-light)] hover:bg-[var(--indigo)]/30 transition-all text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            New Chat
-          </button>
-        </div>
+        {/* New Chat */}
+        <button
+          onClick={handleNewChat}
+          className="flex items-center gap-[9px] font-bold text-[13.5px] transition-all mb-[22px]"
+          style={{
+            background: 'var(--v7-cyan-soft)',
+            border: '1px solid var(--v7-cyan-strong)',
+            color: 'var(--v7-cyan)',
+            padding: '11px 15px',
+            borderRadius: '14px',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(44,232,214,0.22)'; e.currentTarget.style.boxShadow = '0 0 20px -6px var(--v7-cyan-strong)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--v7-cyan-soft)'; e.currentTarget.style.boxShadow = 'none'; }}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          New Analysis
+        </button>
 
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="flex-1 overflow-y-auto min-h-0" style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           {/* Chat History */}
           {sessions.length > 0 && (
-            <div className="px-2 mb-4">
-              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider px-2 mb-2">Recent</div>
+            <div className="mb-4">
+              <div
+                className="text-[10.5px] font-bold uppercase px-[10px] pb-2"
+                style={{ color: 'var(--v7-text-mute)', fontFamily: 'var(--v7-font-mono)', letterSpacing: '0.07em' }}
+              >
+                Today
+              </div>
               {sessions.map(s => (
                 <button
                   key={s.id}
                   onClick={() => handleSelectSession(s)}
-                  className={`w-full group flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors text-xs mb-0.5 ${
-                    currentSession.id === s.id
-                      ? 'bg-[var(--surface2)] text-white'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white'
-                  }`}
+                  className="w-full group flex items-center justify-between text-left transition-colors text-[13px] font-medium mb-[1px]"
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: '10px',
+                    color: currentSession.id === s.id ? 'var(--v7-text)' : 'var(--v7-text-dim)',
+                    background: currentSession.id === s.id ? 'var(--v7-bg-raised-2)' : 'transparent',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--v7-bg-raised-2)'; e.currentTarget.style.color = 'var(--v7-text)'; }}
+                  onMouseLeave={e => { if (currentSession.id !== s.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--v7-text-dim)'; } }}
                 >
                   <span className="truncate flex-1">{s.title}</span>
                   <Trash2
@@ -296,8 +324,13 @@ export function VenusPage() {
 
           {/* Saved Analyses */}
           {Object.keys(savedGroups).length > 0 && (
-            <div className="px-2">
-              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider px-2 mb-2">Saved</div>
+            <div>
+              <div
+                className="text-[10.5px] font-bold uppercase px-[10px] pb-2"
+                style={{ color: 'var(--v7-text-mute)', fontFamily: 'var(--v7-font-mono)', letterSpacing: '0.07em' }}
+              >
+                Saved
+              </div>
               {(Object.entries(savedGroups) as [SavedAnalysisType, typeof saved][]).map(([type, items]) => (
                 <div key={type} className="mb-2">
                   <button
@@ -315,7 +348,10 @@ export function VenusPage() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleOpenSaved(item); }}
-                      className="group flex items-center justify-between px-3 py-1.5 rounded text-xs text-[var(--muted)] hover:bg-[var(--surface2)] hover:text-white transition-colors cursor-pointer mb-0.5"
+                      className="group flex items-center justify-between px-3 py-1.5 rounded text-xs transition-colors cursor-pointer mb-0.5"
+                      style={{ color: 'var(--v7-text-dim)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--v7-bg-raised-2)'; e.currentTarget.style.color = 'var(--v7-text)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--v7-text-dim)'; }}
                     >
                       <span className="truncate flex-1">{item.title}</span>
                       <Trash2
@@ -331,18 +367,23 @@ export function VenusPage() {
         </div>
 
         {/* Bottom Settings */}
-        <div className="border-t border-[var(--border)] p-3">
+        <div style={{ borderTop: '1px solid var(--v7-border)', marginTop: '12px', paddingTop: '14px' }}>
           <button
             onClick={() => setShowSettings(v => !v)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-[var(--muted)] hover:text-white hover:bg-[var(--surface2)] transition-colors"
+            className="w-full flex items-center gap-[9px] text-[13px] font-medium transition-colors"
+            style={{ color: 'var(--v7-text-dim)', paddingLeft: '8px' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-3.5 h-3.5" />
             Settings
           </button>
 
           {showSettings && (
-            <div className="mt-2 p-3 bg-[var(--surface2)] border border-[var(--border)] rounded-lg">
-              <div className="text-[10px] font-mono text-[var(--dim)] uppercase tracking-wider mb-2">Groq API Key</div>
+            <div className="mt-2 p-3 rounded-lg" style={{ background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border)' }}>
+              <div className="text-[10px] uppercase tracking-wider mb-2" style={{ fontFamily: 'var(--v7-font-mono)', color: 'var(--v7-text-mute)' }}>
+                Groq API Key
+              </div>
               <input
                 type="password"
                 value={groqKey}
@@ -351,9 +392,12 @@ export function VenusPage() {
                   localStorage.setItem('ve_groq_key', e.target.value);
                 }}
                 placeholder="gsk_..."
-                className="w-full bg-[var(--surface)] border border-[var(--border)] rounded px-2.5 py-2 text-xs font-mono text-white placeholder-[var(--dim)] focus:outline-none focus:border-[var(--indigo)] transition-colors"
+                className="w-full rounded px-2.5 py-2 text-xs focus:outline-none transition-colors"
+                style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-mono)' }}
+                onFocus={e => (e.currentTarget.style.borderColor = 'var(--v7-cyan-strong)')}
+                onBlur={e => (e.currentTarget.style.borderColor = 'var(--v7-border)')}
               />
-              <p className="text-[9px] font-mono text-[var(--dim)] mt-1.5 leading-relaxed">
+              <p className="text-[9px] mt-1.5 leading-relaxed" style={{ fontFamily: 'var(--v7-font-mono)', color: 'var(--v7-text-mute)' }}>
                 Get a free key at console.groq.com
               </p>
             </div>
@@ -364,11 +408,37 @@ export function VenusPage() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="h-12 border-b border-[var(--border)] flex items-center px-6 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[8px] font-bold text-black">V</div>
-            <span className="text-sm font-syne font-bold text-white">Venus AI</span>
-            <span className="text-[10px] font-mono text-[var(--mint)] uppercase ml-2">Enterprise</span>
+        <div
+          className="flex items-center justify-between shrink-0"
+          style={{ padding: '16px 32px', borderBottom: '1px solid var(--v7-border)' }}
+        >
+          <div className="flex items-center gap-[10px]">
+            <div
+              className="w-8 h-8 flex items-center justify-center shrink-0"
+              style={{ borderRadius: '12px', background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border-strong)' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="w-[18px] h-[18px]">
+                <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.7" strokeLinecap="round"/>
+                <circle cx="6" cy="18" r="1.9" fill="#2ce8d6"/>
+                <circle cx="12" cy="12" r="1.9" fill="#2ce8d6"/>
+                <circle cx="18" cy="6" r="2.5" fill="#ff7ad1"/>
+              </svg>
+            </div>
+            <span className="font-extrabold text-[18px]" style={{ letterSpacing: '-0.01em' }}>Vera</span>
+          </div>
+          <div
+            className="flex items-center gap-[6px] font-medium text-[10.5px] uppercase"
+            style={{
+              fontFamily: 'var(--v7-font-mono)',
+              letterSpacing: '0.05em',
+              color: 'var(--v7-text-dim)',
+              border: '1px solid var(--v7-border-strong)',
+              borderRadius: '100px',
+              padding: '5px 11px 5px 9px',
+            }}
+          >
+            <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--v7-cyan)', boxShadow: '0 0 6px var(--v7-cyan)' }}></span>
+            Enterprise
           </div>
         </div>
 
@@ -382,51 +452,96 @@ export function VenusPage() {
           // still centers when everything fits, but collapses to 0 and lets
           // the container scroll normally once content is taller than the
           // available space.
-          <div className="flex-1 overflow-y-auto flex flex-col items-center p-8 text-center">
-            <div className="m-auto flex flex-col items-center w-full py-4">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] p-[2px] mb-6 shadow-[0_0_40px_rgba(0,229,176,0.1)]">
-                <div className="w-full h-full bg-[var(--bg)] rounded-full flex items-center justify-center relative overflow-hidden">
-                  <div className="absolute inset-0 bg-gradient-to-br from-[var(--indigo)]/20 to-[var(--mint)]/20"></div>
-                  <span className="font-syne font-bold text-xl text-white relative z-10">V</span>
-                </div>
+          <div className="flex-1 overflow-y-auto flex flex-col items-center text-center relative" style={{ padding: '56px 32px 48px' }}>
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                top: '6%', left: '50%', transform: 'translateX(-50%)',
+                width: '460px', height: '460px', borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(44,232,214,0.10) 0%, rgba(255,122,209,0.05) 45%, transparent 72%)',
+              }}
+            ></div>
+
+            <div className="m-auto flex flex-col items-center w-full max-w-[600px] relative">
+              <div
+                className="w-14 h-14 flex items-center justify-center relative mb-5 venus-hero-mark"
+                style={{ borderRadius: '18px', background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" className="w-[30px] h-[30px]">
+                  <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.6" strokeLinecap="round"/>
+                  <circle cx="6" cy="18" r="2.1" fill="#2ce8d6"/>
+                  <circle cx="12" cy="12" r="2.1" fill="#2ce8d6"/>
+                  <circle cx="18" cy="6" r="2.8" fill="#ff7ad1"/>
+                </svg>
               </div>
-              <h1 className="text-2xl font-syne font-extrabold text-white mb-2">Venus AI</h1>
-              <p className="text-sm font-mono text-[var(--muted)] uppercase tracking-widest mb-10">
-                Elite business intelligence. No hedging. Pure signal.
+
+              <div
+                className="text-[12.5px] font-bold uppercase mb-4"
+                style={{ fontFamily: 'var(--v7-font-mono)', letterSpacing: '0.04em', color: 'var(--v7-text-mute)' }}
+              >
+                What brings you here today?
+              </div>
+
+              <h1 className="font-extrabold mb-[14px]" style={{ fontSize: '34px', lineHeight: '1.28', letterSpacing: '-0.01em', color: 'var(--v7-text)' }}>
+                The cause behind<br />every{' '}
+                <span style={{ background: 'linear-gradient(100deg, var(--v7-cyan), var(--v7-pink))', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
+                  effect.
+                </span>
+              </h1>
+
+              <p className="font-medium mb-8" style={{ fontSize: '15px', color: 'var(--v7-text-dim)', maxWidth: '420px', lineHeight: '1.6' }}>
+                Vera traces what's actually driving your numbers, so every decision has a reason behind it.
               </p>
 
               <form
                 onSubmit={e => { e.preventDefault(); handleSend(); }}
-                className="flex items-end gap-2 bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--indigo)] transition-colors max-w-2xl w-full mb-6"
+                className="flex items-center gap-[10px] w-full transition-all mb-8"
+                style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)', borderRadius: '16px', padding: '5px 5px 5px 18px' }}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--v7-cyan-strong)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--v7-cyan-soft)'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--v7-border-strong)'; e.currentTarget.style.boxShadow = 'none'; }}
               >
                 <textarea
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  placeholder="Ask Venus for unvarnished analysis..."
+                  placeholder="Tell Vera what's really going on…"
                   rows={1}
-                  className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-3 px-4 text-sm text-[var(--text)] placeholder-[var(--dim)]"
+                  className="flex-1 bg-transparent border-none outline-none resize-none max-h-32 min-h-[38px] py-2 font-medium text-[14.5px]"
+                  style={{ color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}
                 />
                 <button
                   type="submit"
                   disabled={!input.trim() || analyzeMutation.isPending}
-                  className="w-10 h-10 shrink-0 bg-[var(--indigo)] hover:bg-[var(--indigo-light)] disabled:opacity-40 text-white rounded-lg flex items-center justify-center transition-colors mb-0.5 mr-0.5"
+                  className="w-[38px] h-[38px] shrink-0 flex items-center justify-center transition-all disabled:opacity-40"
+                  style={{ borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--v7-cyan), #21b8ac)' }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0e0f14" strokeWidth="2.3">
+                    <path d="M7 17L17 7M17 7H9M17 7V15" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
               </form>
 
-              <div className="grid grid-cols-1 gap-3 max-w-2xl w-full">
-                {EXAMPLE_PROMPTS.map(prompt => (
+              <div className="grid grid-cols-2 gap-[10px] w-full">
+                {EXAMPLE_PROMPTS.map((prompt, i) => (
                   <button
                     key={prompt}
                     onClick={() => handleSend(prompt)}
-                    className="bg-[var(--surface2)] border border-[var(--border)] hover:border-[var(--indigo)] p-4 rounded-lg text-left text-sm text-[var(--text)] transition-all hover:bg-[var(--surface3)] group"
+                    className="text-left flex items-start gap-3 transition-all group"
+                    style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border)', borderRadius: '16px', padding: '16px 17px' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--v7-cyan-strong)'; e.currentTarget.style.background = 'var(--v7-bg-raised-2)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--v7-border)'; e.currentTarget.style.background = 'var(--v7-bg-raised)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                   >
-                    <span className="text-[var(--dim)] group-hover:text-[var(--muted)] transition-colors text-xs font-mono mr-2">→</span>
-                    {prompt}
+                    <div
+                      className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0"
+                      style={{ background: 'var(--v7-bg-raised-2)' }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke={i % 2 === 0 ? '#2ce8d6' : '#ff7ad1'}>
+                        <path d="M4 19V13M10 19V8M16 19V15M21 19V5" strokeWidth="2.2" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                    <p className="text-[13px] font-medium leading-[1.45] pt-1" style={{ color: 'var(--v7-text-dim)' }}>
+                      {prompt}
+                    </p>
                   </button>
                 ))}
               </div>
