@@ -22,6 +22,14 @@ export const settingsTable = pgTable("settings", {
   // without asking again, until the user starts a genuinely different idea.
   venusBusinessContext: text("venus_business_context"),
   venusBusinessContextUpdatedAt: timestamp("venus_business_context_updated_at"),
+  // Set when Venus asks "is this the same business or a new one?" (see
+  // buildBusinessContextConfirmation in ai.ts) so the VERY NEXT message in
+  // this session can be interpreted as the answer to that specific question,
+  // instead of being re-run through the normal classifiers from scratch —
+  // which is what let short replies like "new" fall through every gate
+  // unrecognized and reach the LLM with stale or empty context. Cleared as
+  // soon as the pending confirmation is resolved, one way or the other.
+  pendingContextConfirmation: boolean("pending_context_confirmation").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -215,6 +215,66 @@ async function saveStoredBusinessContext(sessionId: string, context: string): Pr
   }
 }
 
+// ---- Pending "same business or new?" confirmation state ----
+//
+// ROOT CAUSE THIS FIXES: buildBusinessContextConfirmation() used to return a
+// one-shot question with nothing recording that it had been asked. The
+// user's next message (e.g. a bare "new") was then re-run through
+// isPureContextStatement/requiresContext from scratch — neither of which
+// recognizes a short confirmation reply as meaningful — so it silently fell
+// through every gate and reached the LLM with stale or empty
+// effectiveBusinessContext. The model then answered anyway (the system
+// prompt's sufficiency gate defaults to answering when unsure), producing a
+// generic, ungrounded response that still carried a "verified precedent"
+// confidence badge. Persisting the fact that a confirmation is pending closes
+// that gap: the very next message is checked against it BEFORE any other
+// classifier runs.
+
+async function getPendingContextConfirmation(sessionId: string): Promise<boolean> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    return row?.pendingContextConfirmation ?? false;
+  } catch {
+    return false;
+  }
+}
+
+async function setPendingContextConfirmation(sessionId: string, pending: boolean): Promise<void> {
+  try {
+    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    if (existing) {
+      await db.update(settingsTable)
+        .set({ pendingContextConfirmation: pending, updatedAt: new Date() })
+        .where(eq(settingsTable.sessionId, sessionId));
+    } else if (pending) {
+      // No row yet and nothing to clear — only worth inserting a fresh row
+      // when we're actually setting the flag true.
+      await db.insert(settingsTable)
+        .values({ sessionId, pendingContextConfirmation: true })
+        .onConflictDoNothing({ target: settingsTable.sessionId });
+    }
+  } catch {
+    // Best-effort — if this fails, worst case the next reply gets re-gated
+    // as a fresh message instead of being read as a confirmation answer,
+    // which just re-asks rather than silently mis-answering.
+  }
+}
+
+// Classifies a short reply to the "same business or new?" question. Kept
+// deliberately narrow and literal (not a general sentiment classifier) —
+// this only ever runs when pendingContextConfirmation is true, so it is
+// answering one specific yes/no-shaped question, not parsing arbitrary text.
+function classifyContextConfirmationReply(message: string): "new" | "same" | "unclear" {
+  const normalized = normalizeQueryText(message);
+  if (/^\s*(new|different|new one|it'?s new|different business|new business|different one|separate business)\s*[.!]?\s*$/i.test(normalized)) {
+    return "new";
+  }
+  if (/^\s*(same|same one|same business|it'?s the same|continuing|still the same)\s*[.!]?\s*$/i.test(normalized)) {
+    return "same";
+  }
+  return "unclear";
+}
+
 // Turns a decision/roadmap card into a short plain-text recommendation
 // summary for fast future retrieval scoring (see retrieval.ts), without
 // needing to re-parse the full card JSON on every subsequent query.
@@ -351,9 +411,35 @@ function buildContextClarification(
 // question to answer yet. It should just acknowledge that the context has
 // been noted and ask what they'd like help with, then let the human ask the
 // real question next.
-function buildContextAcknowledgment(): object {
+//
+// FIX: this used to be a hardcoded string returned unconditionally whenever
+// isPureContextStatement() was true — including on messages that only
+// glancingly matched BUSINESS_CONTEXT_SIGNAL (e.g. "but u dint even ask for
+// my business", which contains "my business" but describes no actual
+// business). It would confidently say "noted your business context" with
+// nothing real behind the claim. Now it requires the actual captured text
+// and echoes a short piece of it back, so the acknowledgment can never claim
+// to have context it doesn't have.
+function buildContextAcknowledgment(capturedContext: string): object {
+  const trimmed = capturedContext.trim();
+  // Guard against the exact failure from the screenshots: BUSINESS_CONTEXT_SIGNAL
+  // can match phrases that reference "business" without describing one. If
+  // there isn't enough real content here to reflect back, don't claim there is.
+  const meaningfulWords = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3);
+  if (meaningfulWords.length < 3) {
+    return {
+      summary: "I want to make sure I get this right — what does the business actually do, what stage is it at, and who's the customer?",
+      cards: [],
+      requiresClarification: true,
+    };
+  }
+  const preview = trimmed.length > 140 ? `${trimmed.slice(0, 140).trim()}…` : trimmed;
   return {
-    summary: "Got it — noted your business context. What would you like help with?",
+    summary: `Got it — noted: "${preview}". What would you like help with?`,
     cards: [],
     // No confidence badge — this is a plain acknowledgment, not an answer,
     // so "exploratory"/"verified" doesn't mean anything here and previously
@@ -367,6 +453,14 @@ function buildContextAcknowledgment(): object {
 // but the new message reads like it might describe a DIFFERENT business
 // entirely. Ask once rather than silently overwriting or silently ignoring
 // the new context.
+//
+// IMPORTANT: the caller MUST call setPendingContextConfirmation(sessionId,
+// true) alongside returning this — otherwise the question has no memory of
+// having been asked, and the user's next reply (e.g. a bare "new") falls
+// through every other classifier unrecognized and reaches the LLM with
+// stale/empty context. This was the exact mechanism behind the hallucinated
+// "AI and digital payments" answer and the false "Got it — noted your
+// business context" that followed it.
 function buildBusinessContextConfirmation(): object {
   return {
     summary: "Quick check before I continue — is this related to the business you told me about earlier, or is this a new/different business idea?",
@@ -374,6 +468,19 @@ function buildBusinessContextConfirmation(): object {
     // No confidence badge — same reasoning as buildContextAcknowledgment
     // above, this is a clarifying question, not an analysis.
     requiresContextConfirmation: true,
+  };
+}
+
+// State: the founder replied "new" (or similar) to the confirmation above.
+// There is no business context yet for this new idea — do NOT fall through
+// to analysis with stale or empty context. Ask the same intake question a
+// first-time founder would get, and clear the stale stored context so it
+// can't leak into the new business's answers.
+function buildFreshContextIntake(): object {
+  return {
+    summary: "Got it, starting fresh. What does the new business do — industry, stage, and who's the customer?",
+    cards: [],
+    requiresClarification: true,
   };
 }
 
@@ -447,6 +554,34 @@ router.post("/ai/analyze", async (req, res) => {
     // the business across brand new chats instead of only within one session.
     const sessionHistoryContext = deriveContextFromHistory(body.data.sessionHistory);
     const storedContext = await getStoredBusinessContext(sessionId);
+
+    // MUST run before every other classifier below. If the previous turn was
+    // "is this the same business or a new one?", this message is the answer
+    // to THAT question, not a fresh query — treating it as fresh is exactly
+    // what let a bare "new" fall through isPureContextStatement (false, no
+    // BUSINESS_CONTEXT_SIGNAL match) and requiresContext (false, no keyword
+    // match) untouched, reach the LLM with stale/empty context, and come
+    // back as a generic, ungrounded answer with a confidence badge on it.
+    const awaitingConfirmation = await getPendingContextConfirmation(sessionId);
+    if (awaitingConfirmation) {
+      const reply = classifyContextConfirmationReply(body.data.message);
+      if (reply === "new") {
+        await setPendingContextConfirmation(sessionId, false);
+        await saveStoredBusinessContext(sessionId, ""); // clear stale context — do NOT let it leak into the new business's answers
+        return res.json(buildFreshContextIntake());
+      }
+      if (reply === "same") {
+        await setPendingContextConfirmation(sessionId, false);
+        // Fall through to normal handling below, now using the existing
+        // storedContext as intended (the "different business" branch further
+        // down won't re-fire because pending is now false).
+      } else {
+        // Reply didn't clearly answer new-vs-same — re-ask rather than
+        // guessing, so we never silently pick a side.
+        return res.json(buildBusinessContextConfirmation());
+      }
+    }
+
     const effectiveBusinessContext = body.data.businessContext || sessionHistoryContext || storedContext;
 
     const pureContextStatement = isPureContextStatement(body.data.message);
@@ -454,8 +589,11 @@ router.post("/ai/analyze", async (req, res) => {
     // If this message looks like a different business than what's already
     // stored, don't silently overwrite it or silently keep using the old one
     // — ask once. Only fires when something is actually stored yet, so a
-    // first-time context statement never triggers this.
-    if (storedContext && pureContextStatement && looksLikeDifferentBusiness(storedContext, body.data.message)) {
+    // first-time context statement never triggers this. Skipped when we just
+    // resolved a pending confirmation above (awaitingConfirmation was true),
+    // since that question has already been asked and answered this turn.
+    if (!awaitingConfirmation && storedContext && pureContextStatement && looksLikeDifferentBusiness(storedContext, body.data.message)) {
+      await setPendingContextConfirmation(sessionId, true);
       return res.json(buildBusinessContextConfirmation());
     }
 
@@ -467,7 +605,7 @@ router.post("/ai/analyze", async (req, res) => {
         ? `${storedContext} | ${body.data.message}`
         : body.data.message;
       await saveStoredBusinessContext(sessionId, combinedContext);
-      return res.json(buildContextAcknowledgment());
+      return res.json(buildContextAcknowledgment(combinedContext));
     }
 
     const clarification = buildContextClarification(body.data.message, effectiveBusinessContext, body.data.sessionHistory);
