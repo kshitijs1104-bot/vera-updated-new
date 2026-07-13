@@ -171,6 +171,20 @@ function requiresContext(message: string) {
 
 const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my company|my gym|my app|my store|my shop|my product|we are|we're building|were building|we run|we sell|our (business|startup|company|product|gym|store|shop)|i'm building|im building|i have a|i've got a|ive got a|i'm the founder|im the founder|founder of)\b/i;
 
+// BUSINESS_CONTEXT_SIGNAL only matches a fixed list of opener phrases
+// ("I run", "we're building", etc.) and misses any message that describes
+// the business in other natural phrasing — "We operate a subscription
+// platform...", "We generate roughly $35,000 in MRR" contains neither "my
+// business" nor "we're building" and was silently invisible to both
+// isPureContextStatement and deriveContextFromHistory as a result. Real
+// business descriptions are reliably identifiable by concrete metrics even
+// when they don't use one of the fixed openers — catch those too.
+const BUSINESS_METRICS_SIGNAL = /(\$\s?[\d,]+|\d+%|\d+\s+(paying\s+)?customers|monthly recurring revenue|\bmrr\b|\bchurn\b|\barr\b)/i;
+
+function looksLikeBusinessContext(message: string): boolean {
+  return BUSINESS_CONTEXT_SIGNAL.test(message) || BUSINESS_METRICS_SIGNAL.test(message);
+}
+
 // A message can BOTH describe the business AND ask a question in the same
 // breath ("I run a clinic booking app — what should I prioritize?"). Only
 // treat a message as a pure context-dump (no question attached) when it has
@@ -192,7 +206,7 @@ const BUSINESS_CONTEXT_SIGNAL = /\b(i run|i own|my business|my startup|my compan
 // it belongs here in the classifier rather than in the LLM prompt.
 function isPureContextStatement(message: string): boolean {
   const normalized = normalizeQueryText(message);
-  if (!BUSINESS_CONTEXT_SIGNAL.test(message)) return false;
+  if (!looksLikeBusinessContext(message)) return false;
   if (message.includes("?")) return false;
   const questionish = /\b(should|shld|would|could|worth|help|how|what|why|which|when|recommend|advice|suggest|priorit|map|analyz|identify|outline|breakdown|break down|walk me|walk through|compare|evaluat|assess|review|explain|tell me|give me|show me|list|summariz|forecast|plan|project|estimate|calculat)\b/i.test(normalized);
   return !questionish;
@@ -370,7 +384,7 @@ function deriveContextFromHistory(sessionHistory?: { role?: string; content?: st
   if (!sessionHistory || sessionHistory.length === 0) return undefined;
 
   const contextMessages = sessionHistory
-    .filter((h) => h.role === "user" && typeof h.content === "string" && BUSINESS_CONTEXT_SIGNAL.test(h.content))
+    .filter((h) => h.role === "user" && typeof h.content === "string" && looksLikeBusinessContext(h.content))
     .map((h) => h.content as string);
 
   if (contextMessages.length === 0) return undefined;
@@ -386,7 +400,16 @@ function buildContextClarification(
 
   // If the user already gave business context earlier in this session (or it was
   // passed explicitly), do NOT re-gate — just proceed to answer using it.
-  const existingContext = businessContext || deriveContextFromHistory(sessionHistory);
+  //
+  // FIX: this used to only check businessContext/history, never the message
+  // that's actually triggering this gate. A first-time context dump like "We
+  // operate a subscription platform for gyms... 450 paying customers...
+  // $35,000 MRR" trips requiresContext() (it's full of business keywords)
+  // but has nothing stored yet — so it was gated and asked "what industry,
+  // what stage?" even though both answers are sitting in the same message.
+  // A message that already looks like a real business description is a
+  // valid context source in its own right.
+  const existingContext = businessContext || deriveContextFromHistory(sessionHistory) || (looksLikeBusinessContext(message) ? message : undefined);
   if (existingContext) return null;
 
   const contextHints = [
