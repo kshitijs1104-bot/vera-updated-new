@@ -149,7 +149,7 @@ router.post("/companies/:id/autopsy/chat", async (req, res) => {
 
     if (!retrieval.matched) {
       return res.json({
-        reply: `Insufficient verified precedent data to run a grounded Interim CEO simulation for ${company.name} (${company.category}) — our precedent dataset only has ${retrieval.sectorCoverageCount} verified record(s) in this sector, below the confidence threshold needed to simulate realistic causal consequences. Venus AI will not invent unverified market dynamics to fill this gap.`,
+        reply: `Insufficient verified precedent data to run a grounded Interim CEO simulation for ${company.name} (${company.category}) — our precedent dataset only has ${retrieval.sectorCoverageCount} verified record(s) in this sector, below the confidence threshold needed to simulate realistic causal consequences. Vera will not invent unverified market dynamics to fill this gap.`,
         companyState: "Unknown",
         attempt,
         gameOver: true,

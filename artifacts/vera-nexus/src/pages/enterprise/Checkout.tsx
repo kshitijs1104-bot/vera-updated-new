@@ -24,13 +24,13 @@ export function CheckoutGate() {
           <div className="inline-flex items-center gap-2 bg-[var(--mint)]/10 border border-[var(--mint)]/30 px-4 py-1.5 rounded-full text-xs font-mono text-[var(--mint)] uppercase tracking-widest mb-6">
             Enterprise Access · Gate 4 of 4
           </div>
-          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Subscribe to Venus AI</h1>
+          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Subscribe to Vera</h1>
           <p className="text-sm text-[var(--muted)]">Secure checkout. Cancel anytime. Access activates instantly.</p>
         </div>
 
         <div className="bg-[var(--surface2)] border border-[var(--border)] rounded-xl p-4 mb-6 flex items-center justify-between">
           <div>
-            <div className="text-sm font-bold text-white">Venus AI · Max Plan</div>
+            <div className="text-sm font-bold text-white">Vera · Max Plan</div>
             <div className="text-xs text-[var(--muted)] font-mono">Unlimited · 18-month roadmaps · Priority queue</div>
           </div>
           <div className="text-2xl font-syne font-extrabold text-[var(--mint)]">$299<span className="text-sm font-normal text-[var(--muted)]">/mo</span></div>
@@ -94,7 +94,7 @@ export function CheckoutGate() {
                 Activating Access...
               </>
             ) : (
-              'Subscribe & Unlock Venus AI →'
+              'Subscribe & Unlock Vera →'
             )}
           </button>
 

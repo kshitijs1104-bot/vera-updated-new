@@ -71,7 +71,7 @@ export function SettingsPage() {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
               Groq API Key
             </h2>
-            <p className="text-xs text-[var(--muted)]">Configure your Groq API key to power Venus AI.</p>
+            <p className="text-xs text-[var(--muted)]">Configure your Groq API key to power Vera.</p>
           </div>
           {keyStatus?.configured ? (
             <span className="px-2 py-1 bg-[var(--mint)]/10 text-[var(--mint)] border border-[var(--mint)]/30 rounded text-[10px] uppercase font-mono tracking-wider font-bold">Configured</span>
@@ -113,7 +113,7 @@ export function SettingsPage() {
       {/* Business Context */}
       <section className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-8">
         <h2 className="text-lg font-syne font-bold text-white mb-1">Business Context</h2>
-        <p className="text-xs text-[var(--muted)] mb-8">This context is sent to Venus AI with every request to calibrate analysis.</p>
+        <p className="text-xs text-[var(--muted)] mb-8">This context is sent to Vera with every request to calibrate analysis.</p>
 
         <form 
           className="space-y-6"

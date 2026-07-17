@@ -41,8 +41,8 @@ export function OnboardingGate() {
           <div className="inline-flex items-center gap-2 bg-[var(--mint)]/10 border border-[var(--mint)]/30 px-4 py-1.5 rounded-full text-xs font-mono text-[var(--mint)] uppercase tracking-widest mb-6">
             Enterprise Access · Gate 2 of 4
           </div>
-          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Tell Venus About You</h1>
-          <p className="text-sm text-[var(--muted)]">Venus calibrates every analysis to your company, stage, and goals.</p>
+          <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Tell Vera About You</h1>
+          <p className="text-sm text-[var(--muted)]">Vera calibrates every analysis to your company, stage, and goals.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-8 space-y-5">
@@ -110,7 +110,7 @@ export function OnboardingGate() {
           </div>
 
           <div>
-            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">How did you hear about Venus AI? <span className="text-[var(--red)]">*</span></label>
+            <label className="block text-xs font-mono text-[var(--dim)] uppercase tracking-wider mb-2">How did you hear about Vera? <span className="text-[var(--red)]">*</span></label>
             <select
               value={form.referralSource}
               onChange={e => setForm(f => ({ ...f, referralSource: e.target.value }))}

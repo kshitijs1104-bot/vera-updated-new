@@ -30,7 +30,7 @@ export function SignupGate() {
           </div>
           <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Create Your Account</h1>
           <p className="text-sm text-[var(--muted)]">
-            Venus AI is available exclusively to enterprise operators. Sign up to begin.
+            Vera is available exclusively to enterprise operators. Sign up to begin.
           </p>
         </div>
 

@@ -45,7 +45,7 @@ export function PlanGate() {
             Enterprise Access · Gate 3 of 4
           </div>
           <h1 className="text-3xl font-syne font-extrabold text-white mb-3">Choose Your Plan</h1>
-          <p className="text-sm text-[var(--muted)]">All plans start with Venus AI's full intelligence engine. Limits apply based on tier.</p>
+          <p className="text-sm text-[var(--muted)]">All plans start with Vera's full intelligence engine. Limits apply based on tier.</p>
         </div>
 
         {/* Tier selector cards */}
