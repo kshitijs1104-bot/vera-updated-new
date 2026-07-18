@@ -501,16 +501,16 @@ function isRetryableTransient(err: any): boolean {
 // Groq's quoted 250,000-300,000 range is a general figure, not a per-org
 // guarantee, and per-model numbers can differ (see the note on gpt-oss-20b
 // vs gpt-oss-120b below).
-const TPM_SAFETY_MARGIN = 0.85;
+export const TPM_SAFETY_MARGIN = 0.85;
 // Floor for max_tokens: below this, JSON responses (multi-card schema) don't
 // reliably complete before truncating, so there's no point shrinking further
 // — better to surface a clear failure than a guaranteed-truncated response.
-const MIN_USABLE_MAX_TOKENS = 1200;
+export const MIN_USABLE_MAX_TOKENS = 1200;
 
 // Rough, provider-agnostic token estimate (~4 chars/token for English
 // prose). Exactness doesn't matter here, only staying safely under the
 // ceiling does — this is a budgeting heuristic, not a billing calculation.
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
@@ -538,7 +538,7 @@ const DEFAULT_GROQ_TPM_LIMIT = 8000; // conservative fallback for any model
 // string not in the map above (e.g. a new model added later without
 // updating this file) — better to over-clamp an unrecognized model than
 // find out it's wrong via a 429 in production.
-function tpmLimitForModel(model: string): number {
+export function tpmLimitForModel(model: string): number {
   return GROQ_TPM_LIMIT_BY_MODEL[model] ?? DEFAULT_GROQ_TPM_LIMIT;
 }
 

@@ -3,7 +3,7 @@ import { db, settingsTable, venusDecisionsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 
@@ -745,14 +745,35 @@ router.post("/ai/analyze", async (req, res) => {
 
     messages.push({ role: "user", content: body.data.message });
 
-    // A narrow query (definition ask, short follow-up) legitimately needs
-    // far fewer output tokens than a full multi-card strategic answer —
-    // asking for less here means callGroqJSON's TPM clamp has more natural
-    // headroom before it ever needs to intervene, on top of the prompt
-    // itself already being smaller. 1800 is comfortably above
-    // MIN_USABLE_MAX_TOKENS (1200) so a narrow answer with 1-2 cards has
-    // real room without reserving 6000 tokens of budget it won't use.
-    const requestedMaxTokens = isNarrowScope ? 1800 : 6000;
+    // Previously a flat guess (1800 narrow / 6000 broad) with no relation to
+    // the real prompt size or the real TPM ceiling. On gpt-oss-120b's true
+    // free-tier 8,000 TPM (see .agents/memory/groq-scout-deprecation-2026-07.md
+    // and groq.ts's GROQ_TPM_LIMIT_BY_MODEL), 6000 alone is already close to
+    // the entire ceiling before a single token of the actual prompt is
+    // counted — meaning almost every broad-scope call arrived at
+    // clampMaxTokensToTpmBudget already needing correction, and often needed
+    // one or more shrink-and-retry cycles in createWithRetry just to fit at
+    // all. Each retry cuts real message content, which is what was
+    // producing thin, truncated, or unparseable responses that fell through
+    // to buildShortQueryFallback — a visible quality regression that was
+    // actually a budgeting bug, not a reasoning-quality regression from the
+    // system prompt compression.
+    //
+    // This computes the real available budget from the messages array that
+    // now actually exists (system prompt + history + business context +
+    // precedent block + the founder's message), using the exact same
+    // estimateTokens/tpmLimitForModel/TPM_SAFETY_MARGIN math
+    // clampMaxTokensToTpmBudget already applies inside callGroqJSON — so the
+    // first attempt asks for a number it can realistically get, and
+    // clamping/retrying becomes the rare exception again instead of the
+    // normal path on every broad query.
+    const estimatedPromptTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    const tpmBudget = Math.floor(tpmLimitForModel("openai/gpt-oss-120b") * TPM_SAFETY_MARGIN);
+    const realisticCeiling = Math.max(MIN_USABLE_MAX_TOKENS, tpmBudget - estimatedPromptTokens);
+    // Still respect the narrow/broad intent — a narrow follow-up genuinely
+    // doesn't need a huge response even when the budget could technically
+    // allow one — but never request more than what's actually available.
+    const requestedMaxTokens = Math.min(isNarrowScope ? 1800 : 6000, realisticCeiling);
 
     const { parsed } = await callGroqJSON(
       groq,
@@ -835,19 +856,28 @@ router.post("/ai/idea-review", async (req, res) => {
         ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}\n\n${followUpInstruction}\n\n${precedentBlock}`
         : `${VENUS_PROMPT}\n\n${followUpInstruction}\n\n${precedentBlock}`;
 
+    const ideaMessages: { role: "system" | "user"; content: string }[] = [
+      { role: "system", content: ideaSystemPrompt },
+      {
+        role: "user",
+        content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,
+      },
+    ];
+    // Same fix as /ai/analyze above: a flat 6000 request ignored the real
+    // TPM budget, which VENUS_PROMPT alone (4527 tokens post-compression)
+    // already leaves little room under. Compute the real ceiling from the
+    // actual assembled messages instead of guessing.
+    const ideaEstimatedPromptTokens = ideaMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    const ideaTpmBudget = Math.floor(tpmLimitForModel("openai/gpt-oss-120b") * TPM_SAFETY_MARGIN);
+    const ideaRequestedMaxTokens = Math.max(MIN_USABLE_MAX_TOKENS, Math.min(6000, ideaTpmBudget - ideaEstimatedPromptTokens));
+
     const { parsed } = await callGroqJSON(
       groq,
       {
         model: "openai/gpt-oss-120b",
-        messages: [
-          { role: "system", content: ideaSystemPrompt },
-          {
-            role: "user",
-            content: `Review this business idea: "${body.data.idea}"${contextParts ? `\n\nContext: ${contextParts}` : ""}`,
-          },
-        ],
+        messages: ideaMessages,
         temperature: 0.4,
-        max_tokens: 6000,
+        max_tokens: ideaRequestedMaxTokens,
       },
       "ai/idea-review",
     );
