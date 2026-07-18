@@ -1,0 +1,32 @@
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index 4d2579c..ebc5499 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -61,6 +61,7 @@ For market cards the content is: { "tam": "$XB", "sam": "$XM", "som": "$XM", "gr
+ For risk cards the content is: { "risks": [ { "name": "Risk name", "probability": 0-100, "impact": "High or Med or Low", "mitigation": "One specific action they can take this week to reduce this risk" } ] }
+ For roadmap cards the content is: { "horizon": "6 months or 24 months", "phases": [ { "period": "0-30 days", "title": "Phase name", "actions": [ "specific action" ], "metric": "The one number or outcome that tells you this phase succeeded" } ] }
+ For decision cards the content is: { "options": [ { "name": "Option name", "scores": { "viability": 0-10, "speed": 0-10, "defensibility": 0-10, "capital_efficiency": 0-10 }, "verdict": "One sentence on what makes or breaks this option" } ], "recommendation": "Venus's clear call on which option and the single most important reason why" }
++CRITICAL — EVERY OPTION IN A DECISION CARD MUST BE SCORED, NOT JUST THE WINNER: The options array must contain one fully-scored entry (all four scores, plus a verdict sentence) for every genuinely distinct path the founder is actually choosing between — including the ones you are NOT recommending. A decision card with only the winning option's scores and a "recommendation" naming a path that never appears as its own scored entry in options is an incomplete answer: the founder cannot see WHY the recommended option beat the alternatives if the alternatives were never actually scored on the same four metrics. Identify every distinct path implied by the founder's question (a binary choice has exactly two; a "should I do X, Y, or a mix of both" question has three: X alone, Y alone, and the blended approach) and include a scored entry for each before writing the recommendation. The recommendation field must be a function of comparing those actual numbers, not an independent judgment call reached before the scoring — if you find yourself writing the recommendation first and then only building scores for that one option, stop and score the alternatives too.
+ For precedent cards the content is: { "precedents": [ { "company": "Real company name", "year": "Year or year range, e.g. 2008 or 2012-2015", "outcome": "what happened to them — succeeded, pivoted, collapsed, acquired", "lesson": "The specific causal lesson from this precedent and exactly how it applies to this user's situation right now" } ] }
+ For funnel cards the content is: { "stages": [ { "title": "Stage name", "description": "Short one line explanation" } ] }
+ For solution cards the content is: { "solutions": [ { "title": "Solution name", "description": "Short one line explanation" } ] }
+@@ -784,7 +785,7 @@ IMPORTANT — LIMITED PRECEDENT MODE (moderate confidence): The VERIFIED PRECEDE
+ 
+ export function buildFallbackVenusResponse(message: string): object {
+   return {
+-    summary: "Venus AI is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",
++    summary: "Vera is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",
+     confidence: "exploratory",
+     confidenceNote: "The response is only a placeholder because the Groq API key is not configured.",
+     cards: [
+@@ -814,8 +815,8 @@ export function buildFallbackVenusResponse(message: string): object {
+ export function buildTransientErrorResponse(message: string, kind?: "policy"): object {
+   return {
+     summary: kind === "policy"
+-      ? "Sorry, Venus AI can't answer that. Please try a different question."
+-      : "Sorry, Venus AI couldn't answer that right now. Please try again or ask something else.",
++      ? "Sorry, Vera can't answer that. Please try a different question."
++      : "Sorry, Vera couldn't answer that right now. Please try again or ask something else.",
+     isError: true,
+     errorType: "transient",
+     cards: [],

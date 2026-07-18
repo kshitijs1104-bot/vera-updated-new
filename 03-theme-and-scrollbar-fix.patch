@@ -1,0 +1,94 @@
+diff --git a/artifacts/vera-nexus/src/index.css b/artifacts/vera-nexus/src/index.css
+index 4e37cc3..25617e0 100644
+--- a/artifacts/vera-nexus/src/index.css
++++ b/artifacts/vera-nexus/src/index.css
+@@ -255,23 +255,31 @@
+   --elevate-1: rgba(255,255,255, .04);
+   --elevate-2: rgba(255,255,255, .09);
+ 
+-  --background: 240 45% 4%;
++  /* ROOT-CAUSE FIX: every surface token below was previously pinned to hue
++     240 (pure blue) at 16-45% saturation, which reads as navy, not neutral
++     near-black, regardless of how low the lightness value is — saturation
++     is what was producing the "bluish/navy, not cool black" look, not
++     lightness. Same lightness values kept (4/7/6/16%) so the existing
++     visual hierarchy between background/card/sidebar/border is unchanged;
++     only saturation is reduced to 6-10%, which keeps a faint cool
++     undertone (so it doesn't go flat dead-gray) without the blue cast. */
++  --background: 240 8% 4%;
+ 
+   --foreground: 220 20% 92%;
+ 
+   --border: rgba(255,255,255,0.08);
+ 
+-  --card: 240 30% 7%;
++  --card: 240 8% 7%;
+ 
+   --card-foreground: 220 20% 92%;
+ 
+-  --card-border: 240 20% 16%;
++  --card-border: 240 6% 16%;
+ 
+-  --sidebar: 240 32% 6%;
++  --sidebar: 240 8% 6%;
+ 
+   --sidebar-foreground: 220 20% 92%;
+ 
+-  --sidebar-border: 240 20% 16%;
++  --sidebar-border: 240 6% 16%;
+ 
+   --sidebar-primary: 243 74% 61%;
+ 
+@@ -354,6 +362,52 @@
+   }
+ }
+ 
++/* Custom scrollbar — previously no scrollbar rules existed anywhere in this
++   file, so every scrollable panel (sidebar, chat pane) fell back to the
++   native OS scrollbar: a plain light-gray/white bar that reads as a jarring
++   foreign element against the dark theme. This restyles it to a thin,
++   low-contrast bar using the existing theme tokens so it recedes into the
++   design instead of standing out, and hides it entirely until the container
++   is hovered or actively scrolled so it isn't a persistent visual element
++   at all in the common case. Covers both WebKit (Chrome/Edge/Safari) and
++   Firefox, since `scrollbar-width`/`scrollbar-color` are Firefox-only and
++   the `::-webkit-scrollbar` family is WebKit-only — no single rule covers
++   both engines. */
++* {
++  scrollbar-width: thin;
++  scrollbar-color: transparent transparent;
++}
++
++*:hover {
++  scrollbar-color: hsl(var(--foreground) / 0.18) transparent;
++}
++
++*::-webkit-scrollbar {
++  width: 8px;
++  height: 8px;
++}
++
++*::-webkit-scrollbar-track {
++  background: transparent;
++}
++
++*::-webkit-scrollbar-thumb {
++  background-color: transparent;
++  border-radius: 9999px;
++  border: 2px solid transparent;
++  background-clip: padding-box;
++  transition: background-color 0.15s ease;
++}
++
++*:hover::-webkit-scrollbar-thumb {
++  background-color: hsl(var(--foreground) / 0.18);
++  background-clip: padding-box;
++}
++
++*::-webkit-scrollbar-thumb:hover {
++  background-color: hsl(var(--foreground) / 0.32);
++}
++
+ /**
+  * Using the elevate system.
+  * Automatic contrast adjustment.
