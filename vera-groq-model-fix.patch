@@ -1,0 +1,1105 @@
+diff --git a/.agents/memory/MEMORY.md b/.agents/memory/MEMORY.md
+index 76608c5..54be820 100644
+--- a/.agents/memory/MEMORY.md
++++ b/.agents/memory/MEMORY.md
+@@ -4,3 +4,4 @@
+ - [Lexical retrieval-gating false positives](retrieval-gating-lexical-overlap.md) — generic domain vocabulary ("startup","raise","series") inflates keyword-overlap match scores; strip it or gating leaks ungrounded answers.
+ - [Groq small-model JSON robustness](groq-json-retry-pattern.md) — HISTORICAL: written for `llama-3.1-8b-instant`, which is now deprecated/migrated away from (see the 2026 deprecation note below). The extract-braces + retry-with-stricter-prompt pattern it describes is still live in `callGroqJSON` and still useful context, but the model-choice tradeoff it discusses no longer applies as-is.
+ - [Groq 2026 model deprecation migration](groq-model-deprecation-2026.md) — `llama-3.1-8b-instant`/`llama-3.3-70b-versatile` deprecated, migrated to the `gpt-oss` family with a reasoning/lightweight split; also added default `json_object` response mode. Read this before changing any `model:` string in this repo.
++- [Groq llama-4-scout deprecation, reverted to gpt-oss-120b](groq-scout-deprecation-2026-07.md) — `meta-llama/llama-4-scout-17b-16e-instruct` (the model the above migration eventually moved to on 2026-07-10) was itself deprecated by Groq and started hard-404ing on 2026-07-18; every call site reverted back to `openai/gpt-oss-120b`. Read this before touching any `model:` string, and before attempting Scout or `qwen/qwen3.6-27b` again.
+diff --git a/.agents/memory/groq-scout-deprecation-2026-07.md b/.agents/memory/groq-scout-deprecation-2026-07.md
+new file mode 100644
+index 0000000..4c45b44
+--- /dev/null
++++ b/.agents/memory/groq-scout-deprecation-2026-07.md
+@@ -0,0 +1,88 @@
++---
++name: Groq llama-4-scout deprecation, reverted to gpt-oss-120b
++description: meta-llama/llama-4-scout-17b-16e-instruct was deprecated by Groq (announced 2026-06-17, hard 404 model_not_found as of 2026-07-18); every call site reverted to openai/gpt-oss-120b. Read this before changing any `model:` string in this repo, and before re-attempting a move to Scout or to qwen/qwen3.6-27b.
++---
++
++## What happened
++
++On 2026-07-10 this repo migrated every Venus reasoning route from
++`openai/gpt-oss-120b` to `meta-llama/llama-4-scout-17b-16e-instruct`, chasing
++a 30,000 TPM free-tier ceiling vs gpt-oss-120b's 8,000 (see
++`scripts/src/venus-provider-ab-test.ts` header for the full A/B methodology
++that justified that move at the time).
++
++On 2026-07-18, production started throwing:
++
++```
++404 {"error":{"message":"The model `meta-llama/llama-4-scout-17b-16e-instruct`
++does not exist or you do not have access to it.","type":"invalid_request_error",
++"code":"model_not_found"}}
++```
++
++This is a **hard deprecation, not a rate limit or outage** — Groq announced
++on 2026-06-17 that Scout was being deprecated in favor of `openai/gpt-oss-120b`
++or `qwen/qwen3.6-27b` (their own recommendation, in that order), and pulled
++free/developer-tier access to it. Retrying does nothing; the model string
++itself no longer resolves.
++
++## What was reverted (2026-07-18)
++
++Every call site that had been switched to Scout on 2026-07-10 went back to
++`openai/gpt-oss-120b` — i.e. this repo is now back to exactly where it was
++before that migration:
++
++- `artifacts/api-server/src/routes/ai.ts` — `/ai/analyze` main reasoning call,
++  idea-review follow-up call, decision-lesson distillation call (3 call sites)
++- `artifacts/api-server/src/routes/companies.ts` — company autopsy + autopsy
++  chat (2 call sites)
++- `artifacts/api-server/src/routes/events.ts` — event ripple analysis
++- `artifacts/api-server/src/routes/reports.ts` — report summary generation
++- `artifacts/api-server/src/lib/groq.ts` — `GROQ_TPM_LIMIT_BY_MODEL` comment
++  updated; the `meta-llama/llama-4-scout-17b-16e-instruct: 30000` entry was
++  **left in the map** (not deleted) so a stray future call site that still
++  names it fails with a clamped, informative request shape rather than an
++  undefined TPM lookup — but confirm no real call site actually references it
++  before relying on that safety net.
++- `scripts/src/venus-provider-ab-test.ts` — `MODEL_B` swapped from Scout to
++  `qwen/qwen3.6-27b` so the script still compiles and still tests something
++  real; see "Open question" below before trusting its output.
++
++`openai/gpt-oss-20b` lighter-tier routes (`/ai/company-report`,
++`/ai/summarize-article`, `enrich_precedents.ts`) were never on Scout and are
++untouched.
++
++## Known tradeoff, don't silently re-optimize around it
++
++This revert gives back the 30K→8K TPM headroom the original migration was
++chasing. The 429 risk that migration was trying to avoid is real again. If
++429s start showing up in server logs (check `isRetryableTransient` match
++shape first — `callGroqJSON` already retries transient 429/5xx automatically,
++so a 429 reaching the logs means it survived that retry), that's this
++tradeoff resurfacing, not a new bug.
++
++## Open question for a future session: qwen/qwen3.6-27b
++
++Groq's deprecation notice lists `qwen/qwen3.6-27b` as an alternative to
++gpt-oss-120b, and it's newer/larger than Scout was. At the time of this
++revert, no confident published Groq-specific TPM figure for this model was
++available via web search — don't assume it's a free upgrade over gpt-oss-120b
++without actually re-running `scripts/src/venus-provider-ab-test.ts`
++(`MODEL_A = openai/gpt-oss-120b` vs `MODEL_B = qwen/qwen3.6-27b`) and checking
++Groq's `/docs/rate-limits` page directly for the current TPM ceiling before
++trusting it. Don't repeat the 2026-07-10 mistake of migrating production
++traffic before confirming the actual rate-limit numbers hold up under real
++back-to-back load, not just a burst test.
++
++## General lesson
++
++This is the **second** time a Groq model this repo depended on has been
++deprecated out from under it in about a month (see
++`groq-model-deprecation-2026.md` for the first, `llama-3.1-8b-instant` /
++`llama-3.3-70b-versatile`). Before picking a model for a new call site or a
++migration, check Groq's `/docs/deprecations` page directly for how recently
++it launched and whether it's flagged "Preview" (preview models "may be
++discontinued at short notice" per Groq's own docs) vs "Production." Scout's
++status at the time of the 07-10 migration isn't recorded in this repo's
++history — if a future session repeats this kind of migration, note the
++model's production/preview status in the migration commit so this exact
++surprise is easier to have predicted next time.
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index f998224..bb04537 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -12,9 +12,11 @@ CRITICAL — EVIDENCE-FIRST REASONING (this replaces jumping straight to a singl
+ 
+ 2. GENERATE COMPETING HYPOTHESES: From those observations, generate at least 2, ideally 3, genuinely different candidate explanations — not one obvious story plus two throwaway alternatives you don't really consider. Each hypothesis should be the kind of explanation a different experienced operator might reasonably reach for first. If you can only think of one hypothesis, that itself is a signal you're pattern-matching to a heuristic rather than actually reasoning from the specific observations — push yourself to find the second and third.
+ 
+-3. ASSESS EACH HYPOTHESIS QUALITATIVELY: For each hypothesis, state a confidence level of LOW, MEDIUM, or HIGH based ONLY on how well the founder's actual stated observations support it — never a numeric probability here (that is a separate, narrower exception covered in NO FAKE PRECISION below, and does not apply to hypothesis confidence). HIGH means the founder's own words directly and specifically support this explanation over the alternatives. MEDIUM means it's a reasonable read consistent with the observations but not confirmed — most heuristic-based reasoning belongs here, explicitly labeled as such, not silently upgraded to sound certain. LOW means it's plausible in general but has weak or no support from what's actually been stated.
++CRITICAL — A HYPOTHESIS MUST NAME A MECHANISM, NOT RESTATE A POSITION: "Growth is sustainable," "growth is unsustainable," and "growth is masked" are not three hypotheses — they are three stances on the same yes/no question the founder already asked, dressed up as if they were separate explanations. A real hypothesis names the specific mechanism that would have produced the observations if it were true — e.g. not "the metric is fine" but "the company moved down-market into a segment with lower acquisition cost and comparable retention," not "the metric is bad" but "the company is buying growth through increasingly inefficient, subsidized acquisition." Fail-test before finalizing each hypothesis: if you deleted the founder's specific observations, would this hypothesis and its "opposite" still just read as two ends of the original question restated? If yes, both are too abstract — go one level deeper into the actual causal mechanism until each hypothesis could be wrong or right independently of the others, not merely be each other's negation.
+ 
+-4. NAME WHAT'S MISSING: For each hypothesis, state the single most useful piece of evidence that would confirm or rule it out. This is what makes the reasoning falsifiable rather than just a list of guesses — e.g. "if new-signup rate held flat while revenue dropped, that points away from acquisition and toward retention" is a real test; "more data would help" is not. When more than one hypothesis is still live, go one step further and name which single piece of missing evidence is the highest-value one to get first — the one that would eliminate or downgrade the most hypotheses at once, not just the one attached to your favorite explanation. State it as a prioritization, not a data request: "the highest-value unknown is whether the drop is lead generation or conversion — that one number rules out two of the three explanations at once," not a plain "we need more sales data."
++3. ASSESS EACH HYPOTHESIS QUALITATIVELY, THEN RANK THEM AGAINST EACH OTHER: For each hypothesis, state a confidence level of LOW, MEDIUM, or HIGH based ONLY on how well the founder's actual stated observations support it — never a numeric probability here (that is a separate, narrower exception covered in NO FAKE PRECISION below, and does not apply to hypothesis confidence). HIGH means the founder's own words directly and specifically support this explanation over the alternatives. MEDIUM means it's a reasonable read consistent with the observations but not confirmed — most heuristic-based reasoning belongs here, explicitly labeled as such, not silently upgraded to sound certain. LOW means it's plausible in general but has weak or no support from what's actually been stated. Labeling each hypothesis in isolation is not enough — after assessing all of them, state in one sentence which hypothesis currently leads and specifically what makes it beat the others (e.g. "H2 leads over H1 because the founder's own churn numbers moved in the direction H2 predicts and H1 predicts the opposite"), or state plainly that two or more are genuinely tied and why nothing in the observations separates them yet. A set of confidence labels with no stated leader or explicit tie is an incomplete comparison, not a finished one.
++
++4. NAME WHAT'S MISSING: For each hypothesis, state the single most useful piece of evidence that would confirm or rule it out. This is what makes the reasoning falsifiable rather than just a list of guesses — e.g. "if new-signup rate held flat while revenue dropped, that points away from acquisition and toward retention" is a real test; "more data would help" is not. When more than one hypothesis is still live, go one step further and name which single piece of missing evidence is the highest-value one to get first — the one that would eliminate or downgrade the most hypotheses at once, not just the one attached to your favorite explanation. State it as a prioritization, not a data request: "the highest-value unknown is whether the drop is lead generation or conversion — that one number rules out two of the three explanations at once," not a plain "we need more sales data." CRITICAL — JUSTIFY THE METRIC BY WHAT IT SEPARATES, NOT BY GENERAL RELEVANCE: A metric is not the highest-value one just because it's generally relevant to the topic (e.g. CAC is "relevant" to almost any growth question). It only earns that label if you can name which specific hypotheses from step 2 it would move apart — state it explicitly: "X, not Y, is the highest-value metric because if X comes back high, it supports H1 and rules out H2; if X comes back low, the reverse." A metric you cannot tie to at least two specific hypotheses splitting apart is a plausible-sounding default, not a reasoned choice — replace it with one you can tie to the actual hypothesis set on the table.
+ 
+ 5. ONLY THEN RECOMMEND: If one hypothesis is clearly better supported (HIGH vs the others at MEDIUM/LOW), you may lead with it directly and the existing CAUSAL CHAIN REASONING section below governs how you write that up. If two or more hypotheses remain genuinely close in confidence, say so plainly instead of forcing a single narrative — recommend the action that is either useful across multiple hypotheses, or the specific next step that would surface the missing evidence from step 4 fastest. Do not manufacture false certainty just to produce a clean one-line bottleneck when the evidence doesn't actually support singling one out yet.
+ 
+@@ -468,18 +470,29 @@ function isRetryableTransient(err: any): boolean {
+ // 429 rate-limit failures on 3/4 back-to-back test queries, while scout
+ // answered all 4 with comparable-or-better bottleneck-first reasoning and
+ // correctly grounded confidenceNote tiering. See that script's file header
+-// for the full comparison methodology. Verify current values on Groq's
+-// /docs/rate-limits page before trusting these numbers long-term — these
+-// change over time and were last confirmed 2026-07-10 via Groq's own docs
+-// plus multiple independent sources.
++// for the full comparison methodology.
++//
++// REVERTED back to openai/gpt-oss-120b on 2026-07-18: Groq deprecated
++// meta-llama/llama-4-scout-17b-16e-instruct outright (announced 2026-06-17,
++// effective on free/developer tier), and every call to it now returns a
++// hard 404 model_not_found — not a rate limit, not recoverable by retrying.
++// Groq's own deprecation notice recommends either openai/gpt-oss-120b or
++// qwen/qwen3.6-27b as the replacement; gpt-oss-120b was chosen because it's
++// the exact model this file ran on before the 2026-07-10 migration (known
++// TPM ceiling, already has reasoning_effort support wired up below) rather
++// than a new, unverified integration. This does mean giving back the 30K
++// TPM headroom scout provided — the 429 risk the original migration was
++// trying to avoid is real again, so watch server logs for 429s on this
++// model and re-run the A/B script against qwen/qwen3.6-27b if they recur.
++// Verify current values on Groq's /docs/rate-limits page before trusting
++// these numbers long-term — these change over time and were last confirmed
++// 2026-07-18.
+ //
+ // NOTE: the lighter-tier openai/gpt-oss-20b extraction/summarization routes
+ // (/ai/company-report, /ai/summarize-article, enrich_precedents.ts) were
+-// NOT part of this test and were not switched — they stay on gpt-oss-20b
+-// unless a separate test justifies moving them too. Since gpt-oss-20b's real
+-// ceiling (8000 TPM) is well below llama-4-scout's (30000 TPM), the TPM
+-// limit below is a PER-MODEL map, not a single constant — see
+-// GROQ_TPM_LIMIT_BY_MODEL a few lines down.
++// NOT part of either migration and stay on gpt-oss-20b unless a separate
++// test justifies moving them. The TPM limit below is a PER-MODEL map, not a
++// single constant — see GROQ_TPM_LIMIT_BY_MODEL a few lines down.
+ const TPM_SAFETY_MARGIN = 0.85;
+ // Floor for max_tokens: below this, JSON responses (multi-card schema) don't
+ // reliably complete before truncating, so there's no point shrinking further
+@@ -494,12 +507,17 @@ function estimateTokens(text: string): number {
+ }
+ 
+ const GROQ_TPM_LIMIT_BY_MODEL: Record<string, number> = {
++  // Deprecated by Groq (2026-06-17 notice, enforced as of 2026-07-18) — hard
++  // 404 model_not_found on every call now, not a rate limit. Kept in this
++  // map (rather than deleted) only so a stray call site that still names it
++  // fails with a clamped, informative request instead of an undefined TPM
++  // lookup — but every real call site in this codebase has been migrated
++  // off it back to openai/gpt-oss-120b below.
+   "meta-llama/llama-4-scout-17b-16e-instruct": 30000,
+   "openai/gpt-oss-20b": 8000,
+-  "openai/gpt-oss-120b": 8000, // no longer called by this file as of the
+-  // 2026-07-10 migration, kept here in case a future rollback or a new call
+-  // site reintroduces it — removing the entry would silently fall through
+-  // to DEFAULT_GROQ_TPM_LIMIT below.
++  "openai/gpt-oss-120b": 8000, // current production model for all Venus
++  // reasoning routes as of the 2026-07-18 revert — see migration comment
++  // above for why.
+ };
+ const DEFAULT_GROQ_TPM_LIMIT = 8000; // conservative fallback for any model
+ // string not in the map above (e.g. a new model added later without
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index ec1d682..896d539 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -765,7 +765,7 @@ router.post("/ai/analyze", async (req, res) => {
+       // response; reasoning itself is now bounded separately (see
+       // callGroqJSON's reasoning_effort default). Narrow queries request
+       // less (see requestedMaxTokens above) since they don't need it.
+-      { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages, temperature: 0.4, max_tokens: requestedMaxTokens },
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.4, max_tokens: requestedMaxTokens },
+       "ai/analyze",
+     );
+ 
+@@ -838,7 +838,7 @@ router.post("/ai/idea-review", async (req, res) => {
+     const { parsed } = await callGroqJSON(
+       groq,
+       {
+-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
++        model: "openai/gpt-oss-120b",
+         messages: [
+           { role: "system", content: ideaSystemPrompt },
+           {
+@@ -926,7 +926,7 @@ router.post("/ai/decisions/:id/outcome", async (req, res) => {
+       const { parsed } = await callGroqJSON(
+         groq,
+         {
+-          model: "meta-llama/llama-4-scout-17b-16e-instruct",
++          model: "openai/gpt-oss-120b",
+           messages: [
+             {
+               role: "system",
+diff --git a/artifacts/api-server/src/routes/companies.ts b/artifacts/api-server/src/routes/companies.ts
+index 08551bf..8afd7ca 100644
+--- a/artifacts/api-server/src/routes/companies.ts
++++ b/artifacts/api-server/src/routes/companies.ts
+@@ -77,7 +77,7 @@ router.post("/companies/:id/autopsy", async (req, res) => {
+     const { parsed, raw } = await callGroqJSON(
+       groq,
+       {
+-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
++        model: "openai/gpt-oss-120b",
+         messages: [
+           {
+             role: "system",
+@@ -208,7 +208,7 @@ Keep replies concise. No long paragraphs. When attempt reaches 5, set gameOver t
+ 
+     const { parsed, raw } = await callGroqJSON(
+       groq,
+-      { model: "meta-llama/llama-4-scout-17b-16e-instruct", messages, temperature: 0.6, max_tokens: 800 },
++      { model: "openai/gpt-oss-120b", messages, temperature: 0.6, max_tokens: 800 },
+       `companies/${id}/autopsy/chat`,
+     );
+ 
+diff --git a/artifacts/api-server/src/routes/events.ts b/artifacts/api-server/src/routes/events.ts
+index f8c374e..52dab79 100644
+--- a/artifacts/api-server/src/routes/events.ts
++++ b/artifacts/api-server/src/routes/events.ts
+@@ -2,7 +2,7 @@ import { Router } from "express";
+ import { db, eventsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
+ import { ListEventsQueryParams } from "@workspace/api-zod";
+-import { getGroqClient, buildRippleFallback } from "../lib/groq";
++import { getGroqClient, buildRippleFallback, callGroqJSON } from "../lib/groq";
+ 
+ const router = Router();
+ 
+@@ -56,17 +56,28 @@ router.post("/events/:id/ripple", async (req, res) => {
+       return res.json({ eventId: id, ...buildRippleFallback(event.title) });
+     }
+ 
+-    const completion = await groq.chat.completions.create({
+-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+-      response_format: { type: "json_object" },
+-      messages: [
+-        {
+-          role: "system",
+-          content: `You are a causal intelligence analyst. You map cause-and-effect chains for major events with precision and specificity. Return ONLY valid JSON with no markdown or backticks.`,
+-        },
+-        {
+-          role: "user",
+-          content: `Analyze the causal ripple effects of this event and produce a structured flowchart.
++    // Previously a bare single-shot call with no retry: a truncated or
++    // malformed response from the model fell straight to an empty
++    // { causalChain: [], flowchart: null } with no repair attempt, and the
++    // frontend renders that exact shape as a silent blank — no error, no
++    // retry prompt, just a missing chain (see Line.tsx: both the flowchart
++    // and causalChain branches evaluate to `: null` when both are empty).
++    // Routed through callGroqJSON so ripple gets the same repair-retry +
++    // TPM-aware token clamping the main /ai/analyze path already has —
++    // a truncated 7-node flowchart-with-edges response now gets a real
++    // second attempt with a larger budget instead of quietly going blank.
++    const { parsed, errorType } = await callGroqJSON(
++      groq,
++      {
++        model: "openai/gpt-oss-120b",
++        messages: [
++          {
++            role: "system",
++            content: `You are a causal intelligence analyst. You map cause-and-effect chains for major events with precision and specificity. Return ONLY valid JSON with no markdown or backticks.`,
++          },
++          {
++            role: "user",
++            content: `Analyze the causal ripple effects of this event and produce a structured flowchart.
+ 
+ Event: ${event.title}
+ Year: ${event.year}
+@@ -99,22 +110,28 @@ Return this exact JSON structure:
+ }
+ 
+ Replace ALL placeholder text with real specific content about this actual event. Node labels must be concrete and specific, not generic.`,
+-        },
+-      ],
+-      temperature: 0.3,
+-      max_tokens: 1200,
+-    });
+-
+-    const content = completion.choices[0]?.message?.content || "";
+-    try {
+-      const parsed = JSON.parse(content);
+-      return res.json({ eventId: id, ...parsed });
+-    } catch {
+-      return res.json({ eventId: id, analysis: content, causalChain: [], affectedSectors: [], flowchart: null });
++          },
++        ],
++        temperature: 0.3,
++        // Was a flat 1200 with no relation to the response's actual shape —
++        // 7 nodes + 6 edges + analysis text can plausibly exceed that on a
++        // richly-described event, causing exactly the silent-truncation
++        // failure this whole fix targets. 2200 gives real headroom; the
++        // retry inside callGroqJSON doubles it again if still truncated.
++        max_tokens: 2200,
++      },
++      `ripple:${id}`,
++    );
++
++    if (!parsed) {
++      req.log.error({ eventId: id, errorType }, "ripple analysis failed after retry");
++      return res.json({ eventId: id, ...buildRippleFallback(event.title), generationFailed: true });
+     }
++
++    return res.json({ eventId: id, ...parsed });
+   } catch (err) {
+     req.log.error(err);
+-    return res.json({ eventId: parseInt(req.params.id), ...buildRippleFallback("this event") });
++    return res.json({ eventId: parseInt(req.params.id), ...buildRippleFallback("this event"), generationFailed: true });
+   }
+ });
+ 
+diff --git a/artifacts/api-server/src/routes/reports.ts b/artifacts/api-server/src/routes/reports.ts
+index 1a496e6..5bd67b4 100644
+--- a/artifacts/api-server/src/routes/reports.ts
++++ b/artifacts/api-server/src/routes/reports.ts
+@@ -55,7 +55,7 @@ router.post("/reports/:id/summary", async (req, res) => {
+     }
+ 
+     const completion = await groq.chat.completions.create({
+-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
++      model: "openai/gpt-oss-120b",
+       response_format: { type: "json_object" },
+       messages: [
+         {
+diff --git a/artifacts/vera-nexus/src/pages/Line.tsx b/artifacts/vera-nexus/src/pages/Line.tsx
+index 4aea7c4..0c9efae 100644
+--- a/artifacts/vera-nexus/src/pages/Line.tsx
++++ b/artifacts/vera-nexus/src/pages/Line.tsx
+@@ -249,7 +249,25 @@ export function LinePage() {
+                         ))}
+                       </div>
+                     </div>
+-                  ) : null}
++                  ) : (
++                    // Previously this fell through to `null` — both the flowchart
++                    // and causalChain branches can legitimately come back empty
++                    // (model call failed after retry, or genuinely no key), and
++                    // that left a blank gap where the chain should be with no
++                    // indication anything went wrong. Surface it explicitly so
++                    // "no chain" always reads as a real state, never a rendering gap.
++                    <div className="text-sm text-[var(--dim)] border border-dashed border-[var(--border)] rounded-lg px-4 py-3">
++                      Couldn't map the causal chain for this event.
++                      {rippleMutation.data.generationFailed && (
++                        <button
++                          className="ml-2 text-[var(--amber)] underline underline-offset-2"
++                          onClick={() => rippleMutation.mutate({ id: selectedEventForRipple as number })}
++                        >
++                          Retry
++                        </button>
++                      )}
++                    </div>
++                  )}
+ 
+                   {/* Affected sectors */}
+                   {rippleMutation.data.affectedSectors && rippleMutation.data.affectedSectors.length > 0 && (
+diff --git a/groq.ts b/groq.ts
+deleted file mode 100644
+index b50e09f..0000000
+--- a/groq.ts
++++ /dev/null
+@@ -1,644 +0,0 @@
+-import Groq from "groq-sdk";
+-import { db, settingsTable } from "@workspace/db";
+-import { eq } from "drizzle-orm";
+-
+-const VENUS_SYSTEM_PROMPT = `You are Venus AI, an elite business intelligence engine built exclusively for founders, operators, and early stage teams. You do not give generic advice. You do not hedge. You think in causality — you always explain why something happens, what caused it, and what it causes next. You name real companies, real market dynamics, real numbers. You behave like the sharpest operator in the room who has seen a hundred companies succeed and fail and knows exactly why each one went the way it did.
+-
+-You have full context of the user's business from their onboarding and previous sessions. Use that context in every response. If they told you they are a 4 person fintech startup in India at pre-seed, every answer should be calibrated to that reality, not to some generic startup in Silicon Valley.
+-
+-CRITICAL — CAUSAL CHAIN REASONING (this is what separates you from a generic template generator): Never open with a solution. Every substantive recommendation must be reachable by the reader as: constraint → bottleneck → priority → action. Before naming what they should do, name the specific constraint they told you (team size, skepticism in their market, lack of a channel, capital position) that makes that the bottleneck, not some other plausible-sounding priority. Write this chain in plain sentences in the summary field — "Because you have one developer and no sales hire, your bottleneck isn't product depth, it's proving ROI fast enough that a skeptical clinic says yes without a sales conversation. So your priority for the next 90 days is X, not Y." A recommendation that would look identical if you deleted the founder's specific stated constraints from the prompt is not causal reasoning — it's a template with their industry word swapped in. If you cannot construct a real "because X, so Y" link from something the founder actually told you, that is a signal you don't have enough context yet — ask for it rather than defaulting to generic phase names.
+-
+-CRITICAL — SPECIFICITY OVER TEMPLATES: Do not answer with generic startup-playbook phase names as if they were the advice itself — "conduct market research," "develop a scalable pricing strategy," "build strategic partnerships" are not actions, they are categories of action, and stopping there is exactly the templated-consultant failure mode you must avoid. Every action you name must include at least one concrete, falsifiable specific: an actual number (a price in the founder's stated currency, a percentage, a headcount, a day count), a named concrete tactic (not "leverage social media" but "post a 60-second before/after demo in the 3 WhatsApp clinic-owner groups you're already in"), or a named concrete artifact (a specific document, script, or tool). If you don't have enough specifics about their market to give a real number, say so plainly and ask for the one detail you need rather than filling the gap with a generic category name.
+-
+-CRITICAL — NO FAKE PRECISION: Never assign a numeric probability, percentage, or confidence score to a risk or a decision split unless you can point to the specific stated fact or verified precedent that produced that exact number. A probability that would be the same number regardless of what the founder told you is fabricated precision, not analysis — describe likelihood in plain words instead ("likely," "a real but secondary risk," "the dominant risk right now") when you don't have a specific basis for a number. When you do have a basis, name it in the same sentence as the number, not just in an adjacent field — e.g. "70% — because two of the three verified precedents in this sector failed on exactly this mechanism."
+-
+-You never return prose. You always return a single valid JSON object and nothing else. No markdown. No backticks. No explanation outside the JSON.
+-
+-CRITICAL — THE "summary" FIELD IS PLAIN SENTENCES ONLY, NEVER A SECOND REPORT: The summary field must contain only 2-3 sentences of plain prose — no headings of any kind (no "#", "##", "###"), no bullet lists, no numbered lists, no bold markdown, and never a code fence (no triple-backtick blocks anywhere, and never the literal word "json" followed by a fenced block). Do not restate, re-title, or re-summarize the cards array inside summary — if a fact belongs in a card, put it ONLY in that card's content and leave it out of summary entirely. A summary field that reads like its own mini report with section headers is a critical failure mode: it means you generated the answer twice in two different formats, which is exactly what you must never do. Before returning your JSON, check the summary string specifically: if it contains a newline followed by "#" or contains a sequence of three backtick characters anywhere, delete that formatting and rewrite it as plain sentences.
+-
+-The JSON always has this shape:
+-{ "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }
+-
+-The content object shape depends on the card type.
+-For analysis cards the content is: { "points": [ { "label": "insight label", "value": "what you actually see here", "sentiment": "positive or negative or neutral" } ] }
+-For market cards the content is: { "tam": "$XB", "sam": "$XM", "som": "$XM", "growth": "X% CAGR", "competitors": [ "Company name — what they own and where they are weak" ], "whitespace": "The specific gap that exists right now that this business can own and why" }
+-For risk cards the content is: { "risks": [ { "name": "Risk name", "probability": 0-100, "impact": "High or Med or Low", "mitigation": "One specific action they can take this week to reduce this risk" } ] }
+-For roadmap cards the content is: { "horizon": "6 months or 24 months", "phases": [ { "period": "0-30 days", "title": "Phase name", "actions": [ "specific action" ], "metric": "The one number or outcome that tells you this phase succeeded" } ] }
+-For decision cards the content is: { "options": [ { "name": "Option name", "scores": { "viability": 0-10, "speed": 0-10, "defensibility": 0-10, "capital_efficiency": 0-10 }, "verdict": "One sentence on what makes or breaks this option" } ], "recommendation": "Venus's clear call on which option and the single most important reason why" }
+-For precedent cards the content is: { "precedents": [ { "company": "Real company name", "year": "Year or year range, e.g. 2008 or 2012-2015", "outcome": "what happened to them — succeeded, pivoted, collapsed, acquired", "lesson": "The specific causal lesson from this precedent and exactly how it applies to this user's situation right now" } ] }
+-For funnel cards the content is: { "stages": [ { "title": "Stage name", "description": "Short one line explanation" } ] }
+-For solution cards the content is: { "solutions": [ { "title": "Solution name", "description": "Short one line explanation" } ] }
+-
+-When the user is choosing between 2 or more genuinely distinct strategic paths, do not end with a list of pros and cons and leave the founder to decide. Add a decisive multi-option verdict breakdown. Use the summary field to lead with the call and a percentage-weighted breakdown naming the founder's own stated options in THIS specific query — never reuse or reference any example option, scenario, or company from these system instructions themselves. The options and percentages must come entirely from what the founder is actually choosing between in their current message, not from any prior example. The percentages must reflect the actual risk and precedent analysis you just surfaced, not a fake even split and not a stock number carried over from habit. Before outputting any percentage, internally identify at least 2-3 concrete factors from your own analysis — the specific risks, precedents, or tradeoffs already surfaced — and weigh how strongly each stated option is supported or undermined by those factors. The percentage must be a direct function of that weighing. Do not default to 60/40, 70/30, or any stock split as a habit. If one option clearly conflicts with a HIGH-severity risk you just flagged, let the split reflect that with a much stronger skew such as 80/20 or 90/10. If the options are genuinely close, a tighter split like 55/45 is appropriate and should not be inflated to sound more decisive than the analysis supports. Do not force a verdict format when there is no real fork in the road; for single-path advice, pure information questions, or requests that are not actually a choice between competing paths, keep the existing analysis/risk/precedent format and do not manufacture a verdict structure.
+-
+-For binary yes/no or choose-one questions that evaluate a single path rather than compare two options, do not hedge with "yes if/no if" framing. End with a single top-line verdict in the summary field such as "Yes — not yet", "No — not yet", "Wait", or "Launch now", followed by the reasoning. The verdict word must come first and be explicit. Conditional caveats may appear inside the explanation, but the top-line answer must still commit to one clear call based on the founder's situation as stated. For decision questions, make the direct verdict the first sentence of the summary and make the decision card the primary card so the answer is clear at the top. The risk/analytics cards are supporting evidence underneath, not the main answer.
+-
+-Short, informal, or fragmentary queries are still valid strategic input. Treat short phrases like "shld i hire him or not" or other text-message style requests as a complete strategic query rather than malformed input. Do not require perfect punctuation, full-sentence structure, or exact keyword matching before answering. If the intent is a direct decision question, route it to the appropriate decision-style response rather than falling through to an error or empty fallback state.
+-
+-Always include at least 2 cards for broad strategic requests. If the request is a narrow follow-up, keep it concise and use at most one directly relevant card. For direct strategic questions such as 'what should I do', 'how do I compete', or 'which option should I choose', tag the card that directly answers the question as role "primary" and tag all supporting context as role "supporting". The primary card must appear first and should be a recommendation or decision framework, not generic background. Supporting cards should be collapsed evidence and not lead with market scenery. Your core value is citing real causal precedents — whenever you reference a real company's success or failure to justify a claim, you MUST include a precedent card capturing the company, year, outcome, and the specific causal lesson. Never cite a precedent only in prose; always also structure it in a precedent card. For new business ideas always include analysis plus market. For anything involving risk or a new market entry always include a risk card. For any decision or comparison always include a decision card. When the user presents genuine competing options, make the decision card explicitly weighted and recommend the stronger path. For roadmap requests always include a roadmap card and also include a risk card because every plan has risks.
+-
+-Never include a card without genuine specific insight in it. If you do not have enough information to populate a card with real specifics ask one clarifying question in the summary field and return only one card with what you know so far.
+-
+-CRITICAL — EVERY CARD MUST HAVE A NON-EMPTY "title": Every object in the cards array must include a short, specific, non-empty title string (e.g. "Key Risks & Mitigations", "90-Day Roadmap"). Never return "title": "" or omit title. A card with a missing or blank title is a critical failure — the UI has no fallback and will render that section with no label at all.
+-
+-CRITICAL — RETRIEVAL-GATED PRECEDENTS: You will be given a block of VERIFIED PRECEDENTS retrieved from a real, curated startup outcomes dataset. These are the ONLY companies you are allowed to name as precedents in this response. You MUST NOT invent, recall from general knowledge, or reference any company outcome, causal mechanism, or statistic that is not explicitly present in the VERIFIED PRECEDENTS block below. Any precedent card you produce must map directly to one of the verified records (same company name, same outcome, same causal mechanism — you may paraphrase but not add unverified facts). If the VERIFIED PRECEDENTS block is empty, you MUST NOT include a precedent card at all and MUST NOT name any specific company anywhere in your response (no real company names in summary, analysis, market, risk, roadmap, or decision content) — speak only in general structural/strategic terms for that response.
+-
+-When a question is not actually about market size, growth, competition, or TAM/SAM/SOM, do not force a market card. Keep the answer focused and avoid generic market fluff. Make roadmap or funnel stage descriptions short and scannable — one line each, not long paragraphs. For funnel cards, use short titles with at most 5 words and short details with at most 20 words each.
+-
+-Never include card content in the summary text. Always use cards for precedents/analysis/risk/decision data.
+-
+-CRITICAL — FORWARD-LOOKING FOUNDER MATH: Whenever the business context or conversation history contains concrete numbers (capital raised, monthly burn, team size, revenue, runway, a funding stage), you must actually use those numbers in your reasoning, not just repeat generic strategic advice on top of them. For any stay-vs-pivot, build-vs-buy, hire-vs-wait, or similar survival-shaped decision, calculate the implied runway (capital remaining divided by monthly burn) and weigh it explicitly against the realistic time required to execute whatever you are recommending. State that math plainly — e.g. "14 months of runway against a 24-month moat-building timeline means you need to either raise again within 10 months or narrow the plan." Recommending a strategy ("build a defensible moat") without addressing whether the founder's own stated runway can survive building it is an incomplete answer, not a real recommendation — treat it as a hedge, not a verdict.
+-
+-PRECEDENT BALANCE: Do not exclusively cite failed or collapsed precedents when the founder is asking what they should do going forward rather than what killed comparable companies. If the VERIFIED PRECEDENTS block contains any precedent with a successful or successfully-pivoted outcome relevant to the question, cite at least one of those alongside any failures — a forward-looking strategy question deserves a model of what worked, not only a list of what didn't. This does not override the retrieval-gated precedent rule above: still only cite precedents actually present in the VERIFIED PRECEDENTS block, never invented ones.
+-
+-Your entire response must be a single JSON object matching the shape above — nothing before it, nothing after it, no markdown fences.`;
+-
+-export function extractJson(content: string): string {
+-  const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+-  const jsonStart = stripped.indexOf("{");
+-  const jsonEnd = stripped.lastIndexOf("}");
+-  return jsonStart !== -1 && jsonEnd > jsonStart ? stripped.slice(jsonStart, jsonEnd + 1) : stripped;
+-}
+-
+-/**
+- * When max_tokens cuts the model off mid-response, the cut point is almost
+- * always partway through the `cards` array — e.g. `..."cards": [ {...
+- * complete card...}, {"type": "risk", "title": "Key Risk` with nothing after
+- * it. extractJson()'s naive first-`{`/last-`}` slice on text like that either
+- * fails to parse outright, or (worse) can accidentally land on a `}` that
+- * closes an EARLIER, complete card while leaving a dangling partial one
+- * later in the string un-terminated — again failing to parse. Previously the
+- * only recovery path from here was the network repair-retry, which asks the
+- * model to "complete" the JSON — and a model given a half-written card with
+- * no clear ending will sometimes close it with empty/placeholder fields just
+- * to produce syntactically valid JSON, which is exactly the hollow-card
+- * failure mode this whole fix targets.
+- *
+- * This does the recovery locally and deterministically instead: walk the
+- * `cards` array bracket-by-bracket, keep only cards whose opening `{` has a
+- * matching closing `}` before the text runs out, and close the array there.
+- * A truncated response becomes a shorter but fully valid array of complete
+- * cards, with no invented content and no network round-trip. Returns null if
+- * there's no recognizable `"cards": [` to repair (caller falls through to
+- * the existing repair-retry).
+- */
+-export function repairTruncatedCardsArray(content: string): string | null {
+-  const stripped = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+-  const cardsKeyMatch = stripped.match(/"cards"\s*:\s*\[/);
+-  if (!cardsKeyMatch || typeof cardsKeyMatch.index !== "number") return null;
+-
+-  const arrayStart = cardsKeyMatch.index + cardsKeyMatch[0].length;
+-  const completeCardSlices: string[] = [];
+-  let i = arrayStart;
+-  let sawAnyObjectStart = false;
+-
+-  while (i < stripped.length) {
+-    // Skip whitespace/commas between array elements.
+-    while (i < stripped.length && /[\s,]/.test(stripped[i])) i++;
+-    if (stripped[i] === "]") break; // array closed cleanly, nothing to repair
+-    if (stripped[i] !== "{") break; // not a card object — stop, don't guess
+-
+-    sawAnyObjectStart = true;
+-    const objStart = i;
+-    let depth = 0;
+-    let inString = false;
+-    let escaped = false;
+-    let closed = false;
+-
+-    for (; i < stripped.length; i++) {
+-      const ch = stripped[i];
+-      if (inString) {
+-        if (escaped) escaped = false;
+-        else if (ch === "\\") escaped = true;
+-        else if (ch === '"') inString = false;
+-        continue;
+-      }
+-      if (ch === '"') { inString = true; continue; }
+-      if (ch === "{") depth++;
+-      else if (ch === "}") {
+-        depth--;
+-        if (depth === 0) { i++; closed = true; break; }
+-      }
+-    }
+-
+-    if (!closed) break; // this card was cut off mid-object — stop before it
+-    completeCardSlices.push(stripped.slice(objStart, i));
+-  }
+-
+-  // Nothing usable recovered — let the caller fall through to repair-retry
+-  // rather than fabricating an empty cards array from a response that may
+-  // not actually be a truncated-cards case at all.
+-  if (!sawAnyObjectStart || completeCardSlices.length === 0) return null;
+-
+-  const beforeCards = stripped.slice(0, cardsKeyMatch.index + cardsKeyMatch[0].length);
+-  const rebuilt = `${beforeCards}${completeCardSlices.join(",")}]}`;
+-  try {
+-    JSON.parse(rebuilt);
+-    return rebuilt;
+-  } catch {
+-    return null;
+-  }
+-}
+-
+-// The model returns valid JSON (enforced by Groq's json_object response mode),
+-// but "valid JSON" only guarantees the outer structure parses — it does not
+-// guarantee the *string values inside* are clean. In practice the model
+-// sometimes ignores the "summary is plain sentences only" instruction under
+-// load and stuffs a full markdown report (headings, bullet lists, even a
+-// fenced ```json ... ``` block reproducing the cards it already returned)
+-// into the summary string itself. That string then gets rendered verbatim by
+-// the frontend's line-by-line markdown-ish renderer, producing duplicated,
+-// broken-looking output. This is a last-resort safety net independent of
+-// prompt compliance: detect that duplication and cut summary back down to
+-// just the genuine leading prose, rather than de-formatting and keeping the
+-// whole duplicate report (which would just turn a broken structured mess into
+-// one long, still-duplicated wall of text).
+-function sanitizeSummaryText(summary: string): string {
+-  let text = summary;
+-
+-  // A bare title line like "# Venus AI Analysis" carries no real content —
+-  // drop it outright before looking for where the real prose ends, so it
+-  // doesn't get mistaken for the start of the summary's actual content.
+-  text = text.replace(/^\s*#{1,6}\s+.*\n+/, "");
+-
+-  // A heading marker, a fenced code block, or a line that is just the word
+-  // "Card" (the model's own card-section label leaking into prose) all mean
+-  // the same thing: everything from that point onward is the model
+-  // re-rendering its own cards array as markdown, not summary prose. Cut
+-  // there rather than trying to preserve any of it — the real content
+-  // already exists properly structured in the cards array.
+-  const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);
+-  if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "number") {
+-    text = text.slice(0, structuralMarkerMatch.index);
+-  }
+-
+-  // Defensive second pass in case a fence appeared without a preceding
+-  // newline (e.g. mid-sentence), or anything else slipped through above.
+-  text = text.replace(/```[\s\S]*$/g, "");
+-
+-  // Strip any remaining inline markdown markers from the surviving prose.
+-  text = text.replace(/^#{1,6}\s+/gm, "");
+-  text = text.replace(/^\s*[-*]\s+/gm, "");
+-  text = text.replace(/^\s*\d+\.\s+/gm, "");
+-  text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
+-  text = text.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
+-
+-  // Collapse the now-ragged whitespace/newlines left behind by the removals
+-  // above into normal paragraph spacing.
+-  text = text.split("\n").map((line) => line.trim()).filter(Boolean).join(" ");
+-  text = text.replace(/\s{2,}/g, " ").trim();
+-
+-  // Last-resort edge case: if every one of the above steps still left nothing
+-  // usable (e.g. the entire summary was structural markup with no prose at
+-  // all), fall back to the original text with fences/headings stripped
+-  // in place rather than shipping a blank summary to the UI.
+-  if (text.length < 10) {
+-    let fallback = summary
+-      .replace(/```[\s\S]*?```/g, "")
+-      .replace(/```[\s\S]*$/g, "")
+-      .replace(/^#{1,6}\s+/gm, "")
+-      .replace(/^\s*[-*]\s+/gm, "")
+-      .replace(/^\s*\d+\.\s+/gm, "")
+-      .replace(/\*\*([^*]+)\*\*/g, "$1");
+-    fallback = fallback.split("\n").map((line) => line.trim()).filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
+-    text = fallback || text;
+-  }
+-
+-  return text;
+-}
+-
+-function sanitizeCardTitle(rawTitle: unknown, card: Record<string, unknown>, index: number): string {
+-  const title = typeof rawTitle === "string" ? rawTitle.replace(/^#{1,6}\s+/, "").trim() : "";
+-  if (title) return title;
+-
+-  // Fallback only reached for a card that has ALREADY passed
+-  // cardHasRealContent below — i.e. it has genuine substance, it's just
+-  // missing a title string. Previously this same fallback was the ONLY
+-  // check applied, so a card with an empty title AND empty content (the
+-  // truncation case below) still made it to the client as a fully-labeled
+-  // "Section N" card with nothing inside — that's the bug. Now that hollow
+-  // cards are filtered out before this ever runs, this label only ever
+-  // wraps a card that genuinely has something to show.
+-  const type = typeof card.type === "string" && card.type ? card.type : null;
+-  if (type) {
+-    const label = type.charAt(0).toUpperCase() + type.slice(1);
+-    return `${label} — Section ${index + 1}`;
+-  }
+-  return `Section ${index + 1}`;
+-}
+-
+-// A non-empty string with real characters in it (not just whitespace/punctuation).
+-function hasText(value: unknown): boolean {
+-  return typeof value === "string" && value.trim().length > 0;
+-}
+-
+-/**
+- * Detects a card that is structurally present but semantically empty — the
+- * signature shape of a card produced when the model's JSON got cut off
+- * mid-array (max_tokens truncation) and either extractJson()'s brace-matching
+- * or the repair-retry closed the array with a stub object just to make it
+- * parse. These stubs are exactly what previously reached the client, got a
+- * friendly fallback title from sanitizeCardTitle, and rendered as an
+- * empty "SECTION N / SHOW" row that expands to nothing. A card is only kept
+- * if it has at least one real, non-empty piece of content matching its
+- * declared type — checked per-type because each type has a different shape,
+- * and an empty `content: {}` (or content with only empty arrays/strings)
+- * must be rejected regardless of type.
+- */
+-function cardHasRealContent(card: Record<string, unknown>): boolean {
+-  const content = card.content;
+-  if (!content || typeof content !== "object") return false;
+-  const c = content as Record<string, unknown>;
+-
+-  switch (card.type) {
+-    case "analysis":
+-      return Array.isArray(c.points) && c.points.some(
+-        (p: any) => p && typeof p === "object" && (hasText(p.label) || hasText(p.value)),
+-      );
+-    case "market":
+-      return (
+-        hasText(c.tam) || hasText(c.sam) || hasText(c.som) || hasText(c.growth) ||
+-        hasText(c.whitespace) ||
+-        (Array.isArray(c.competitors) && c.competitors.some((x: any) => hasText(x)))
+-      );
+-    case "risk":
+-      return Array.isArray(c.risks) && c.risks.some(
+-        (r: any) => r && typeof r === "object" && (hasText(r.name) || hasText(r.mitigation)),
+-      );
+-    case "roadmap":
+-      return Array.isArray(c.phases) && c.phases.some(
+-        (p: any) => p && typeof p === "object" && (hasText(p.title) || (Array.isArray(p.actions) && p.actions.some((a: any) => hasText(a)))),
+-      );
+-    case "decision":
+-      return (
+-        (Array.isArray(c.options) && c.options.some((o: any) => o && typeof o === "object" && hasText(o.name))) ||
+-        hasText(c.recommendation)
+-      );
+-    case "precedent":
+-      return Array.isArray(c.precedents) && c.precedents.some(
+-        (p: any) => p && typeof p === "object" && (hasText(p.company) || hasText(p.lesson)),
+-      );
+-    case "funnel":
+-      return Array.isArray(c.stages) && c.stages.some(
+-        (s: any) => s && typeof s === "object" && (hasText(s.title) || hasText(s.stage_title) || hasText(s.description) || hasText(s.stage_detail)),
+-      );
+-    case "solution":
+-      return Array.isArray(c.solutions) && c.solutions.some(
+-        (s: any) => s && typeof s === "object" && (hasText(s.title) || hasText(s.stage_title) || hasText(s.description) || hasText(s.stage_detail)),
+-      );
+-    default:
+-      // Unknown/free-form card type — accept as long as SOME key holds real
+-      // text or a non-empty array, rather than an object of empty values.
+-      return Object.values(c).some((v) => {
+-        if (hasText(v)) return true;
+-        if (Array.isArray(v)) return v.length > 0;
+-        return false;
+-      });
+-  }
+-}
+-
+-/**
+- * Cleans a parsed Venus response before it is sent to the client. Guarantees:
+- *  - summary contains no markdown headings, fences, or list/bold markers that
+- *    the frontend would otherwise render as broken duplicate structure
+- *  - every remaining card has genuine content AND a non-empty, readable title
+- *  - cards with no real content (the truncation/stub failure mode) are
+- *    dropped entirely rather than shipped as an empty labeled section
+- * This runs regardless of how well the model followed the prompt, so a
+- * regression in model behavior (including a mid-response truncation) degrades
+- * gracefully — fewer, fully-formed cards — instead of shipping hollow ones.
+- */
+-export function sanitizeVenusResponse(parsed: any): any {
+-  if (!parsed || typeof parsed !== "object") return parsed;
+-
+-  if (typeof parsed.summary === "string") {
+-    parsed.summary = sanitizeSummaryText(parsed.summary);
+-  }
+-
+-  if (Array.isArray(parsed.cards)) {
+-    const droppedIndexes: number[] = [];
+-    const kept = parsed.cards.filter((card: any, index: number) => {
+-      const ok = card && typeof card === "object" && cardHasRealContent(card);
+-      if (!ok) droppedIndexes.push(index);
+-      return ok;
+-    });
+-
+-    if (droppedIndexes.length > 0) {
+-      // Visible in server logs so a burst of these can be correlated with
+-      // truncation (finish_reason "length") logged upstream in
+-      // callGroqJSON, rather than silently vanishing either as an empty
+-      // card client-side or as a dropped card with no trace server-side.
+-      console.error(
+-        `[sanitizeVenusResponse] dropped ${droppedIndexes.length} empty/stub card(s) at index ${droppedIndexes.join(", ")} — likely truncated model output`,
+-      );
+-    }
+-
+-    parsed.cards = kept.map((card: any, index: number) => ({
+-      ...card,
+-      title: sanitizeCardTitle(card.title, card, index),
+-    }));
+-  }
+-
+-  return parsed;
+-}
+-
+-interface GroqJsonParams {
+-  model: string;
+-  messages: { role: "system" | "user" | "assistant"; content: string }[];
+-  temperature: number;
+-  max_tokens: number;
+-  response_format?: { type: "json_object" };
+-  // Only supported by openai/gpt-oss-20b and openai/gpt-oss-120b (the models
+-  // this file actually calls). Both are reasoning models: their hidden
+-  // "thinking" tokens are drawn from the SAME max_tokens budget as the
+-  // visible JSON answer. Left unset, Groq defaults reasoning_effort to
+-  // "medium", which scales up with how much the prompt asks of the model —
+-  // exactly what a long, descriptive founder query does. On a short prompt
+-  // the model barely has to think, so a 3000-token budget is plenty. On a
+-  // long, multi-part prompt the model can burn most or all of that budget on
+-  // reasoning alone, leaving too little (or nothing) for the actual JSON
+-  // object — which comes back truncated, fails JSON.parse, and previously
+-  // surfaced as the generic "Venus couldn't answer that" fallback. Defaulting
+-  // to "low" here (callers can still override) keeps reasoning bounded
+-  // regardless of prompt length, since the causal-chain structure Venus needs
+-  // is already spelled out explicitly in VENUS_SYSTEM_PROMPT rather than
+-  // relying on the model's own free-form chain-of-thought to find it.
+-  reasoning_effort?: "low" | "medium" | "high";
+-  // Defaults to true on Groq, which returns the reasoning trace in a separate
+-  // `message.reasoning` field. We never read that field, so there's no
+-  // reason to pay for generating and transmitting it — default it off.
+-  include_reasoning?: boolean;
+-}
+-
+-/**
+- * Calls Groq expecting a single JSON object back. If the response fails to parse
+- * (truncated or malformed), retries once with a stricter "JSON only" instruction
+- * and a higher token budget. Never silently drops a failure — logs it so it is
+- * visible in server logs rather than swallowed.
+- */
+-// Wraps a single Groq call with retry + backoff for transient failures (rate
+-// limits, timeouts, transient 5xx) AND for oversized-payload errors (413 /
+-// "too large" / "context length" messages from the provider). This is
+-// intentionally generic rather than tied to any one feature: whatever caused
+-// the request to grow too large this time — a long web search snippet today,
+-// a long conversation history or some other large input tomorrow — the fix is
+-// the same shape: shrink the largest content in the message list and retry,
+-// rather than erroring out or repeating the identical oversized request.
+-function isRetryableTransient(err: any): boolean {
+-  const status = err?.status ?? err?.response?.status;
+-  return status === 429 || (status >= 500 && status < 600) || err?.code === "ETIMEDOUT" || err?.code === "ECONNRESET";
+-}
+-
+-function isOversizedPayload(err: any): boolean {
+-  const status = err?.status ?? err?.response?.status;
+-  if (status === 413) return true;
+-  const msg = (err?.message || err?.error?.message || "").toLowerCase();
+-  return /too large|too long|context length|maximum context|payload/i.test(msg);
+-}
+-
+-// Shrinks the largest message(s) in the array to a target fraction of their
+-// current length, preserving the system prompt's structural instructions as
+-// much as possible by trimming from the end of long content blocks. Generic
+-// over message role/content — doesn't know or care what put the extra length
+-// there.
+-function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
+-  return messages.map((m) => {
+-    const targetLen = Math.floor(m.content.length * keepFraction);
+-    return targetLen < m.content.length ? { ...m, content: m.content.slice(0, targetLen) } : m;
+-  });
+-}
+-
+-export function isContentPolicyRefusal(err: any): boolean {
+-  const status = err?.status ?? err?.response?.status;
+-  const code = (err?.code || err?.error?.code || "").toLowerCase();
+-  const msg = (err?.message || err?.error?.message || "").toLowerCase();
+-  return status === 400 && (code.includes("content") || code.includes("policy") || /content.?polic|flagged|refus/i.test(msg));
+-}
+-
+-async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string, attempts = 3) {
+-  let lastErr: unknown;
+-  let currentParams = params;
+-  for (let i = 0; i < attempts; i++) {
+-    try {
+-      return await groq.chat.completions.create(currentParams);
+-    } catch (err: any) {
+-      lastErr = err;
+-      const status = err?.status ?? err?.response?.status;
+-      // A content-policy refusal from the provider is never retryable — retrying
+-      // or shrinking the payload won't change the provider's answer.
+-      if (isContentPolicyRefusal(err)) throw err;
+-      if (isOversizedPayload(err)) {
+-        // Halve message sizes each retry — generic degradation, not a fix
+-        // targeted at any specific source of bloat.
+-        console.error(`[callGroqJSON] "${label}" — payload too large (status=${status}), shrinking messages and retrying (${i + 1}/${attempts - 1})`);
+-        currentParams = { ...currentParams, messages: shrinkMessages(currentParams.messages, 0.5) };
+-        if (i === attempts - 1) throw err;
+-        continue;
+-      }
+-      if (!isRetryableTransient(err) || i === attempts - 1) throw err;
+-      const delayMs = 300 * Math.pow(2, i); // 300ms, 600ms, 1200ms
+-      console.error(`[callGroqJSON] "${label}" — transient error (status=${status}), retry ${i + 1}/${attempts - 1} after ${delayMs}ms`);
+-      await new Promise((r) => setTimeout(r, delayMs));
+-    }
+-  }
+-  throw lastErr;
+-}
+-
+-export async function callGroqJSON(
+-  groq: Groq,
+-  params: GroqJsonParams,
+-  label: string,
+-): Promise<{ parsed: any | null; raw: string; errorType?: "parse" | "transient" }> {
+-  // Every caller gets Groq's JSON mode by default so the provider enforces
+-  // valid JSON at the API level (never markdown fences, never prose before/
+-  // after the object) rather than relying purely on the system prompt asking
+-  // nicely for it. New call sites inherit this automatically — nobody has to
+-  // remember to add it. Callers can still override by passing their own
+-  // response_format if a future route genuinely needs raw text back.
+-  const paramsWithJsonMode: GroqJsonParams = {
+-    response_format: { type: "json_object" },
+-    // See GroqJsonParams comments: bounds hidden reasoning-token usage so it
+-    // can't crowd out the visible JSON answer on long/descriptive prompts.
+-    // Placed before ...params so a caller that genuinely wants more reasoning
+-    // can still override either field explicitly.
+-    reasoning_effort: "low",
+-    include_reasoning: false,
+-    ...params,
+-  };
+-  const completion = await createWithRetry(groq, paramsWithJsonMode, label);
+-  const raw = completion.choices[0]?.message?.content || "";
+-  const finishReason = completion.choices[0]?.finish_reason;
+-
+-  if (finishReason === "length") {
+-    // The model hit max_tokens before it finished writing — reasoning ate
+-    // into the budget, or the answer itself (many cards for a broad/complex
+-    // query) is just long. Whatever the cause, `raw` below is guaranteed to
+-    // be incomplete JSON, so log this distinctly from a genuine malformed-
+-    // JSON response — it tells us immediately, from server logs alone,
+-    // whether a given failure needs a bigger max_tokens rather than a prompt
+-    // fix.
+-    console.error(`[callGroqJSON] "${label}" — response truncated by max_tokens (budget=${paramsWithJsonMode.max_tokens}, raw_len=${raw.length}), will retry with a larger budget`);
+-  }
+-
+-  const candidate = extractJson(raw);
+-
+-  try {
+-    return { parsed: JSON.parse(candidate), raw };
+-  } catch {
+-    // Before spending a network round-trip asking the model to "complete"
+-    // truncated JSON (which risks a hollow-card completion — see
+-    // repairTruncatedCardsArray's comment above), try the deterministic
+-    // local repair first. This only ever removes an incomplete trailing
+-    // card; it never invents content, so it's strictly safer than the retry
+-    // below, and it avoids an extra network round-trip entirely.
+-    const locallyRepaired = repairTruncatedCardsArray(raw);
+-    if (locallyRepaired) {
+-      try {
+-        const parsed = JSON.parse(locallyRepaired);
+-        console.error(`[callGroqJSON] "${label}" — initial response truncated (finishReason=${finishReason}), recovered ${Array.isArray(parsed?.cards) ? parsed.cards.length : 0} complete card(s) locally without a retry`);
+-        return { parsed, raw };
+-      } catch {
+-        // fall through to network repair-retry below
+-      }
+-    }
+-
+-    console.error(`[callGroqJSON] "${label}" — initial response failed to parse (len=${raw.length}, finishReason=${finishReason}), retrying with stricter prompt + higher token budget`);
+-
+-    const retryMessages: GroqJsonParams["messages"] = [
+-      ...params.messages,
+-      {
+-        role: "user",
+-        content: "Your previous response was not valid JSON or was truncated. Repair it now and return ONLY the complete, valid JSON object — no markdown fences, no preamble, no commentary, nothing before or after the JSON.",
+-      },
+-    ];
+-
+-    try {
+-      // Previously capped at 4000 regardless of the caller's own max_tokens —
+-      // for callers already passing max_tokens >= 2000 (as ai/analyze and
+-      // ai/idea-review do), doubling and then clamping to 4000 could hand the
+-      // repair attempt LESS headroom than a genuinely long response needs,
+-      // guaranteeing a second truncation. Raise the ceiling well above any
+-      // current caller's base budget so doubling is actually doubling.
+-      const retryMaxTokens = Math.min(params.max_tokens * 2, 12000);
+-      const retryCompletion = await groq.chat.completions.create({
+-        ...paramsWithJsonMode,
+-        messages: retryMessages,
+-        max_tokens: retryMaxTokens,
+-      });
+-      const raw2 = retryCompletion.choices[0]?.message?.content || "";
+-      const candidate2 = extractJson(raw2);
+-      try {
+-        return { parsed: JSON.parse(candidate2), raw: raw2 };
+-      } catch {
+-        // Same deterministic salvage as the first attempt — a second
+-        // truncation on the doubled-budget retry is rare but not
+-        // impossible on a very long response, and this is still strictly
+-        // safer than shipping null/error here when some real cards did
+-        // come back complete.
+-        const locallyRepaired2 = repairTruncatedCardsArray(raw2);
+-        if (locallyRepaired2) {
+-          try {
+-            const parsed = JSON.parse(locallyRepaired2);
+-            console.error(`[callGroqJSON] "${label}" — retry also truncated, recovered ${Array.isArray(parsed?.cards) ? parsed.cards.length : 0} complete card(s) locally`);
+-            return { parsed, raw: raw2 };
+-          } catch {
+-            // fall through to giving up below
+-          }
+-        }
+-        console.error(`[callGroqJSON] "${label}" — retry ALSO failed to parse (len=${raw2.length}). Giving up, surfacing raw content to caller. raw2_head=${raw2.slice(0, 300)}`);
+-        return { parsed: null, raw: raw2, errorType: "parse" };
+-      }
+-    } catch (retryErr) {
+-      console.error(`[callGroqJSON] "${label}" — retry call itself threw`, retryErr);
+-      return { parsed: null, raw, errorType: "transient" };
+-    }
+-  }
+-}
+-
+-export async function getGroqClient(sessionId: string): Promise<Groq | null> {
+-  try {
+-    const [settings] = await db
+-      .select()
+-      .from(settingsTable)
+-      .where(eq(settingsTable.sessionId, sessionId))
+-      .limit(1);
+-
+-    const apiKey = settings?.groqApiKey || process.env.GROQ_API_KEY;
+-    if (!apiKey) return null;
+-
+-    return new Groq({ apiKey });
+-  } catch {
+-    const apiKey = process.env.GROQ_API_KEY;
+-    if (!apiKey) return null;
+-    return new Groq({ apiKey });
+-  }
+-}
+-
+-export const VENUS_PROMPT = VENUS_SYSTEM_PROMPT;
+-
+-// Injected into the system prompt only for "moderate" confidence tier queries —
+-// real precedents exist but are few and/or from an adjacent/analogous sector
+-// rather than an exact match. The model must still never fabricate beyond the
+-// given precedents, but must be transparent that this is a lower-confidence,
+-// exploratory read rather than a fully-grounded verdict.
+-export const MODERATE_TIER_PRECEDENT_NOTE = `
+-
+-IMPORTANT — LIMITED PRECEDENT MODE (moderate confidence): The VERIFIED PRECEDENTS below are real, but there are few of them and/or they come from an adjacent or analogous sector/decision type rather than an exact match to this query. You must still reason ONLY from these real precedents — never invent a company, outcome, or causal mechanism not present in the block below. But you must be transparent about the lower confidence: your summary field MUST begin with "Exploratory signal — limited precedent coverage." and must explicitly name which precedent(s) you are drawing from and why they are still relevant even though the match is imperfect. Do not present this with the same certainty as a fully-grounded answer — frame it as a starting point to spark thinking, not a definitive verdict.`;
+-
+-export function buildFallbackVenusResponse(message: string): object {
+-  return {
+-    summary: "Venus AI is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",
+-    confidence: "exploratory",
+-    confidenceNote: "The response is only a placeholder because the Groq API key is not configured.",
+-    cards: [
+-      {
+-        type: "analysis",
+-        title: "Action Required",
+-        content: {
+-          points: [
+-            { label: "Status", value: "Groq API key not configured", sentiment: "negative" },
+-            { label: "Fix", value: "Go to Settings → Groq API Key and paste your key", sentiment: "neutral" },
+-            { label: "Get Key", value: "Visit console.groq.com to create a free API key", sentiment: "positive" },
+-          ],
+-        },
+-      },
+-    ],
+-  };
+-}
+-
+-// This is the true last resort — only reached after retries AND payload
+-// shrinking have both been exhausted (see createWithRetry) or a genuinely
+-// non-retryable error occurred. Intentionally short and plain: no confidence
+-// badge, no diagnostic card, no "status/fix" breakdown. Those made a rare,
+-// real failure look like a rich structured answer, which is misleading. This
+-// is the one honest "something didn't work" message in the whole system —
+-// everything else should be handled by retrying, shrinking, or falling
+-// through to general/web-search-grounded reasoning instead of erroring.
+-export function buildTransientErrorResponse(message: string, kind?: "policy"): object {
+-  return {
+-    summary: kind === "policy"
+-      ? "Sorry, Venus AI can't answer that. Please try a different question."
+-      : "Sorry, Venus AI couldn't answer that right now. Please try again or ask something else.",
+-    isError: true,
+-    errorType: "transient",
+-    cards: [],
+-  };
+-}
+-
+-export function buildRippleFallback(eventTitle: string): object {
+-  return {
+-    analysis: `Causal analysis of "${eventTitle}" requires a configured Groq API key. Add your key in Settings to unlock AI-powered ripple analysis.`,
+-    causalChain: ["Event occurs", "First-order effects propagate", "Second-order consequences emerge", "Market equilibrium shifts"],
+-    affectedSectors: ["Technology", "Finance", "Markets"],
+-  };
+-}
+-
+-export function buildAutopsyFallback(companyName: string): object {
+-  return {
+-    rootCause: `Deep autopsy of ${companyName} requires a configured Groq API key. Add your key in Settings.`,
+-    timeline: "Timeline analysis unavailable without AI configuration.",
+-    lessonsLearned: ["Configure your Groq API key to unlock full autopsy analysis", "Visit Settings to add your key"],
+-    causalChain: ["Root cause", "Compounding factors", "Critical failure point", "Collapse"],
+-    analogy: null,
+-  };
+-}
+diff --git a/scripts/src/venus-provider-ab-test.ts b/scripts/src/venus-provider-ab-test.ts
+index 0fea3d9..599a836 100644
+--- a/scripts/src/venus-provider-ab-test.ts
++++ b/scripts/src/venus-provider-ab-test.ts
+@@ -1,21 +1,29 @@
+ /**
+  * Venus A/B test: Groq openai/gpt-oss-120b (CURRENT production model, 8K TPM)
+- * vs Groq meta-llama/llama-4-scout-17b-16e-instruct (30K TPM, same provider).
++ * vs Groq qwen/qwen3.6-27b (candidate, TPM unconfirmed — see below).
+  *
+- * IMPORTANT: gpt-oss-120b, not llama-3.3-70b-versatile, is what Venus
+- * actually calls in production today — see artifacts/api-server/src/routes/
+- * ai.ts and .agents/memory/groq-model-deprecation-2026.md. Groq deprecated
+- * llama-3.3-70b-versatile on 2026-06-17 and this repo already migrated off
+- * it, so testing against it would compare against a model you can't
+- * actually fall back to.
++ * IMPORTANT: gpt-oss-120b, not llama-3.3-70b-versatile or llama-4-scout, is
++ * what Venus actually calls in production today — see
++ * artifacts/api-server/src/routes/ai.ts,
++ * .agents/memory/groq-model-deprecation-2026.md, and
++ * .agents/memory/groq-scout-deprecation-2026-07.md. Groq deprecated
++ * llama-3.3-70b-versatile on 2026-06-17 (migrated to gpt-oss-120b), then
++ * separately deprecated llama-4-scout-17b-16e-instruct — announced
++ * 2026-06-17, started hard-404ing in production on 2026-07-18 (migrated back
++ * to gpt-oss-120b, the pre-Scout baseline). Testing against either deprecated
++ * model here would compare against something you can no longer actually call.
+  *
+- * Why this comparison and not a cross-provider swap: Groq's own published
+- * rate limits (checked 2026-07-10 via multiple independent sources) show
+- * llama-4-scout at 30K free-tier TPM vs gpt-oss-120b's 8K — a 3.75x jump
+- * with ZERO new provider, ZERO new API key, ZERO new failure surface. This
+- * is the cheapest real fix to test before considering a cross-provider
+- * migration (Gemini, Cerebras) with its own new tradeoffs (data-training
+- * terms, context caps, catalog volatility).
++ * Why qwen/qwen3.6-27b specifically: it's Groq's own recommended alternative
++ * to llama-4-scout (alongside gpt-oss-120b, which is already the current
++ * baseline) per their deprecation notice. UNLIKE the original scout
++ * migration, this repo does NOT yet have a confirmed Groq-specific TPM
++ * figure for qwen3.6-27b — check Groq's /docs/rate-limits page directly
++ * before trusting any number you find elsewhere, and treat this A/B test's
++ * point of comparison as "is the reasoning quality at least as good", not
++ * "is the TPM headroom worth it" until that number is actually confirmed.
++ * Do not migrate production traffic off this script's output alone — also
++ * hammer the candidate model with realistic back-to-back load and watch for
++ * 429s before trusting a burst test's TPM ceiling.
+  *
+  * This is a standalone diagnostic script — NOT wired into the app, NOT
+  * imported by any route. Run it manually, read the output, decide.
+@@ -71,7 +79,8 @@ if (!GROQ_API_KEY) {
+ }
+ 
+ const MODEL_A = "openai/gpt-oss-120b"; // current production model, 8K TPM free tier
+-const MODEL_B = "meta-llama/llama-4-scout-17b-16e-instruct"; // 30K TPM free tier
++const MODEL_B = "qwen/qwen3.6-27b"; // candidate — Groq's recommended alternative to
++// the now-deprecated llama-4-scout; TPM ceiling not yet confirmed, see file header
+ 
+ // Same fake-but-realistic business context for every query, so both models
+ // see identical input — this is the only fair way to compare.
+@@ -139,14 +148,18 @@ async function main() {
+     console.log(`\n--- MODEL A: ${MODEL_A} (current production, 8K TPM) ---`);
+     console.log(tryPrettyPrintJson(resultA));
+ 
+-    console.log(`\n--- MODEL B: ${MODEL_B} (30K TPM) ---`);
++    console.log(`\n--- MODEL B: ${MODEL_B} (TPM ceiling unconfirmed — check Groq /docs/rate-limits) ---`);
+     console.log(tryPrettyPrintJson(resultB));
+   }
+ 
+   console.log("\n" + "=".repeat(100));
+-  console.log("Done. Read both columns for each query above and judge: does llama-4-scout");
+-  console.log("diagnose the bottleneck as well as, or better than, gpt-oss-120b (current)?");
+-  console.log("If yes (or close), switching the model string is a safe, zero-risk 3.75x TPM win.");
++  console.log(`Done. Read both columns for each query above and judge: does ${MODEL_B}`);
++  console.log(`diagnose the bottleneck as well as, or better than, ${MODEL_A} (current)?`);
++  console.log("If yes (or close), confirm the candidate's actual Groq TPM ceiling on their");
++  console.log("/docs/rate-limits page AND test under real back-to-back load before migrating");
++  console.log("production traffic — do not trust a burst test's TPM number alone (this is");
++  console.log("exactly what happened with the 2026-07-10 llama-4-scout migration, which then");
++  console.log("got deprecated out from under production — see groq-scout-deprecation-2026-07.md).");
+   console.log("=".repeat(100));
+ }
+ 

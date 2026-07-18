@@ -1,21 +1,29 @@
 /**
  * Venus A/B test: Groq openai/gpt-oss-120b (CURRENT production model, 8K TPM)
- * vs Groq meta-llama/llama-4-scout-17b-16e-instruct (30K TPM, same provider).
+ * vs Groq qwen/qwen3.6-27b (candidate, TPM unconfirmed — see below).
  *
- * IMPORTANT: gpt-oss-120b, not llama-3.3-70b-versatile, is what Venus
- * actually calls in production today — see artifacts/api-server/src/routes/
- * ai.ts and .agents/memory/groq-model-deprecation-2026.md. Groq deprecated
- * llama-3.3-70b-versatile on 2026-06-17 and this repo already migrated off
- * it, so testing against it would compare against a model you can't
- * actually fall back to.
+ * IMPORTANT: gpt-oss-120b, not llama-3.3-70b-versatile or llama-4-scout, is
+ * what Venus actually calls in production today — see
+ * artifacts/api-server/src/routes/ai.ts,
+ * .agents/memory/groq-model-deprecation-2026.md, and
+ * .agents/memory/groq-scout-deprecation-2026-07.md. Groq deprecated
+ * llama-3.3-70b-versatile on 2026-06-17 (migrated to gpt-oss-120b), then
+ * separately deprecated llama-4-scout-17b-16e-instruct — announced
+ * 2026-06-17, started hard-404ing in production on 2026-07-18 (migrated back
+ * to gpt-oss-120b, the pre-Scout baseline). Testing against either deprecated
+ * model here would compare against something you can no longer actually call.
  *
- * Why this comparison and not a cross-provider swap: Groq's own published
- * rate limits (checked 2026-07-10 via multiple independent sources) show
- * llama-4-scout at 30K free-tier TPM vs gpt-oss-120b's 8K — a 3.75x jump
- * with ZERO new provider, ZERO new API key, ZERO new failure surface. This
- * is the cheapest real fix to test before considering a cross-provider
- * migration (Gemini, Cerebras) with its own new tradeoffs (data-training
- * terms, context caps, catalog volatility).
+ * Why qwen/qwen3.6-27b specifically: it's Groq's own recommended alternative
+ * to llama-4-scout (alongside gpt-oss-120b, which is already the current
+ * baseline) per their deprecation notice. UNLIKE the original scout
+ * migration, this repo does NOT yet have a confirmed Groq-specific TPM
+ * figure for qwen3.6-27b — check Groq's /docs/rate-limits page directly
+ * before trusting any number you find elsewhere, and treat this A/B test's
+ * point of comparison as "is the reasoning quality at least as good", not
+ * "is the TPM headroom worth it" until that number is actually confirmed.
+ * Do not migrate production traffic off this script's output alone — also
+ * hammer the candidate model with realistic back-to-back load and watch for
+ * 429s before trusting a burst test's TPM ceiling.
  *
  * This is a standalone diagnostic script — NOT wired into the app, NOT
  * imported by any route. Run it manually, read the output, decide.
@@ -71,7 +79,8 @@ if (!GROQ_API_KEY) {
 }
 
 const MODEL_A = "openai/gpt-oss-120b"; // current production model, 8K TPM free tier
-const MODEL_B = "meta-llama/llama-4-scout-17b-16e-instruct"; // 30K TPM free tier
+const MODEL_B = "qwen/qwen3.6-27b"; // candidate — Groq's recommended alternative to
+// the now-deprecated llama-4-scout; TPM ceiling not yet confirmed, see file header
 
 // Same fake-but-realistic business context for every query, so both models
 // see identical input — this is the only fair way to compare.
@@ -139,14 +148,18 @@ async function main() {
     console.log(`\n--- MODEL A: ${MODEL_A} (current production, 8K TPM) ---`);
     console.log(tryPrettyPrintJson(resultA));
 
-    console.log(`\n--- MODEL B: ${MODEL_B} (30K TPM) ---`);
+    console.log(`\n--- MODEL B: ${MODEL_B} (TPM ceiling unconfirmed — check Groq /docs/rate-limits) ---`);
     console.log(tryPrettyPrintJson(resultB));
   }
 
   console.log("\n" + "=".repeat(100));
-  console.log("Done. Read both columns for each query above and judge: does llama-4-scout");
-  console.log("diagnose the bottleneck as well as, or better than, gpt-oss-120b (current)?");
-  console.log("If yes (or close), switching the model string is a safe, zero-risk 3.75x TPM win.");
+  console.log(`Done. Read both columns for each query above and judge: does ${MODEL_B}`);
+  console.log(`diagnose the bottleneck as well as, or better than, ${MODEL_A} (current)?`);
+  console.log("If yes (or close), confirm the candidate's actual Groq TPM ceiling on their");
+  console.log("/docs/rate-limits page AND test under real back-to-back load before migrating");
+  console.log("production traffic — do not trust a burst test's TPM number alone (this is");
+  console.log("exactly what happened with the 2026-07-10 llama-4-scout migration, which then");
+  console.log("got deprecated out from under production — see groq-scout-deprecation-2026-07.md).");
   console.log("=".repeat(100));
 }
 

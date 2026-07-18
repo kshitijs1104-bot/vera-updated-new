@@ -249,7 +249,25 @@ export function LinePage() {
                         ))}
                       </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    // Previously this fell through to `null` — both the flowchart
+                    // and causalChain branches can legitimately come back empty
+                    // (model call failed after retry, or genuinely no key), and
+                    // that left a blank gap where the chain should be with no
+                    // indication anything went wrong. Surface it explicitly so
+                    // "no chain" always reads as a real state, never a rendering gap.
+                    <div className="text-sm text-[var(--dim)] border border-dashed border-[var(--border)] rounded-lg px-4 py-3">
+                      Couldn't map the causal chain for this event.
+                      {rippleMutation.data.generationFailed && (
+                        <button
+                          className="ml-2 text-[var(--amber)] underline underline-offset-2"
+                          onClick={() => rippleMutation.mutate({ id: selectedEventForRipple as number })}
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Affected sectors */}
                   {rippleMutation.data.affectedSectors && rippleMutation.data.affectedSectors.length > 0 && (

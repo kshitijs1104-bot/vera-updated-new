@@ -12,9 +12,11 @@ CRITICAL — EVIDENCE-FIRST REASONING (this replaces jumping straight to a singl
 
 2. GENERATE COMPETING HYPOTHESES: From those observations, generate at least 2, ideally 3, genuinely different candidate explanations — not one obvious story plus two throwaway alternatives you don't really consider. Each hypothesis should be the kind of explanation a different experienced operator might reasonably reach for first. If you can only think of one hypothesis, that itself is a signal you're pattern-matching to a heuristic rather than actually reasoning from the specific observations — push yourself to find the second and third.
 
-3. ASSESS EACH HYPOTHESIS QUALITATIVELY: For each hypothesis, state a confidence level of LOW, MEDIUM, or HIGH based ONLY on how well the founder's actual stated observations support it — never a numeric probability here (that is a separate, narrower exception covered in NO FAKE PRECISION below, and does not apply to hypothesis confidence). HIGH means the founder's own words directly and specifically support this explanation over the alternatives. MEDIUM means it's a reasonable read consistent with the observations but not confirmed — most heuristic-based reasoning belongs here, explicitly labeled as such, not silently upgraded to sound certain. LOW means it's plausible in general but has weak or no support from what's actually been stated.
+CRITICAL — A HYPOTHESIS MUST NAME A MECHANISM, NOT RESTATE A POSITION: "Growth is sustainable," "growth is unsustainable," and "growth is masked" are not three hypotheses — they are three stances on the same yes/no question the founder already asked, dressed up as if they were separate explanations. A real hypothesis names the specific mechanism that would have produced the observations if it were true — e.g. not "the metric is fine" but "the company moved down-market into a segment with lower acquisition cost and comparable retention," not "the metric is bad" but "the company is buying growth through increasingly inefficient, subsidized acquisition." Fail-test before finalizing each hypothesis: if you deleted the founder's specific observations, would this hypothesis and its "opposite" still just read as two ends of the original question restated? If yes, both are too abstract — go one level deeper into the actual causal mechanism until each hypothesis could be wrong or right independently of the others, not merely be each other's negation.
 
-4. NAME WHAT'S MISSING: For each hypothesis, state the single most useful piece of evidence that would confirm or rule it out. This is what makes the reasoning falsifiable rather than just a list of guesses — e.g. "if new-signup rate held flat while revenue dropped, that points away from acquisition and toward retention" is a real test; "more data would help" is not. When more than one hypothesis is still live, go one step further and name which single piece of missing evidence is the highest-value one to get first — the one that would eliminate or downgrade the most hypotheses at once, not just the one attached to your favorite explanation. State it as a prioritization, not a data request: "the highest-value unknown is whether the drop is lead generation or conversion — that one number rules out two of the three explanations at once," not a plain "we need more sales data."
+3. ASSESS EACH HYPOTHESIS QUALITATIVELY, THEN RANK THEM AGAINST EACH OTHER: For each hypothesis, state a confidence level of LOW, MEDIUM, or HIGH based ONLY on how well the founder's actual stated observations support it — never a numeric probability here (that is a separate, narrower exception covered in NO FAKE PRECISION below, and does not apply to hypothesis confidence). HIGH means the founder's own words directly and specifically support this explanation over the alternatives. MEDIUM means it's a reasonable read consistent with the observations but not confirmed — most heuristic-based reasoning belongs here, explicitly labeled as such, not silently upgraded to sound certain. LOW means it's plausible in general but has weak or no support from what's actually been stated. Labeling each hypothesis in isolation is not enough — after assessing all of them, state in one sentence which hypothesis currently leads and specifically what makes it beat the others (e.g. "H2 leads over H1 because the founder's own churn numbers moved in the direction H2 predicts and H1 predicts the opposite"), or state plainly that two or more are genuinely tied and why nothing in the observations separates them yet. A set of confidence labels with no stated leader or explicit tie is an incomplete comparison, not a finished one.
+
+4. NAME WHAT'S MISSING: For each hypothesis, state the single most useful piece of evidence that would confirm or rule it out. This is what makes the reasoning falsifiable rather than just a list of guesses — e.g. "if new-signup rate held flat while revenue dropped, that points away from acquisition and toward retention" is a real test; "more data would help" is not. When more than one hypothesis is still live, go one step further and name which single piece of missing evidence is the highest-value one to get first — the one that would eliminate or downgrade the most hypotheses at once, not just the one attached to your favorite explanation. State it as a prioritization, not a data request: "the highest-value unknown is whether the drop is lead generation or conversion — that one number rules out two of the three explanations at once," not a plain "we need more sales data." CRITICAL — JUSTIFY THE METRIC BY WHAT IT SEPARATES, NOT BY GENERAL RELEVANCE: A metric is not the highest-value one just because it's generally relevant to the topic (e.g. CAC is "relevant" to almost any growth question). It only earns that label if you can name which specific hypotheses from step 2 it would move apart — state it explicitly: "X, not Y, is the highest-value metric because if X comes back high, it supports H1 and rules out H2; if X comes back low, the reverse." A metric you cannot tie to at least two specific hypotheses splitting apart is a plausible-sounding default, not a reasoned choice — replace it with one you can tie to the actual hypothesis set on the table.
 
 5. ONLY THEN RECOMMEND: If one hypothesis is clearly better supported (HIGH vs the others at MEDIUM/LOW), you may lead with it directly and the existing CAUSAL CHAIN REASONING section below governs how you write that up. If two or more hypotheses remain genuinely close in confidence, say so plainly instead of forcing a single narrative — recommend the action that is either useful across multiple hypotheses, or the specific next step that would surface the missing evidence from step 4 fastest. Do not manufacture false certainty just to produce a clean one-line bottleneck when the evidence doesn't actually support singling one out yet.
 
@@ -468,18 +470,29 @@ function isRetryableTransient(err: any): boolean {
 // 429 rate-limit failures on 3/4 back-to-back test queries, while scout
 // answered all 4 with comparable-or-better bottleneck-first reasoning and
 // correctly grounded confidenceNote tiering. See that script's file header
-// for the full comparison methodology. Verify current values on Groq's
-// /docs/rate-limits page before trusting these numbers long-term — these
-// change over time and were last confirmed 2026-07-10 via Groq's own docs
-// plus multiple independent sources.
+// for the full comparison methodology.
+//
+// REVERTED back to openai/gpt-oss-120b on 2026-07-18: Groq deprecated
+// meta-llama/llama-4-scout-17b-16e-instruct outright (announced 2026-06-17,
+// effective on free/developer tier), and every call to it now returns a
+// hard 404 model_not_found — not a rate limit, not recoverable by retrying.
+// Groq's own deprecation notice recommends either openai/gpt-oss-120b or
+// qwen/qwen3.6-27b as the replacement; gpt-oss-120b was chosen because it's
+// the exact model this file ran on before the 2026-07-10 migration (known
+// TPM ceiling, already has reasoning_effort support wired up below) rather
+// than a new, unverified integration. This does mean giving back the 30K
+// TPM headroom scout provided — the 429 risk the original migration was
+// trying to avoid is real again, so watch server logs for 429s on this
+// model and re-run the A/B script against qwen/qwen3.6-27b if they recur.
+// Verify current values on Groq's /docs/rate-limits page before trusting
+// these numbers long-term — these change over time and were last confirmed
+// 2026-07-18.
 //
 // NOTE: the lighter-tier openai/gpt-oss-20b extraction/summarization routes
 // (/ai/company-report, /ai/summarize-article, enrich_precedents.ts) were
-// NOT part of this test and were not switched — they stay on gpt-oss-20b
-// unless a separate test justifies moving them too. Since gpt-oss-20b's real
-// ceiling (8000 TPM) is well below llama-4-scout's (30000 TPM), the TPM
-// limit below is a PER-MODEL map, not a single constant — see
-// GROQ_TPM_LIMIT_BY_MODEL a few lines down.
+// NOT part of either migration and stay on gpt-oss-20b unless a separate
+// test justifies moving them. The TPM limit below is a PER-MODEL map, not a
+// single constant — see GROQ_TPM_LIMIT_BY_MODEL a few lines down.
 const TPM_SAFETY_MARGIN = 0.85;
 // Floor for max_tokens: below this, JSON responses (multi-card schema) don't
 // reliably complete before truncating, so there's no point shrinking further
@@ -494,12 +507,17 @@ function estimateTokens(text: string): number {
 }
 
 const GROQ_TPM_LIMIT_BY_MODEL: Record<string, number> = {
+  // Deprecated by Groq (2026-06-17 notice, enforced as of 2026-07-18) — hard
+  // 404 model_not_found on every call now, not a rate limit. Kept in this
+  // map (rather than deleted) only so a stray call site that still names it
+  // fails with a clamped, informative request instead of an undefined TPM
+  // lookup — but every real call site in this codebase has been migrated
+  // off it back to openai/gpt-oss-120b below.
   "meta-llama/llama-4-scout-17b-16e-instruct": 30000,
   "openai/gpt-oss-20b": 8000,
-  "openai/gpt-oss-120b": 8000, // no longer called by this file as of the
-  // 2026-07-10 migration, kept here in case a future rollback or a new call
-  // site reintroduces it — removing the entry would silently fall through
-  // to DEFAULT_GROQ_TPM_LIMIT below.
+  "openai/gpt-oss-120b": 8000, // current production model for all Venus
+  // reasoning routes as of the 2026-07-18 revert — see migration comment
+  // above for why.
 };
 const DEFAULT_GROQ_TPM_LIMIT = 8000; // conservative fallback for any model
 // string not in the map above (e.g. a new model added later without

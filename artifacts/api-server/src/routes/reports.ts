@@ -55,7 +55,7 @@ router.post("/reports/:id/summary", async (req, res) => {
     }
 
     const completion = await groq.chat.completions.create({
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model: "openai/gpt-oss-120b",
       response_format: { type: "json_object" },
       messages: [
         {
