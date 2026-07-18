@@ -481,6 +481,26 @@ function isRetryableTransient(err: any): boolean {
 // NOT part of either migration and stay on gpt-oss-20b unless a separate
 // test justifies moving them. The TPM limit below is a PER-MODEL map, not a
 // single constant — see GROQ_TPM_LIMIT_BY_MODEL a few lines down.
+//
+// UPGRADED Groq org to the paid Developer tier on 2026-07-18, same day as
+// the revert above — the free tier's 8K TPM ceiling for gpt-oss-120b was
+// the actual root cause of the recurring 429s (VENUS_SYSTEM_PROMPT alone
+// is ~6-7K tokens post prompt-compression, which left almost no headroom
+// under an 8K/min budget once business context + history + the founder's
+// message were added). Groq's Developer tier lists ~250,000-300,000 TPM for
+// most production text models, a large enough jump that free-tier-style
+// 429s should stop entirely rather than needing further tuning.
+//
+// IMPORTANT — this code change alone does nothing until billing is actually
+// linked: log into console.groq.com -> Settings -> Billing and add a
+// payment method for this org, THEN confirm the real per-model number on
+// console.groq.com's Limits page (organization-level, not per-key) before
+// trusting the constant below in production. The value here is a
+// deliberately conservative estimate under Groq's quoted 250K-300K range —
+// tighten or loosen it once you've read the actual number off the
+// dashboard. Cost at this usage volume should be a few dollars a month at
+// gpt-oss-120b's $0.15 / $0.60 per-million-token rate, not a real expense
+// relative to the product's $199-299/mo price point.
 const TPM_SAFETY_MARGIN = 0.85;
 // Floor for max_tokens: below this, JSON responses (multi-card schema) don't
 // reliably complete before truncating, so there's no point shrinking further
@@ -502,15 +522,27 @@ const GROQ_TPM_LIMIT_BY_MODEL: Record<string, number> = {
   // lookup — but every real call site in this codebase has been migrated
   // off it back to openai/gpt-oss-120b below.
   "meta-llama/llama-4-scout-17b-16e-instruct": 30000,
-  "openai/gpt-oss-20b": 8000,
-  "openai/gpt-oss-120b": 8000, // current production model for all Venus
+  // Both gpt-oss models moved from the 8,000 TPM free-tier ceiling to a
+  // conservative 240,000 once the Groq org was upgraded to the paid
+  // Developer tier on 2026-07-18 (see migration comment above). Groq quotes
+  // 250,000-300,000 TPM for most production models on that tier — 240,000
+  // leaves headroom below the low end of that range rather than assuming
+  // the best case. CONFIRM the real number for this specific org on
+  // console.groq.com's Limits page and adjust these two constants to match;
+  // do not assume gpt-oss-20b and gpt-oss-120b get an identical number just
+  // because they're set equal here.
+  "openai/gpt-oss-20b": 240000,
+  "openai/gpt-oss-120b": 240000, // current production model for all Venus
   // reasoning routes as of the 2026-07-18 revert — see migration comment
   // above for why.
 };
 const DEFAULT_GROQ_TPM_LIMIT = 8000; // conservative fallback for any model
 // string not in the map above (e.g. a new model added later without
 // updating this file) — better to over-clamp an unrecognized model than
-// find out it's wrong via a 429 in production.
+// find out it's wrong via a 429 in production. Deliberately left at the
+// free-tier figure rather than scaled up with the Developer-tier change
+// above: an unrecognized model name is exactly the case where over-clamping
+// is the safe default, not the case to extend paid-tier trust to.
 function tpmLimitForModel(model: string): number {
   return GROQ_TPM_LIMIT_BY_MODEL[model] ?? DEFAULT_GROQ_TPM_LIMIT;
 }
