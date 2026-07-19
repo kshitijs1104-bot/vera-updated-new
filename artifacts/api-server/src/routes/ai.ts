@@ -6,6 +6,7 @@ import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
+import { requireAuth, requireUserId } from "../middlewares/auth";
 
 const router = Router();
 
@@ -567,12 +568,17 @@ function buildInsufficientPrecedentResponse(query: string, retrieval: RetrievalR
   };
 }
 
-router.post("/ai/analyze", async (req, res) => {
+router.post("/ai/analyze", requireAuth, async (req, res) => {
   const body = VenusAnalyzeBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
   try {
-    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    // Previously `(req.headers["x-session-id"] as string) || req.ip || "default"`
+    // — req.ip is unstable across NAT/mobile-network/VPN hops and shared by
+    // anyone on the same network, so decision history, roadmap cards, and
+    // (once built) Goal state could leak between unrelated people. Now backed
+    // by a Clerk-verified user id via requireAuth above.
+    const sessionId = requireUserId(req);
     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
     const groq = headerKey
       ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
@@ -820,12 +826,12 @@ router.post("/ai/analyze", async (req, res) => {
   }
 });
 
-router.post("/ai/idea-review", async (req, res) => {
+router.post("/ai/idea-review", requireAuth, async (req, res) => {
   const body = IdeaReviewBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: "Invalid request body" });
 
   try {
-    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const sessionId = requireUserId(req);
     const headerKey = req.headers["x-groq-api-key"] as string | undefined;
     const groq = headerKey
       ? new (await import("groq-sdk").then(m => m.default))({ apiKey: headerKey })
@@ -910,9 +916,9 @@ const ReportOutcomeBody = z.object({
 // one and are feeding retrieval. This is what lets the UI show a founder a
 // running list of "here's what Venus told you and what's still unresolved,"
 // which is also the natural place to prompt them to report back.
-router.get("/ai/decisions", async (req, res) => {
+router.get("/ai/decisions", requireAuth, async (req, res) => {
   try {
-    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const sessionId = requireUserId(req);
     const rows = await db
       .select()
       .from(venusDecisionsTable)
@@ -933,7 +939,7 @@ router.get("/ai/decisions", async (req, res) => {
 // Venus derives a short causal "lesson" from the reported outcome using the
 // same JSON-calling infrastructure as the main analyze route, so the lesson
 // is immediately usable in future prompts without extra parsing at query time.
-router.post("/ai/decisions/:id/outcome", async (req, res) => {
+router.post("/ai/decisions/:id/outcome", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid decision id" });
 
@@ -941,7 +947,7 @@ router.post("/ai/decisions/:id/outcome", async (req, res) => {
   if (!body.success) return res.status(400).json({ error: "Invalid request body — 'outcome' (string) is required" });
 
   try {
-    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const sessionId = requireUserId(req);
     const [existing] = await db
       .select()
       .from(venusDecisionsTable)
@@ -999,12 +1005,12 @@ router.post("/ai/decisions/:id/outcome", async (req, res) => {
   }
 });
 
-router.post("/ai/company-report", async (req, res) => {
+router.post("/ai/company-report", requireAuth, async (req, res) => {
   try {
     const { companyName, context } = req.body as { companyName?: string; context?: string };
     if (!companyName) return res.status(400).json({ error: "companyName is required" });
 
-    const sessionId = (req.headers["x-session-id"] as string) || req.ip || "default";
+    const sessionId = requireUserId(req);
     const groq = await getGroqClient(sessionId);
 
     if (!groq) {

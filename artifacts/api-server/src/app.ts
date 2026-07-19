@@ -3,6 +3,14 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { clerkMiddleware } from "./middlewares/auth";
+
+if (!process.env["CLERK_SECRET_KEY"]) {
+  throw new Error(
+    "CLERK_SECRET_KEY environment variable is required but was not provided. " +
+      "Set it in your Replit Secrets — see artifacts/api-server/.env.example.",
+  );
+}
 
 const app: Express = express();
 
@@ -38,6 +46,12 @@ app.use(
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Reads and verifies the Clerk session token on every request (Authorization
+// header or __session cookie) and makes it available via getAuth(req) in any
+// downstream handler. Does not reject unauthenticated requests on its own —
+// routes that must be signed-in use requireAuth from ./middlewares/auth.
+app.use(clerkMiddleware());
 
 app.use("/api", router);
 

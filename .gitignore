@@ -47,3 +47,10 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Environment files — real secrets (Clerk keys, DATABASE_URL, etc) live only
+# in Replit Secrets or a local .env, never committed. .env.example files are
+# intentionally NOT ignored — they document required var names with dummy values.
+.env
+.env.local
+.env.*.local

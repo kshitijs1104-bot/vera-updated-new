@@ -1,5 +1,8 @@
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn, useAuth } from "@clerk/clerk-react";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -17,6 +20,50 @@ import { PlanGate } from "@/pages/enterprise/Plan";
 import { CheckoutGate } from "@/pages/enterprise/Checkout";
 
 const queryClient = new QueryClient();
+
+const CLERK_PUBLISHABLE_KEY = import.meta.env["VITE_CLERK_PUBLISHABLE_KEY"] as string | undefined;
+
+if (!CLERK_PUBLISHABLE_KEY) {
+  throw new Error(
+    "VITE_CLERK_PUBLISHABLE_KEY is not set. Add it in Replit Secrets — see .env.example.",
+  );
+}
+
+// Registers Clerk's getToken() as the bearer-token source for every request
+// made through the generated api-client-react hooks (useVenusAnalyze, etc).
+// This is the other half of closing the identity gap: App-level ClerkProvider
+// gives the browser a session, but nothing previously read that session and
+// attached it to outgoing fetches — Venus.tsx made unauthenticated calls with
+// no Authorization header at all, which is exactly why the backend fell back
+// to req.ip. Mounted once, inside ClerkProvider, before any route renders.
+function AuthTokenBridge() {
+  const { getToken } = useAuth();
+
+  useEffect(() => {
+    setAuthTokenGetter(() => getToken());
+    return () => setAuthTokenGetter(null);
+  }, [getToken]);
+
+  return null;
+}
+
+// Venus previously had zero auth guard (no Layout wrapper, no gate of any
+// kind — anyone with the URL could open it and its sessionId resolved to
+// req.ip on the backend). This wraps it with real identity: signed-out users
+// get redirected to sign-in, signed-in users get the page with a verified
+// Clerk session token attached to every API call they make from here on.
+function VenusGate() {
+  return (
+    <>
+      <SignedIn>
+        <VenusPage />
+      </SignedIn>
+      <SignedOut>
+        <RedirectToSignIn />
+      </SignedOut>
+    </>
+  );
+}
 
 function Router() {
   return (
@@ -51,7 +98,7 @@ function Router() {
         </Layout>
       </Route>
       <Route path="/venus">
-        <VenusPage />
+        <VenusGate />
       </Route>
       <Route path="/settings">
         <Layout>
@@ -65,16 +112,19 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <CategoryProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-          <Toaster />
-        </CategoryProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+      <AuthTokenBridge />
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <CategoryProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+            <Toaster />
+          </CategoryProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ClerkProvider>
   );
 }
 

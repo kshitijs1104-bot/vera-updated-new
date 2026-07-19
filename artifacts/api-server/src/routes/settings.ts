@@ -2,11 +2,17 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { SaveGroqKeyBody, SaveOnboardingBody } from "@workspace/api-zod";
+import { requireAuth, requireUserId } from "../middlewares/auth";
 
 const router = Router();
 
+// Previously `(req.headers["x-session-id"] as string) || req.ip || "default"`
+// — same IP-fallback bug as ai.ts. Settings (onboarding data, primaryGoal,
+// the Groq key) is exactly the kind of per-person state that must never leak
+// across users sharing a network, so every route below is now behind
+// requireAuth and keyed on the verified Clerk userId.
 function getSessionId(req: any): string {
-  return (req.headers["x-session-id"] as string) || req.ip || "default";
+  return requireUserId(req);
 }
 
 async function getOrCreateSettings(sessionId: string) {
@@ -35,7 +41,7 @@ async function getOrCreateSettings(sessionId: string) {
   return fallback;
 }
 
-router.get("/settings/groq-key", async (req, res) => {
+router.get("/settings/groq-key", requireAuth, async (req, res) => {
   try {
     const sessionId = getSessionId(req);
     const settings = await getOrCreateSettings(sessionId);
@@ -52,7 +58,7 @@ router.get("/settings/groq-key", async (req, res) => {
   }
 });
 
-router.post("/settings/groq-key", async (req, res) => {
+router.post("/settings/groq-key", requireAuth, async (req, res) => {
   try {
     const body = SaveGroqKeyBody.safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Invalid API key" });
@@ -73,7 +79,7 @@ router.post("/settings/groq-key", async (req, res) => {
   }
 });
 
-router.delete("/settings/groq-key", async (req, res) => {
+router.delete("/settings/groq-key", requireAuth, async (req, res) => {
   try {
     const sessionId = getSessionId(req);
     await getOrCreateSettings(sessionId);
@@ -90,7 +96,7 @@ router.delete("/settings/groq-key", async (req, res) => {
   }
 });
 
-router.get("/settings/onboarding", async (req, res) => {
+router.get("/settings/onboarding", requireAuth, async (req, res) => {
   try {
     const sessionId = getSessionId(req);
     const settings = await getOrCreateSettings(sessionId);
@@ -110,7 +116,7 @@ router.get("/settings/onboarding", async (req, res) => {
   }
 });
 
-router.post("/settings/onboarding", async (req, res) => {
+router.post("/settings/onboarding", requireAuth, async (req, res) => {
   try {
     const body = SaveOnboardingBody.safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Invalid onboarding data" });

@@ -1,0 +1,8 @@
+ .gitignore                                  |  7 [32m++++[m
+ artifacts/api-server/package.json           |  1 [32m+[m
+ artifacts/api-server/src/app.ts             | 14 [32m++++++++[m
+ artifacts/api-server/src/routes/ai.ts       | 26 [32m+++++++++[m[31m------[m
+ artifacts/api-server/src/routes/settings.ts | 18 [32m++++++[m[31m----[m
+ artifacts/vera-nexus/package.json           |  1 [32m+[m
+ artifacts/vera-nexus/src/App.tsx            | 72 [32m++++++++++++++++++++++++++++++++++[m[31m------[m
+ 7 files changed, 112 insertions(+), 27 deletions(-)
