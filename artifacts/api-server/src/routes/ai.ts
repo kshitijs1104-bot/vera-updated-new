@@ -4,7 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
-import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
+import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
 
@@ -14,24 +14,47 @@ function normalizeQueryText(message: string) {
   return message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// A specific number proposed inside a category that has real benchmark
+// alternatives (pricing, equity/valuation/dilution, a VC raise, a budget
+// split) is a comparison question even when the founder states only one
+// value and never says "or"/"vs" — "should I price at 500rs" and "1cr for
+// 5%, thoughts?" are both really asking "is this number right," which only
+// has a real answer relative to alternatives Venus generates itself. Before
+// this, those got classified "binary" and routed to "just give a verdict,"
+// which is exactly what let Venus validate whatever number the founder
+// happened to type rather than comparing it to anything.
+const BENCHMARKABLE_CATEGORY = /\b(price|pricing|priced|subscription|fee|fees|charge|charges|equity|valuation|dilution|vc|investor|investors|funding|raise|cap ?table|budget|allocation|split|spend|invest|salary|payout)\b/;
+
 function inferDecisionRouting(message: string) {
   const normalized = normalizeQueryText(message);
   if (!normalized) return null;
 
   const isDecisionish = /\b(should|shld|would|could|worth|hire|wait|launch|buy|build|raise|bootstrap|outsource|do|use|join|go|stick|keep)\b/.test(normalized);
   const hasAlternatives = /\b(or|vs|versus|instead|rather|either)\b/.test(normalized) || normalized.includes(" or ");
+  const hasNumericValue = /\d/.test(normalized);
+  const isBenchmarkable = BENCHMARKABLE_CATEGORY.test(normalized);
 
+  if (hasAlternatives) {
+    return { mode: "decision" as const, subtype: "multi-option" as const };
+  }
+  if (hasNumericValue && isBenchmarkable) {
+    return { mode: "decision" as const, subtype: "single-value-benchmark" as const };
+  }
   if (!isDecisionish) return null;
 
   return {
     mode: "decision" as const,
-    subtype: hasAlternatives ? "multi-option" as const : "binary" as const,
+    subtype: "binary" as const,
   };
 }
 
 function buildDecisionRoutingInstruction(message: string) {
   const routing = inferDecisionRouting(message);
   if (!routing) return "";
+
+  if (routing.subtype === "single-value-benchmark") {
+    return `Query routing: The founder proposed one specific number (a price, equity stake, valuation, budget split, or similar) and is asking whether it's right. Do NOT just validate the number they stated. Before answering, silently generate 2 realistic benchmark alternatives for this exact decision (e.g. a lower and a higher price point; a smaller and larger raise/equity ask; a different budget split), grounded in the founder's stated stage and context — then score the founder's number against those alternatives using the decision card format, with all options scored including the founder's own. The recommendation must be a function of that comparison, never an independent judgment reached before the scoring. If your honest comparison still lands on the founder's number, say so and say specifically why it beat the alternatives — agreement is never the default, it has to be earned by the comparison, exactly as it would if you'd recommended a different number entirely.`;
+  }
 
   const noun = routing.subtype === "multi-option" ? "multi-option decision question" : "single-path decision question";
   return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
@@ -117,9 +140,9 @@ function buildShortQueryFallback(message: string) {
   const routing = inferDecisionRouting(message);
   if (!routing) return null;
 
-  const recommendation = routing.subtype === "multi-option"
-    ? "Choose the option that best avoids the strongest risk you just identified."
-    : "Give a direct yes/no or wait/launch verdict based on the stated situation.";
+  const recommendation = routing.subtype === "binary"
+    ? "Give a direct yes/no or wait/launch verdict based on the stated situation."
+    : "Choose the option that best avoids the strongest risk you just identified, after scoring every option including the one the founder proposed.";
 
   return {
     summary: "Direct decision query received. Venus will answer the choice directly rather than treating the prompt as malformed input.",
@@ -684,6 +707,18 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       ? `YOUR OWN VERIFIED HISTORY WITH THIS FOUNDER (private to this founder, higher trust than the precedent dataset below):\n\n${formatOwnDecisionsForPrompt(ownDecisions)}`
       : "";
 
+    // Open (not yet resolved) decisions from the last 45 minutes of this
+    // same session — see retrieveOpenSessionDecisions for why this exists:
+    // ownHistoryBlock above only catches a founder revising advice across
+    // sessions once an outcome has been reported back, which means a
+    // decision Venus made 2 messages ago in this same live conversation is
+    // otherwise invisible to this check. This is what stops "1cr for 5% is
+    // best" two turns after "50L for 5% is best" with no acknowledgment.
+    const openSessionDecisions = await retrieveOpenSessionDecisions(sessionId);
+    const openSessionBlock = openSessionDecisions.length > 0
+      ? `OPEN RECOMMENDATIONS EARLIER THIS SESSION (not yet resolved — if the current message revises, contradicts, or proposes an alternative to one of these, you must reconcile explicitly rather than silently re-deriving a fresh verdict; if none of these relate to the current question, ignore this block):\n\n${formatOpenSessionDecisionsForPrompt(openSessionDecisions)}`
+      : "";
+
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
 
@@ -726,10 +761,10 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
       : effectiveBusinessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`;
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },

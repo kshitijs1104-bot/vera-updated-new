@@ -1,0 +1,242 @@
+From b83d25e5828bb1314bc1d2545bdc44107bafb6be Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Sun, 19 Jul 2026 14:24:18 +0000
+Subject: [PATCH] fix: stop Venus validating founder's proposed number instead
+ of comparing it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two root causes found in groq.ts/ai.ts, both reproducing the exact
+sycophancy pattern reported (price/equity/budget asks get rubber-stamped,
+follow-ups flip the verdict to match the newest number):
+
+1. inferDecisionRouting classified any single proposed number with no
+   explicit 'or'/'vs' as subtype 'binary', which routed to an explicit
+   instruction to just give a verdict on the one stated path. Added a
+   'single-value-benchmark' subtype: a number inside a benchmarkable
+   category (pricing, equity/valuation, budget/allocation, etc.) now
+   forces Venus to silently generate 2 realistic alternatives and score
+   all of them via the existing decision-card format before recommending
+   anything — agreement with the founder's number has to be earned by
+   the comparison, not assumed.
+
+2. Nothing caught same-session flip-flopping: retrieveOwnResolvedDecisions
+   only surfaces a decision once an outcome is reported back (status
+   'resolved'), so a decision Venus made 90 seconds ago in the same live
+   conversation was invisible to the next turn. Added
+   retrieveOpenSessionDecisions, scoped to open decisions from the last
+   45 minutes of this session, injected as an 'OPEN RECOMMENDATIONS
+   EARLIER THIS SESSION' block with a new system-prompt rule requiring
+   explicit reconciliation instead of a silent fresh verdict.
+
+Verified against the reported examples: 'shld i price at 500rs' and the
+1cr budget-split question both now correctly route to
+single-value-benchmark; the VC follow-up ('why not 1cr for 5%') doesn't
+match any per-message regex (as expected — no per-message heuristic
+can), which is exactly the case fix #2 exists to catch via session
+history instead. typecheck:libs and api-server typecheck both pass
+clean. Pre-existing note: groq.prompt.test.mjs was already failing
+before this change (asserts phrases from an older prompt revision) —
+unrelated to this patch, flagging separately.
+---
+ artifacts/api-server/src/lib/groq.ts      |  2 +
+ artifacts/api-server/src/lib/retrieval.ts | 60 +++++++++++++++++++++++
+ artifacts/api-server/src/routes/ai.ts     | 51 ++++++++++++++++---
+ 3 files changed, 105 insertions(+), 8 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index 12de7d8..d93ed2a 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -104,6 +104,8 @@ TRIAL-TO-COMMITMENT, ACROSS ANY INDUSTRY: whenever a pilot/trial/sample stage is
+ 
+ YOUR OWN VERIFIED HISTORY OUTRANKS EVERYTHING: if a "YOUR OWN VERIFIED HISTORY WITH THIS FOUNDER" block appears, it's this founder's own resolved ground truth — stronger than third-party precedents. When relevant, reason from it explicitly: what you recommended, what happened, how that confirms/revises/overturns your current answer. Never silently repeat advice that didn't work, and never contradict your own resolved history without acknowledging it. Never treat this block as a generic precedent.
+ 
++SAME-SESSION RECOMMENDATION CONSISTENCY: if an "OPEN RECOMMENDATIONS EARLIER THIS SESSION" block appears, it's a call you made minutes ago in this same live conversation, not yet resolved. If the current message proposes a different number or path for the same decision (a revised price, equity ask, valuation, or budget split), you are NOT free to independently re-derive a fresh "best" verdict on the new number as if the earlier one never happened. State plainly whether your recommendation is changing and the specific reason (new information that justifies it), or whether the founder is diverging from advice you already gave — either is fine, silently pretending the earlier recommendation doesn't exist is not. If the block genuinely doesn't relate to the current question, ignore it.
++
+ CHECK YOURSELF BEFORE RETURNING, WITHOUT SCORING YOURSELF: re-read your draft against the bars above — genuinely specific, the chain traceable, the fix matching the diagnosis, a real number in the plan, an actual bet made. Fix what fails. A plain re-read, not a self-assigned numeric score (that would itself be fake precision).
+ 
+ For genuinely diagnostic or high-stakes answers (the class that triggers the hypothesis-comparison card, or meaningful spend / an irreversible call): generate the single strongest argument against your own leading conclusion using only what the founder told you. Revise if it would meaningfully change the recommendation; otherwise proceed as drafted. Skip on short factual or narrow follow-up queries.
+diff --git a/artifacts/api-server/src/lib/retrieval.ts b/artifacts/api-server/src/lib/retrieval.ts
+index 13a0dcb..06e9c40 100644
+--- a/artifacts/api-server/src/lib/retrieval.ts
++++ b/artifacts/api-server/src/lib/retrieval.ts
+@@ -295,4 +295,64 @@ export function formatOwnDecisionsForPrompt(matches: OwnDecisionMatch[]): string
+         `Lesson: ${m.decision.lesson ?? "(not yet derived)"}`,
+     )
+     .join("\n\n");
++}
++
++// ---- Same-session OPEN decision reconciliation ----
++//
++// retrieveOwnResolvedDecisions above only surfaces a decision once the
++// founder has reported back a real outcome — right for cross-session
++// precedent, but it means a decision Venus made 90 seconds ago in the SAME
++// live conversation never gets checked against a follow-up that revises
++// the numbers, because it can't possibly be "resolved" yet. That gap is
++// exactly what let Venus flip from "50L for 5% equity is best" to "1cr for
++// 5% is best" two messages later with zero acknowledgment it said the
++// first thing — same session, same decision, no reconciliation.
++//
++// This retrieves OPEN decisions for this sessionId (sessionId is actually
++// the founder's persistent userId — see venus_decisions schema comments —
++// so it is NOT scoped to one chat thread on its own), restricted to a
++// short recency window so it only catches genuinely live back-and-forth
++// rather than resurfacing an unrelated decision left open for weeks.
++// Deliberately no topical/lexical filtering beyond that window: a false
++// positive here just means the model sees one extra "earlier this
++// session" block it correctly ignores as unrelated (see the groq.ts
++// instruction this feeds); a false negative means the exact flip-flop bug
++// this exists to catch goes uncaught. Recency + a small top-K keeps the
++// cost of the former low.
++const OPEN_SESSION_DECISION_TOP_K = 2;
++const OPEN_SESSION_DECISION_WINDOW_MS = 45 * 60_000;
++
++export async function retrieveOpenSessionDecisions(sessionId: string): Promise<VenusDecision[]> {
++  let rows: VenusDecision[];
++  try {
++    rows = await db
++      .select()
++      .from(venusDecisionsTable)
++      .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "open")));
++  } catch (err) {
++    // Same failure philosophy as retrieveOwnResolvedDecisions above — this
++    // is a pure enhancement and must never take down the actual chat
++    // response if the table/migration isn't there yet.
++    console.error("[retrieveOpenSessionDecisions] query failed, continuing without same-session reconciliation (has the venus_decisions migration been run?)", err);
++    return [];
++  }
++
++  if (rows.length === 0) return [];
++
++  const now = Date.now();
++  return rows
++    .filter((r) => r.createdAt && now - new Date(r.createdAt).getTime() <= OPEN_SESSION_DECISION_WINDOW_MS)
++    .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
++    .slice(0, OPEN_SESSION_DECISION_TOP_K);
++}
++
++export function formatOpenSessionDecisionsForPrompt(decisions: VenusDecision[]): string {
++  if (decisions.length === 0) return "";
++  return decisions
++    .map((d) => {
++      const ageMin = d.createdAt ? Math.round((Date.now() - new Date(d.createdAt).getTime()) / 60_000) : null;
++      const ageLabel = ageMin !== null ? `${ageMin} min ago` : "earlier this session";
++      return `[Open recommendation, ${ageLabel}] Asked: "${d.query}"\nYou recommended: ${d.recommendationSummary}`;
++    })
++    .join("\n\n");
+ }
+\ No newline at end of file
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 0e2df91..956f5ca 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -4,7 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
+ import { z } from "zod/v4";
+ import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
+ import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
+-import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
++import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
+ import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
+ import { requireAuth, requireUserId } from "../middlewares/auth";
+ 
+@@ -14,18 +14,37 @@ function normalizeQueryText(message: string) {
+   return message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
+ }
+ 
++// A specific number proposed inside a category that has real benchmark
++// alternatives (pricing, equity/valuation/dilution, a VC raise, a budget
++// split) is a comparison question even when the founder states only one
++// value and never says "or"/"vs" — "should I price at 500rs" and "1cr for
++// 5%, thoughts?" are both really asking "is this number right," which only
++// has a real answer relative to alternatives Venus generates itself. Before
++// this, those got classified "binary" and routed to "just give a verdict,"
++// which is exactly what let Venus validate whatever number the founder
++// happened to type rather than comparing it to anything.
++const BENCHMARKABLE_CATEGORY = /\b(price|pricing|priced|subscription|fee|fees|charge|charges|equity|valuation|dilution|vc|investor|investors|funding|raise|cap ?table|budget|allocation|split|spend|invest|salary|payout)\b/;
++
+ function inferDecisionRouting(message: string) {
+   const normalized = normalizeQueryText(message);
+   if (!normalized) return null;
+ 
+   const isDecisionish = /\b(should|shld|would|could|worth|hire|wait|launch|buy|build|raise|bootstrap|outsource|do|use|join|go|stick|keep)\b/.test(normalized);
+   const hasAlternatives = /\b(or|vs|versus|instead|rather|either)\b/.test(normalized) || normalized.includes(" or ");
++  const hasNumericValue = /\d/.test(normalized);
++  const isBenchmarkable = BENCHMARKABLE_CATEGORY.test(normalized);
+ 
++  if (hasAlternatives) {
++    return { mode: "decision" as const, subtype: "multi-option" as const };
++  }
++  if (hasNumericValue && isBenchmarkable) {
++    return { mode: "decision" as const, subtype: "single-value-benchmark" as const };
++  }
+   if (!isDecisionish) return null;
+ 
+   return {
+     mode: "decision" as const,
+-    subtype: hasAlternatives ? "multi-option" as const : "binary" as const,
++    subtype: "binary" as const,
+   };
+ }
+ 
+@@ -33,6 +52,10 @@ function buildDecisionRoutingInstruction(message: string) {
+   const routing = inferDecisionRouting(message);
+   if (!routing) return "";
+ 
++  if (routing.subtype === "single-value-benchmark") {
++    return `Query routing: The founder proposed one specific number (a price, equity stake, valuation, budget split, or similar) and is asking whether it's right. Do NOT just validate the number they stated. Before answering, silently generate 2 realistic benchmark alternatives for this exact decision (e.g. a lower and a higher price point; a smaller and larger raise/equity ask; a different budget split), grounded in the founder's stated stage and context — then score the founder's number against those alternatives using the decision card format, with all options scored including the founder's own. The recommendation must be a function of that comparison, never an independent judgment reached before the scoring. If your honest comparison still lands on the founder's number, say so and say specifically why it beat the alternatives — agreement is never the default, it has to be earned by the comparison, exactly as it would if you'd recommended a different number entirely.`;
++  }
++
+   const noun = routing.subtype === "multi-option" ? "multi-option decision question" : "single-path decision question";
+   return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
+ }
+@@ -117,9 +140,9 @@ function buildShortQueryFallback(message: string) {
+   const routing = inferDecisionRouting(message);
+   if (!routing) return null;
+ 
+-  const recommendation = routing.subtype === "multi-option"
+-    ? "Choose the option that best avoids the strongest risk you just identified."
+-    : "Give a direct yes/no or wait/launch verdict based on the stated situation.";
++  const recommendation = routing.subtype === "binary"
++    ? "Give a direct yes/no or wait/launch verdict based on the stated situation."
++    : "Choose the option that best avoids the strongest risk you just identified, after scoring every option including the one the founder proposed.";
+ 
+   return {
+     summary: "Direct decision query received. Venus will answer the choice directly rather than treating the prompt as malformed input.",
+@@ -684,6 +707,18 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
+       ? `YOUR OWN VERIFIED HISTORY WITH THIS FOUNDER (private to this founder, higher trust than the precedent dataset below):\n\n${formatOwnDecisionsForPrompt(ownDecisions)}`
+       : "";
+ 
++    // Open (not yet resolved) decisions from the last 45 minutes of this
++    // same session — see retrieveOpenSessionDecisions for why this exists:
++    // ownHistoryBlock above only catches a founder revising advice across
++    // sessions once an outcome has been reported back, which means a
++    // decision Venus made 2 messages ago in this same live conversation is
++    // otherwise invisible to this check. This is what stops "1cr for 5% is
++    // best" two turns after "50L for 5% is best" with no acknowledgment.
++    const openSessionDecisions = await retrieveOpenSessionDecisions(sessionId);
++    const openSessionBlock = openSessionDecisions.length > 0
++      ? `OPEN RECOMMENDATIONS EARLIER THIS SESSION (not yet resolved — if the current message revises, contradicts, or proposes an alternative to one of these, you must reconcile explicitly rather than silently re-deriving a fresh verdict; if none of these relate to the current question, ignore this block):\n\n${formatOpenSessionDecisionsForPrompt(openSessionDecisions)}`
++      : "";
++
+     const isModerate = retrieval.tier === "moderate";
+     const isNone = retrieval.tier === "none";
+ 
+@@ -726,10 +761,10 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
+       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
+ 
+     const systemPrompt = isNone
+-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
++      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
+       : effectiveBusinessContext
+-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`
+-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}`;
++        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
++        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`;
+ 
+     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+       { role: "system", content: systemPrompt },
+-- 
+2.43.0
+

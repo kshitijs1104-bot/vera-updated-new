@@ -296,3 +296,63 @@ export function formatOwnDecisionsForPrompt(matches: OwnDecisionMatch[]): string
     )
     .join("\n\n");
 }
+
+// ---- Same-session OPEN decision reconciliation ----
+//
+// retrieveOwnResolvedDecisions above only surfaces a decision once the
+// founder has reported back a real outcome — right for cross-session
+// precedent, but it means a decision Venus made 90 seconds ago in the SAME
+// live conversation never gets checked against a follow-up that revises
+// the numbers, because it can't possibly be "resolved" yet. That gap is
+// exactly what let Venus flip from "50L for 5% equity is best" to "1cr for
+// 5% is best" two messages later with zero acknowledgment it said the
+// first thing — same session, same decision, no reconciliation.
+//
+// This retrieves OPEN decisions for this sessionId (sessionId is actually
+// the founder's persistent userId — see venus_decisions schema comments —
+// so it is NOT scoped to one chat thread on its own), restricted to a
+// short recency window so it only catches genuinely live back-and-forth
+// rather than resurfacing an unrelated decision left open for weeks.
+// Deliberately no topical/lexical filtering beyond that window: a false
+// positive here just means the model sees one extra "earlier this
+// session" block it correctly ignores as unrelated (see the groq.ts
+// instruction this feeds); a false negative means the exact flip-flop bug
+// this exists to catch goes uncaught. Recency + a small top-K keeps the
+// cost of the former low.
+const OPEN_SESSION_DECISION_TOP_K = 2;
+const OPEN_SESSION_DECISION_WINDOW_MS = 45 * 60_000;
+
+export async function retrieveOpenSessionDecisions(sessionId: string): Promise<VenusDecision[]> {
+  let rows: VenusDecision[];
+  try {
+    rows = await db
+      .select()
+      .from(venusDecisionsTable)
+      .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "open")));
+  } catch (err) {
+    // Same failure philosophy as retrieveOwnResolvedDecisions above — this
+    // is a pure enhancement and must never take down the actual chat
+    // response if the table/migration isn't there yet.
+    console.error("[retrieveOpenSessionDecisions] query failed, continuing without same-session reconciliation (has the venus_decisions migration been run?)", err);
+    return [];
+  }
+
+  if (rows.length === 0) return [];
+
+  const now = Date.now();
+  return rows
+    .filter((r) => r.createdAt && now - new Date(r.createdAt).getTime() <= OPEN_SESSION_DECISION_WINDOW_MS)
+    .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
+    .slice(0, OPEN_SESSION_DECISION_TOP_K);
+}
+
+export function formatOpenSessionDecisionsForPrompt(decisions: VenusDecision[]): string {
+  if (decisions.length === 0) return "";
+  return decisions
+    .map((d) => {
+      const ageMin = d.createdAt ? Math.round((Date.now() - new Date(d.createdAt).getTime()) / 60_000) : null;
+      const ageLabel = ageMin !== null ? `${ageMin} min ago` : "earlier this session";
+      return `[Open recommendation, ${ageLabel}] Asked: "${d.query}"\nYou recommended: ${d.recommendationSummary}`;
+    })
+    .join("\n\n");
+}
