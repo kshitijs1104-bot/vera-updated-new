@@ -6,3 +6,5 @@ export * from "./thoughts";
 export * from "./settings";
 export * from "./precedents";
 export * from "./venus_decisions";
+export * from "./chats";
+export * from "./goals";

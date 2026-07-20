@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, settingsTable, venusDecisionsTable } from "@workspace/db";
+import { db, settingsTable, venusDecisionsTable, goalsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
@@ -7,8 +7,40 @@ import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransient
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
+import { applyResolvedEvidence } from "../lib/goalEvidence";
 
 const router = Router();
+
+// Fetches the active goal (if any) for the chat this message belongs to and
+// renders it as the block that goes into the system prompt — the mechanism
+// that makes a Goal actually change how Venus answers, the same way a Claude
+// Project's custom instructions frame every message inside that project.
+// Deliberately only fires for "active" goals: a completed/abandoned goal
+// shouldn't keep pressuring every future message in a chat someone's still
+// using for something else. Returns "" (not undefined) when there's no
+// chatId, no goal, or the goal isn't active, so callers can always safely
+// interpolate the result directly into the prompt template.
+async function buildGoalPromptBlock(chatId: number | undefined): Promise<string> {
+  if (!chatId) return "";
+  try {
+    const [goal] = await db
+      .select()
+      .from(goalsTable)
+      .where(and(eq(goalsTable.chatId, chatId), eq(goalsTable.status, "active")))
+      .limit(1);
+    if (!goal) return "";
+
+    const daysToDeadline = Math.ceil((goal.deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const deadlineLine = daysToDeadline < 0
+      ? `deadline was ${Math.abs(daysToDeadline)} day(s) ago — this goal is overdue`
+      : `${daysToDeadline} day(s) until deadline`;
+
+    return `THIS CHAT'S GOAL (set by the founder like a Project's custom instructions — every answer in this chat should be read through this lens, weighing urgency, expected value, and trade-offs against it; this is not a topic restriction, the founder can still ask unrelated things, but when relevant, reason explicitly about how the current question moves toward or away from this goal):\n"${goal.title}"\nSuccess metric (the concrete win condition): ${goal.successMetric}\nValue if hit: ₹${goal.valueInr.toLocaleString("en-IN")}\nDeadline: ${goal.deadline.toISOString().slice(0, 10)} (${deadlineLine})`;
+  } catch {
+    // Never let a goal-lookup failure break the actual chat response.
+    return "";
+  }
+}
 
 function normalizeQueryText(message: string) {
   return message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
@@ -359,6 +391,7 @@ async function autoLogDecisionCards(
   query: string,
   businessContext: string | undefined,
   cards: any[],
+  chatId?: number,
 ): Promise<void> {
   if (!Array.isArray(cards) || cards.length === 0) return;
   try {
@@ -368,6 +401,7 @@ async function autoLogDecisionCards(
       if (!summary) continue; // don't log a card we can't meaningfully summarize
       await db.insert(venusDecisionsTable).values({
         sessionId,
+        chatId: chatId ?? null,
         query,
         businessContextSnapshot: businessContext ?? null,
         cardType: card.type,
@@ -719,6 +753,8 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       ? `OPEN RECOMMENDATIONS EARLIER THIS SESSION (not yet resolved — if the current message revises, contradicts, or proposes an alternative to one of these, you must reconcile explicitly rather than silently re-deriving a fresh verdict; if none of these relate to the current question, ignore this block):\n\n${formatOpenSessionDecisionsForPrompt(openSessionDecisions)}`
       : "";
 
+    const goalBlock = await buildGoalPromptBlock(body.data.chatId);
+
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
 
@@ -761,10 +797,10 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
       : effectiveBusinessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`;
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -845,7 +881,7 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       const sanitized = sanitizeVenusResponse(parsed);
       // Fire-and-forget: don't make the founder wait on this, and never let
       // a logging failure affect the response they actually asked for.
-      autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards).catch(() => {});
+      autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards, body.data.chatId).catch(() => {});
       return res.json(sanitized);
     }
 
@@ -1032,6 +1068,38 @@ router.post("/ai/decisions/:id/outcome", requireAuth, async (req, res) => {
         resolvedAt: new Date(),
       })
       .where(eq(venusDecisionsTable.id, id));
+
+    // This is the actual mechanism behind the Origin──◉──Target marker
+    // moving: only fires when the resolved card belongs to a chat that has
+    // an ACTIVE goal, and only ever reads/writes that goal's evidenceScore —
+    // never a task-count or completion percentage. A card with no chatId
+    // (pre-Goal-feature rows, or ordinary ungoaled chats) simply doesn't
+    // move anything, which is the correct behavior, not a bug to patch.
+    if (existing.chatId) {
+      try {
+        const [goal] = await db
+          .select()
+          .from(goalsTable)
+          .where(and(eq(goalsTable.chatId, existing.chatId), eq(goalsTable.status, "active")))
+          .limit(1);
+        if (goal) {
+          const newScore = applyResolvedEvidence(goal.evidenceScore, body.data.sentiment ?? null);
+          const logLine = `[${new Date().toISOString().slice(0, 10)}] ${body.data.sentiment ?? "unclear"}: ${existing.recommendationSummary} — ${body.data.outcome}`.slice(0, 500);
+          await db
+            .update(goalsTable)
+            .set({
+              evidenceScore: newScore,
+              evidenceLog: goal.evidenceLog ? `${goal.evidenceLog}\n${logLine}` : logLine,
+              updatedAt: new Date(),
+            })
+            .where(eq(goalsTable.id, goal.id));
+        }
+      } catch (evidenceErr) {
+        // Same principle as autoLogDecisionCards: never let the evidence-
+        // score side effect break the outcome the founder is waiting on.
+        console.error("[ai/decisions/outcome] failed to update goal evidence score", evidenceErr);
+      }
+    }
 
     return res.json({ id, status: "resolved", lesson });
   } catch (err) {

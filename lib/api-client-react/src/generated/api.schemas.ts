@@ -200,6 +200,141 @@ export interface OnboardingInput {
   primaryGoal?: string;
 }
 
+export interface Chat {
+  id: number;
+  title: string;
+  /** @nullable */
+  createdAt: string | null;
+  /** @nullable */
+  updatedAt: string | null;
+}
+
+export interface CreateChatInput {
+  title?: string;
+}
+
+export interface UpdateChatInput {
+  /** @minLength 1 */
+  title: string;
+}
+
+export type GoalStatus = typeof GoalStatus[keyof typeof GoalStatus];
+
+
+export const GoalStatus = {
+  active: 'active',
+  completed: 'completed',
+  abandoned: 'abandoned',
+} as const;
+
+export interface Goal {
+  id: number;
+  chatId: number;
+  title: string;
+  successMetric: string;
+  valueInr: number;
+  deadline: string;
+  status: GoalStatus;
+  evidenceScore: number;
+  /** @nullable */
+  evidenceLog?: string | null;
+  /** @nullable */
+  createdAt: string | null;
+  /** @nullable */
+  updatedAt: string | null;
+  /** @nullable */
+  resolvedAt?: string | null;
+}
+
+export type GoalWithProgressRisk = typeof GoalWithProgressRisk[keyof typeof GoalWithProgressRisk];
+
+
+export const GoalWithProgressRisk = {
+  on_track: 'on_track',
+  at_risk: 'at_risk',
+  off_track: 'off_track',
+} as const;
+
+export type GoalSubTaskCardType = typeof GoalSubTaskCardType[keyof typeof GoalSubTaskCardType];
+
+
+export const GoalSubTaskCardType = {
+  decision: 'decision',
+  roadmap: 'roadmap',
+} as const;
+
+export type GoalSubTaskStatus = typeof GoalSubTaskStatus[keyof typeof GoalSubTaskStatus];
+
+
+export const GoalSubTaskStatus = {
+  open: 'open',
+  resolved: 'resolved',
+  abandoned: 'abandoned',
+} as const;
+
+/**
+ * @nullable
+ */
+export type GoalSubTaskOutcomeSentiment = typeof GoalSubTaskOutcomeSentiment[keyof typeof GoalSubTaskOutcomeSentiment] | null;
+
+
+export const GoalSubTaskOutcomeSentiment = {
+  positive: 'positive',
+  negative: 'negative',
+  mixed: 'mixed',
+} as const;
+
+export interface GoalSubTask {
+  id: number;
+  cardType: GoalSubTaskCardType;
+  summary: string;
+  status: GoalSubTaskStatus;
+  /** @nullable */
+  outcomeSentiment?: GoalSubTaskOutcomeSentiment;
+}
+
+export type GoalWithProgress = Goal & {
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  position: number;
+  risk: GoalWithProgressRisk;
+  subTasks: GoalSubTask[];
+};
+
+export interface ChatWithGoal {
+  id: number;
+  title: string;
+  /** @nullable */
+  createdAt: string | null;
+  /** @nullable */
+  updatedAt: string | null;
+  goal: GoalWithProgress | null;
+}
+
+export interface SetGoalInput {
+  /** @minLength 1 */
+  title: string;
+  /** @minLength 1 */
+  successMetric: string;
+  /** @minimum 0 */
+  valueInr: number;
+  deadline: string;
+}
+
+export type SetGoalStatusInputStatus = typeof SetGoalStatusInputStatus[keyof typeof SetGoalStatusInputStatus];
+
+
+export const SetGoalStatusInputStatus = {
+  completed: 'completed',
+  abandoned: 'abandoned',
+} as const;
+
+export interface SetGoalStatusInput {
+  status: SetGoalStatusInputStatus;
+}
+
 export interface VenusHistoryMessage {
   role: string;
   content: string;
@@ -209,6 +344,7 @@ export interface VenusAnalyzeInput {
   /** @minLength 1 */
   message: string;
   businessContext?: string;
+  chatId?: number;
   sessionHistory?: VenusHistoryMessage[];
 }
 
@@ -226,10 +362,18 @@ export interface VenusCard {
   content: unknown;
 }
 
+export type VenusResponseConfidence = typeof VenusResponseConfidence[keyof typeof VenusResponseConfidence];
+
+
+export const VenusResponseConfidence = {
+  verified: 'verified',
+  exploratory: 'exploratory',
+} as const;
+
 export interface VenusResponse {
   summary: string;
   cards: VenusCard[];
-  confidence?: 'verified' | 'exploratory';
+  confidence?: VenusResponseConfidence;
   confidenceNote?: string;
   confidenceTier?: string;
 }
@@ -280,9 +424,22 @@ export type ListThoughtsParams = {
 category?: string;
 };
 
+export type ListChats200 = {
+  chats: Chat[];
+};
+
+export type DeleteChat200 = {
+  deleted: boolean;
+};
+
+export type ClearChatGoal200 = {
+  deleted: boolean;
+};
+
 export type GetStockQuotesParams = {
 /**
  * Comma separated list of ticker symbols
  */
 symbols: string;
 };
+

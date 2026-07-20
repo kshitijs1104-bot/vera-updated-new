@@ -11,5 +11,6 @@ export interface VenusAnalyzeInput {
   /** @minLength 1 */
   message: string;
   businessContext?: string;
+  chatId?: number;
   sessionHistory?: VenusHistoryMessage[];
 }

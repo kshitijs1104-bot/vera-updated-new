@@ -403,6 +403,255 @@ export const SaveOnboardingResponse = zod.object({
 
 
 /**
+ * @summary List the current user's chats, most recently updated first
+ */
+export const ListChatsResponse = zod.object({
+  "chats": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable()
+}))
+})
+
+
+/**
+ * @summary Create a new chat
+ */
+export const CreateChatBody = zod.object({
+  "title": zod.string().optional()
+})
+
+export const CreateChatResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Get a single chat, including its goal if one is set
+ */
+export const GetChatParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getChatResponseGoalOneTwoPositionMin = 0;
+export const getChatResponseGoalOneTwoPositionMax = 1;
+
+
+
+export const GetChatResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "goal": zod.union([zod.object({
+  "id": zod.number(),
+  "chatId": zod.number(),
+  "title": zod.string(),
+  "successMetric": zod.string(),
+  "valueInr": zod.number(),
+  "deadline": zod.coerce.date(),
+  "status": zod.enum(['active', 'completed', 'abandoned']),
+  "evidenceScore": zod.number(),
+  "evidenceLog": zod.string().nullish(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "resolvedAt": zod.coerce.date().nullish()
+}).and(zod.object({
+  "position": zod.number().min(getChatResponseGoalOneTwoPositionMin).max(getChatResponseGoalOneTwoPositionMax),
+  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
+  "subTasks": zod.array(zod.object({
+  "id": zod.number(),
+  "cardType": zod.enum(['decision', 'roadmap']),
+  "summary": zod.string(),
+  "status": zod.enum(['open', 'resolved', 'abandoned']),
+  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
+}))
+})),zod.null()])
+})
+
+
+/**
+ * @summary Rename a chat
+ */
+export const UpdateChatParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateChatBody = zod.object({
+  "title": zod.string().min(1)
+})
+
+export const UpdateChatResponse = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Delete a chat and its goal
+ */
+export const DeleteChatParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteChatResponse = zod.object({
+  "deleted": zod.boolean()
+})
+
+
+/**
+ * @summary Get the goal set on this chat, if any
+ */
+export const GetChatGoalParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getChatGoalResponseTwoPositionMin = 0;
+export const getChatGoalResponseTwoPositionMax = 1;
+
+
+
+export const GetChatGoalResponse = zod.object({
+  "id": zod.number(),
+  "chatId": zod.number(),
+  "title": zod.string(),
+  "successMetric": zod.string(),
+  "valueInr": zod.number(),
+  "deadline": zod.coerce.date(),
+  "status": zod.enum(['active', 'completed', 'abandoned']),
+  "evidenceScore": zod.number(),
+  "evidenceLog": zod.string().nullish(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "resolvedAt": zod.coerce.date().nullish()
+}).and(zod.object({
+  "position": zod.number().min(getChatGoalResponseTwoPositionMin).max(getChatGoalResponseTwoPositionMax),
+  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
+  "subTasks": zod.array(zod.object({
+  "id": zod.number(),
+  "cardType": zod.enum(['decision', 'roadmap']),
+  "summary": zod.string(),
+  "status": zod.enum(['open', 'resolved', 'abandoned']),
+  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
+}))
+}))
+
+
+/**
+ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
+ */
+export const SetChatGoalParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+export const setChatGoalBodyValueInrMin = 0;
+
+
+
+export const SetChatGoalBody = zod.object({
+  "title": zod.string().min(1),
+  "successMetric": zod.string().min(1),
+  "valueInr": zod.number().min(setChatGoalBodyValueInrMin),
+  "deadline": zod.coerce.date()
+})
+
+export const setChatGoalResponseTwoPositionMin = 0;
+export const setChatGoalResponseTwoPositionMax = 1;
+
+
+
+export const SetChatGoalResponse = zod.object({
+  "id": zod.number(),
+  "chatId": zod.number(),
+  "title": zod.string(),
+  "successMetric": zod.string(),
+  "valueInr": zod.number(),
+  "deadline": zod.coerce.date(),
+  "status": zod.enum(['active', 'completed', 'abandoned']),
+  "evidenceScore": zod.number(),
+  "evidenceLog": zod.string().nullish(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "resolvedAt": zod.coerce.date().nullish()
+}).and(zod.object({
+  "position": zod.number().min(setChatGoalResponseTwoPositionMin).max(setChatGoalResponseTwoPositionMax),
+  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
+  "subTasks": zod.array(zod.object({
+  "id": zod.number(),
+  "cardType": zod.enum(['decision', 'roadmap']),
+  "summary": zod.string(),
+  "status": zod.enum(['open', 'resolved', 'abandoned']),
+  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
+}))
+}))
+
+
+/**
+ * @summary Remove the goal from this chat (the chat itself is kept)
+ */
+export const ClearChatGoalParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ClearChatGoalResponse = zod.object({
+  "deleted": zod.boolean()
+})
+
+
+/**
+ * @summary Mark the goal completed or abandoned (history retained)
+ */
+export const SetGoalStatusParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SetGoalStatusBody = zod.object({
+  "status": zod.enum(['completed', 'abandoned'])
+})
+
+export const setGoalStatusResponseTwoPositionMin = 0;
+export const setGoalStatusResponseTwoPositionMax = 1;
+
+
+
+export const SetGoalStatusResponse = zod.object({
+  "id": zod.number(),
+  "chatId": zod.number(),
+  "title": zod.string(),
+  "successMetric": zod.string(),
+  "valueInr": zod.number(),
+  "deadline": zod.coerce.date(),
+  "status": zod.enum(['active', 'completed', 'abandoned']),
+  "evidenceScore": zod.number(),
+  "evidenceLog": zod.string().nullish(),
+  "createdAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable(),
+  "resolvedAt": zod.coerce.date().nullish()
+}).and(zod.object({
+  "position": zod.number().min(setGoalStatusResponseTwoPositionMin).max(setGoalStatusResponseTwoPositionMax),
+  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
+  "subTasks": zod.array(zod.object({
+  "id": zod.number(),
+  "cardType": zod.enum(['decision', 'roadmap']),
+  "summary": zod.string(),
+  "status": zod.enum(['open', 'resolved', 'abandoned']),
+  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
+}))
+}))
+
+
+/**
  * @summary Venus AI structured analysis
  */
 
@@ -411,6 +660,7 @@ export const SaveOnboardingResponse = zod.object({
 export const VenusAnalyzeBody = zod.object({
   "message": zod.string().min(1),
   "businessContext": zod.string().optional(),
+  "chatId": zod.number().optional(),
   "sessionHistory": zod.array(zod.object({
   "role": zod.string(),
   "content": zod.string()
@@ -423,7 +673,10 @@ export const VenusAnalyzeResponse = zod.object({
   "type": zod.string(),
   "title": zod.string(),
   "content": zod.unknown()
-}))
+})),
+  "confidence": zod.enum(['verified', 'exploratory']).optional(),
+  "confidenceNote": zod.string().optional(),
+  "confidenceTier": zod.string().optional()
 })
 
 
@@ -446,7 +699,10 @@ export const IdeaReviewResponse = zod.object({
   "type": zod.string(),
   "title": zod.string(),
   "content": zod.unknown()
-}))
+})),
+  "confidence": zod.enum(['verified', 'exploratory']).optional(),
+  "confidenceNote": zod.string().optional(),
+  "confidenceTier": zod.string().optional()
 })
 
 

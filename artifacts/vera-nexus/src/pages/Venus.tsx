@@ -1,4 +1,4 @@
-import { useVenusAnalyze } from '@workspace/api-client-react';
+import { useVenusAnalyze, useCreateChat } from '@workspace/api-client-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import {
@@ -8,6 +8,7 @@ import {
   type ChatSession, type ChatMessage, type SavedAnalysisType,
 } from '../lib/venusHistory';
 import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check } from 'lucide-react';
+import { GoalPanel } from './GoalPanel';
 
 const EXAMPLE_PROMPTS = [
   "Map the causal chain for my business from the most significant market shifts right now",
@@ -91,8 +92,26 @@ export function VenusPage() {
   const [companyReports, setCompanyReports] = useState<Record<string, CompanyReportState>>(loadCompanyReportCache);
   const endRef = useRef<HTMLDivElement | null>(null);
   const analyzeMutation = useVenusAnalyze();
+  const createChatMutation = useCreateChat();
 
   const messages = currentSession.messages;
+
+  // Lazily creates the real server-side `chats` row the first time it's
+  // actually needed (first message sent, or the Goal panel is opened before
+  // any message exists) rather than on every "New Analysis" click — a
+  // session someone opens and abandons without sending anything or setting
+  // a goal never leaves an orphan row. Persists the returned id onto the
+  // local ChatSession immediately so a second call in the same session
+  // reuses it instead of creating a duplicate chat.
+  const ensureServerChat = useCallback(async (): Promise<number> => {
+    if (currentSession.serverChatId) return currentSession.serverChatId;
+    const created = await createChatMutation.mutateAsync({ data: { title: currentSession.title } });
+    const withServerId: ChatSession = { ...currentSession, serverChatId: created.id };
+    setCurrentSession(withServerId);
+    saveSession(withServerId);
+    setSessions(getSessions());
+    return created.id;
+  }, [currentSession, createChatMutation]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -120,7 +139,7 @@ export function VenusPage() {
     if (currentSession.id === id) setCurrentSession(createSession());
   };
 
-  const handleSend = (preset?: string) => {
+  const handleSend = async (preset?: string) => {
     const text = (preset || input).trim();
     if (!text) return;
     setInput('');
@@ -131,8 +150,21 @@ export function VenusPage() {
     setCurrentSession(updated);
     persistSession(updated);
 
+    // Every message needs a real chatId so the backend can (a) inject this
+    // chat's goal into the system prompt and (b) attribute any decision/
+    // roadmap card this turn produces back to this chat — otherwise a Goal
+    // set later would have no evidence to grow from. Failing to create the
+    // server chat should never block sending the message itself; Venus
+    // still answers, it just can't attribute this particular turn.
+    let chatId: number | undefined;
+    try {
+      chatId = await ensureServerChat();
+    } catch {
+      chatId = currentSession.serverChatId;
+    }
+
     analyzeMutation.mutate(
-      { data: { message: text, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
+      { data: { message: text, chatId, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
       {
         onSuccess: (res) => {
           const venusMsg: ChatMessage = {
@@ -440,6 +472,10 @@ export function VenusPage() {
             <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--v7-cyan)', boxShadow: '0 0 6px var(--v7-cyan)' }}></span>
             Enterprise
           </div>
+        </div>
+
+        <div style={{ padding: '10px 32px 0' }}>
+          <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />
         </div>
 
         {/* Messages */}

@@ -6,11 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VenusCard } from './venusCard';
+import type { VenusResponseConfidence } from './venusResponseConfidence';
 
 export interface VenusResponse {
   summary: string;
   cards: VenusCard[];
-  confidence?: 'verified' | 'exploratory';
+  confidence?: VenusResponseConfidence;
   confidenceNote?: string;
   confidenceTier?: string;
 }

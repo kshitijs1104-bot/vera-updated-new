@@ -33,6 +33,15 @@ export const venusDecisionsTable = pgTable("venus_decisions", {
   id: serial("id").primaryKey(),
   sessionId: text("session_id").notNull(),
 
+  // Which chat this card was generated in. Nullable because pre-Goal-feature
+  // rows and cards from chats with no chatId wired up yet won't have one —
+  // treat null as "not attributable to any goal," not as an error. When
+  // present AND that chat has an active goal, resolving this decision is
+  // what moves the goal's evidenceScore (see goals.ts) — a roadmap card is a
+  // sub-task of the goal precisely by virtue of living in the same chatId,
+  // not through any separate linking table.
+  chatId: integer("chat_id"),
+
   // The founder's original question/message that produced this decision.
   query: text("query").notNull(),
   // Snapshot of the business context at the time, so a resolved decision

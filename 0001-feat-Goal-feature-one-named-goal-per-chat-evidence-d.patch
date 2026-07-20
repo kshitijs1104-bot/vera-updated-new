@@ -1,0 +1,3254 @@
+From 592b7d8db001313b90a9b5c2583ffa15d2cac38c Mon Sep 17 00:00:00 2001
+From: kshitijs1104-bot <kshitij.s1104@gmail.com>
+Date: Mon, 20 Jul 2026 08:57:53 +0000
+Subject: [PATCH] =?UTF-8?q?feat:=20Goal=20feature=20=E2=80=94=20one=20name?=
+ =?UTF-8?q?d=20goal=20per=20chat,=20evidence-driven=20progress?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds the server-side entity a chat has never had (chats table) plus a
+1:1 goals table so a chat can carry a named goal the way a Claude
+Project carries custom instructions:
+
+- goals.title / successMetric / valueInr / deadline are all required
+  before a goal is considered set — these are the only inputs that let
+  Venus reason about urgency, expected value, or trade-offs at all.
+- venus_decisions gains a nullable chatId so decision/roadmap cards
+  generated in a goal-bearing chat are attributable to that goal —
+  this is what makes a roadmap item a 'sub-task' of the goal, with no
+  separate linking table.
+- goals.evidenceScore is a raw, unbounded running score, NOT a
+  checked-off task count. Resolving a decision with a positive outcome
+  moves it significantly; negative barely moves it (or pulls it
+  backward); mixed moves it a little (see goalEvidence.ts). Position on
+  the Origin-Target line and at_risk/on_track/off_track are computed
+  read-time from this score, never stored as their own state.
+- /ai/analyze accepts an optional chatId; when the chat has an active
+  goal, its title/metric/value/deadline are injected into the system
+  prompt so every answer in that chat is reasoned against it.
+- /ai/decisions/:id/outcome now updates the goal's evidenceScore when
+  the resolved decision belongs to a goal-bearing chat.
+- New /chats, /chats/:id, /chats/:id/goal, /chats/:id/goal/status
+  routes (OpenAPI-first: openapi.yaml -> orval codegen for both the
+  zod validators and the react-query client).
+- Frontend: ChatSession gains an optional serverChatId, created lazily
+  on first message (or first goal set) rather than per session, so an
+  abandoned chat never leaves an orphan server row. New GoalPanel
+  component renders the goal form and the Origin --- Target evidence
+  line (soft-compressed past both ends, not clamped, so overshoot and
+  setback both stay visible) plus the sub-task list with per-item
+  resolved/outcome status instead of a uniform progress bar.
+
+All new/changed packages (lib/db, lib/api-zod, lib/api-client-react,
+api-server, vera-nexus) typecheck clean. No DATABASE_URL available in
+this environment — schema needs 'drizzle-kit push' against the real
+Postgres instance before deploying.
+---
+ artifacts/api-server/src/lib/goalEvidence.ts  | 101 +++
+ artifacts/api-server/src/routes/ai.ts         |  78 +-
+ artifacts/api-server/src/routes/chats.ts      | 285 ++++++++
+ artifacts/api-server/src/routes/index.ts      |   2 +
+ artifacts/vera-nexus/src/lib/venusHistory.ts  |   9 +
+ artifacts/vera-nexus/src/pages/GoalPanel.tsx  | 327 +++++++++
+ artifacts/vera-nexus/src/pages/Venus.tsx      |  42 +-
+ .../src/generated/api.schemas.ts              | 161 ++++-
+ lib/api-client-react/src/generated/api.ts     | 664 ++++++++++++++++++
+ lib/api-spec/openapi.yaml                     | 276 ++++++++
+ lib/api-zod/src/generated/api.ts              | 260 ++++++-
+ lib/api-zod/src/generated/types/chat.ts       |  16 +
+ .../src/generated/types/chatWithGoal.ts       |  18 +
+ .../src/generated/types/clearChatGoal200.ts   |  11 +
+ .../src/generated/types/createChatInput.ts    |  11 +
+ .../src/generated/types/deleteChat200.ts      |  11 +
+ lib/api-zod/src/generated/types/goal.ts       |  27 +
+ lib/api-zod/src/generated/types/goalStatus.ts |  16 +
+ .../src/generated/types/goalSubTask.ts        |  19 +
+ .../generated/types/goalSubTaskCardType.ts    |  15 +
+ .../types/goalSubTaskOutcomeSentiment.ts      |  19 +
+ .../src/generated/types/goalSubTaskStatus.ts  |  16 +
+ .../src/generated/types/goalWithProgress.ts   |  20 +
+ .../generated/types/goalWithProgressRisk.ts   |  16 +
+ lib/api-zod/src/generated/types/index.ts      |  19 +
+ .../src/generated/types/listChats200.ts       |  12 +
+ .../src/generated/types/setGoalInput.ts       |  17 +
+ .../src/generated/types/setGoalStatusInput.ts |  12 +
+ .../types/setGoalStatusInputStatus.ts         |  15 +
+ .../src/generated/types/updateChatInput.ts    |  12 +
+ .../src/generated/types/venusAnalyzeInput.ts  |   1 +
+ .../src/generated/types/venusResponse.ts      |   5 +-
+ .../types/venusResponseConfidence.ts          |  15 +
+ lib/db/src/schema/chats.ts                    |  28 +
+ lib/db/src/schema/goals.ts                    |  80 +++
+ lib/db/src/schema/index.ts                    |   4 +-
+ lib/db/src/schema/venus_decisions.ts          |   9 +
+ 37 files changed, 2634 insertions(+), 15 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/goalEvidence.ts
+ create mode 100644 artifacts/api-server/src/routes/chats.ts
+ create mode 100644 artifacts/vera-nexus/src/pages/GoalPanel.tsx
+ create mode 100644 lib/api-zod/src/generated/types/chat.ts
+ create mode 100644 lib/api-zod/src/generated/types/chatWithGoal.ts
+ create mode 100644 lib/api-zod/src/generated/types/clearChatGoal200.ts
+ create mode 100644 lib/api-zod/src/generated/types/createChatInput.ts
+ create mode 100644 lib/api-zod/src/generated/types/deleteChat200.ts
+ create mode 100644 lib/api-zod/src/generated/types/goal.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalStatus.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalSubTask.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalSubTaskCardType.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalSubTaskOutcomeSentiment.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalSubTaskStatus.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalWithProgress.ts
+ create mode 100644 lib/api-zod/src/generated/types/goalWithProgressRisk.ts
+ create mode 100644 lib/api-zod/src/generated/types/listChats200.ts
+ create mode 100644 lib/api-zod/src/generated/types/setGoalInput.ts
+ create mode 100644 lib/api-zod/src/generated/types/setGoalStatusInput.ts
+ create mode 100644 lib/api-zod/src/generated/types/setGoalStatusInputStatus.ts
+ create mode 100644 lib/api-zod/src/generated/types/updateChatInput.ts
+ create mode 100644 lib/api-zod/src/generated/types/venusResponseConfidence.ts
+ create mode 100644 lib/db/src/schema/chats.ts
+ create mode 100644 lib/db/src/schema/goals.ts
+
+diff --git a/artifacts/api-server/src/lib/goalEvidence.ts b/artifacts/api-server/src/lib/goalEvidence.ts
+new file mode 100644
+index 0000000..33a5adc
+--- /dev/null
++++ b/artifacts/api-server/src/lib/goalEvidence.ts
+@@ -0,0 +1,101 @@
++// This file is the actual mechanism behind the "navigation-line, not a
++// progress bar" requirement: Origin(0) ──────◉────── Target(1), where the
++// marker's position is a running sum over resolved evidence, never a
++// fraction of (checked off / total) sub-tasks. A roadmap item's value is in
++// what it proves or disproves about whether the current approach can reach
++// the goal — NOT in being marked done — so the score only moves when a
++// decision/roadmap card tied to the goal's chat gets a real outcome
++// reported against it.
++//
++// Deliberately asymmetric, per the product spec: success moves the marker
++// significantly; failure barely moves it forward (or can move it backward)
++// rather than just "not counting" — because a failed attempt is itself
++// evidence, often evidence the current approach is wrong, which is exactly
++// what should make the path bend rather than stay a straight line with a
++// moving dot. "mixed" sits between the two. There is no per-task credit for
++// merely attempting something with no reported outcome yet — only resolved
++// evidence moves the marker at all.
++//
++// Values aren't a percentage and are NOT clamped to [0, 1] on write — the UI
++// (see the goals API's derived `progress` field) is responsible for mapping
++// the raw evidenceScore onto a bounded visual position and for flagging
++// "at risk" when the score is lagging badly relative to time elapsed against
++// the deadline. That derivation is read-time and disposable; this file only
++// owns the raw, durable score.
++export type OutcomeSentiment = "positive" | "negative" | "mixed" | null | undefined;
++
++// How much a single resolved card moves the score, on a scale where 1.0 is
++// "fully closes the goal on its own" (rare — most goals need several pieces
++// of positive evidence to actually reach Target). Tuned so:
++//  - A handful of genuine wins visibly advances the marker without one lucky
++//    card instantly finishing the goal.
++//  - A failure isn't free to ignore (small negative pull, so a founder can
++//    SEE the path bend backward) but doesn't wipe out prior progress from a
++//    single bad result, since one negative data point rarely invalidates
++//    everything learned before it.
++const SENTIMENT_DELTA: Record<"positive" | "negative" | "mixed", number> = {
++  positive: 0.18,
++  mixed: 0.04,
++  negative: -0.05,
++};
++
++// Given the goal's current raw score and a newly-resolved card's sentiment,
++// return the new raw score. No sentiment (null/undefined) means the founder
++// reported an outcome without a clear positive/negative/mixed read — that's
++// real ground truth for Decision Memory retrieval, but not something this
++// function can weight, so it returns the score unchanged.
++export function applyResolvedEvidence(currentScore: number, sentiment: OutcomeSentiment): number {
++  if (!sentiment) return currentScore;
++  const delta = SENTIMENT_DELTA[sentiment];
++  if (delta === undefined) return currentScore;
++  return currentScore + delta;
++}
++
++export type GoalRiskLevel = "on_track" | "at_risk" | "off_track";
++
++// Read-time judgment, never stored: compares how far along the evidence
++// score is against how much of the goal's time budget has elapsed. A goal
++// can have plenty of resolved cards and still be at_risk if none of them
++// were positive — this is deliberately NOT "have they done N things," it's
++// "does the evidence so far suggest this will land by the deadline."
++export function assessGoalRisk(params: {
++  evidenceScore: number;
++  createdAt: Date;
++  deadline: Date;
++  now?: Date;
++}): GoalRiskLevel {
++  const now = params.now ?? new Date();
++  const totalMs = params.deadline.getTime() - params.createdAt.getTime();
++  const elapsedMs = now.getTime() - params.createdAt.getTime();
++
++  // Deadline already passed with the goal still short of Target.
++  if (elapsedMs >= totalMs && params.evidenceScore < 1) {
++    return params.evidenceScore <= 0 ? "off_track" : "at_risk";
++  }
++
++  const timeFraction = totalMs > 0 ? Math.max(0, Math.min(1, elapsedMs / totalMs)) : 0;
++  // Evidence "should" be at least roughly proportional to time elapsed for
++  // a goal that's on track — a generous allowance (evidence only needs to
++  // be at 60% of the time-elapsed fraction) since most real progress arrives
++  // in bursts late in a push, not evenly, and this shouldn't cry wolf on
++  // every ordinary lull.
++  const expectedFloor = timeFraction * 0.6;
++
++  if (params.evidenceScore < 0) return "off_track";
++  if (params.evidenceScore + 0.001 < expectedFloor - 0.25) return "off_track";
++  if (params.evidenceScore + 0.001 < expectedFloor) return "at_risk";
++  return "on_track";
++}
++
++// Maps the raw, unbounded evidenceScore onto a [0, 1] visual position for
++// the Origin ──◉── Target line, without ever mutating or clamping the
++// stored score itself. Uses a soft compression near 1 (instead of a hard
++// clamp) so a goal that's overshot still reads as "essentially at Target"
++// rather than looking identical to one that landed exactly on it, and so a
++// score that dips negative after a failure visibly sits left of Origin
++// instead of being floored back to 0 and hiding that the path bent.
++export function evidenceScoreToPosition(evidenceScore: number): number {
++  if (evidenceScore >= 1) return 1 - 0.05 * Math.exp(-(evidenceScore - 1));
++  if (evidenceScore <= 0) return 0.05 * Math.exp(evidenceScore) - 0.05;
++  return evidenceScore;
++}
+diff --git a/artifacts/api-server/src/routes/ai.ts b/artifacts/api-server/src/routes/ai.ts
+index 956f5ca..9248abc 100644
+--- a/artifacts/api-server/src/routes/ai.ts
++++ b/artifacts/api-server/src/routes/ai.ts
+@@ -1,5 +1,5 @@
+ import { Router } from "express";
+-import { db, settingsTable, venusDecisionsTable } from "@workspace/db";
++import { db, settingsTable, venusDecisionsTable, goalsTable } from "@workspace/db";
+ import { eq, and, desc } from "drizzle-orm";
+ import { z } from "zod/v4";
+ import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
+@@ -7,9 +7,41 @@ import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransient
+ import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
+ import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
+ import { requireAuth, requireUserId } from "../middlewares/auth";
++import { applyResolvedEvidence } from "../lib/goalEvidence";
+ 
+ const router = Router();
+ 
++// Fetches the active goal (if any) for the chat this message belongs to and
++// renders it as the block that goes into the system prompt — the mechanism
++// that makes a Goal actually change how Venus answers, the same way a Claude
++// Project's custom instructions frame every message inside that project.
++// Deliberately only fires for "active" goals: a completed/abandoned goal
++// shouldn't keep pressuring every future message in a chat someone's still
++// using for something else. Returns "" (not undefined) when there's no
++// chatId, no goal, or the goal isn't active, so callers can always safely
++// interpolate the result directly into the prompt template.
++async function buildGoalPromptBlock(chatId: number | undefined): Promise<string> {
++  if (!chatId) return "";
++  try {
++    const [goal] = await db
++      .select()
++      .from(goalsTable)
++      .where(and(eq(goalsTable.chatId, chatId), eq(goalsTable.status, "active")))
++      .limit(1);
++    if (!goal) return "";
++
++    const daysToDeadline = Math.ceil((goal.deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
++    const deadlineLine = daysToDeadline < 0
++      ? `deadline was ${Math.abs(daysToDeadline)} day(s) ago — this goal is overdue`
++      : `${daysToDeadline} day(s) until deadline`;
++
++    return `THIS CHAT'S GOAL (set by the founder like a Project's custom instructions — every answer in this chat should be read through this lens, weighing urgency, expected value, and trade-offs against it; this is not a topic restriction, the founder can still ask unrelated things, but when relevant, reason explicitly about how the current question moves toward or away from this goal):\n"${goal.title}"\nSuccess metric (the concrete win condition): ${goal.successMetric}\nValue if hit: ₹${goal.valueInr.toLocaleString("en-IN")}\nDeadline: ${goal.deadline.toISOString().slice(0, 10)} (${deadlineLine})`;
++  } catch {
++    // Never let a goal-lookup failure break the actual chat response.
++    return "";
++  }
++}
++
+ function normalizeQueryText(message: string) {
+   return message.toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
+ }
+@@ -359,6 +391,7 @@ async function autoLogDecisionCards(
+   query: string,
+   businessContext: string | undefined,
+   cards: any[],
++  chatId?: number,
+ ): Promise<void> {
+   if (!Array.isArray(cards) || cards.length === 0) return;
+   try {
+@@ -368,6 +401,7 @@ async function autoLogDecisionCards(
+       if (!summary) continue; // don't log a card we can't meaningfully summarize
+       await db.insert(venusDecisionsTable).values({
+         sessionId,
++        chatId: chatId ?? null,
+         query,
+         businessContextSnapshot: businessContext ?? null,
+         cardType: card.type,
+@@ -719,6 +753,8 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
+       ? `OPEN RECOMMENDATIONS EARLIER THIS SESSION (not yet resolved — if the current message revises, contradicts, or proposes an alternative to one of these, you must reconcile explicitly rather than silently re-deriving a fresh verdict; if none of these relate to the current question, ignore this block):\n\n${formatOpenSessionDecisionsForPrompt(openSessionDecisions)}`
+       : "";
+ 
++    const goalBlock = await buildGoalPromptBlock(body.data.chatId);
++
+     const isModerate = retrieval.tier === "moderate";
+     const isNone = retrieval.tier === "none";
+ 
+@@ -761,10 +797,10 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
+       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
+ 
+     const systemPrompt = isNone
+-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
++      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
+       : effectiveBusinessContext
+-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`
+-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}`;
++        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
++        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`;
+ 
+     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+       { role: "system", content: systemPrompt },
+@@ -845,7 +881,7 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
+       const sanitized = sanitizeVenusResponse(parsed);
+       // Fire-and-forget: don't make the founder wait on this, and never let
+       // a logging failure affect the response they actually asked for.
+-      autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards).catch(() => {});
++      autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards, body.data.chatId).catch(() => {});
+       return res.json(sanitized);
+     }
+ 
+@@ -1033,6 +1069,38 @@ router.post("/ai/decisions/:id/outcome", requireAuth, async (req, res) => {
+       })
+       .where(eq(venusDecisionsTable.id, id));
+ 
++    // This is the actual mechanism behind the Origin──◉──Target marker
++    // moving: only fires when the resolved card belongs to a chat that has
++    // an ACTIVE goal, and only ever reads/writes that goal's evidenceScore —
++    // never a task-count or completion percentage. A card with no chatId
++    // (pre-Goal-feature rows, or ordinary ungoaled chats) simply doesn't
++    // move anything, which is the correct behavior, not a bug to patch.
++    if (existing.chatId) {
++      try {
++        const [goal] = await db
++          .select()
++          .from(goalsTable)
++          .where(and(eq(goalsTable.chatId, existing.chatId), eq(goalsTable.status, "active")))
++          .limit(1);
++        if (goal) {
++          const newScore = applyResolvedEvidence(goal.evidenceScore, body.data.sentiment ?? null);
++          const logLine = `[${new Date().toISOString().slice(0, 10)}] ${body.data.sentiment ?? "unclear"}: ${existing.recommendationSummary} — ${body.data.outcome}`.slice(0, 500);
++          await db
++            .update(goalsTable)
++            .set({
++              evidenceScore: newScore,
++              evidenceLog: goal.evidenceLog ? `${goal.evidenceLog}\n${logLine}` : logLine,
++              updatedAt: new Date(),
++            })
++            .where(eq(goalsTable.id, goal.id));
++        }
++      } catch (evidenceErr) {
++        // Same principle as autoLogDecisionCards: never let the evidence-
++        // score side effect break the outcome the founder is waiting on.
++        console.error("[ai/decisions/outcome] failed to update goal evidence score", evidenceErr);
++      }
++    }
++
+     return res.json({ id, status: "resolved", lesson });
+   } catch (err) {
+     req.log.error(err);
+diff --git a/artifacts/api-server/src/routes/chats.ts b/artifacts/api-server/src/routes/chats.ts
+new file mode 100644
+index 0000000..0290391
+--- /dev/null
++++ b/artifacts/api-server/src/routes/chats.ts
+@@ -0,0 +1,285 @@
++import { Router } from "express";
++import { db, chatsTable, goalsTable, venusDecisionsTable } from "@workspace/db";
++import { eq, and, desc } from "drizzle-orm";
++import {
++  CreateChatBody,
++  UpdateChatBody,
++  SetChatGoalBody,
++  SetGoalStatusBody,
++} from "@workspace/api-zod";
++import { requireAuth, requireUserId } from "../middlewares/auth";
++import { evidenceScoreToPosition, assessGoalRisk } from "../lib/goalEvidence";
++
++const router = Router();
++
++// Shapes a DB goal row plus its derived, read-time-only fields (position on
++// the Origin──Target line, risk level, and the roadmap/decision cards logged
++// against it) into what the frontend actually renders. None of `position`,
++// `risk`, or `subTasks` are stored — they're recomputed on every read so the
++// stored evidenceScore stays the single source of truth and the visual
++// mapping/risk heuristic can be tuned later without a migration.
++async function attachGoalProgress(goal: typeof goalsTable.$inferSelect) {
++  const subTaskRows = await db
++    .select({
++      id: venusDecisionsTable.id,
++      cardType: venusDecisionsTable.cardType,
++      recommendationSummary: venusDecisionsTable.recommendationSummary,
++      status: venusDecisionsTable.status,
++      outcomeSentiment: venusDecisionsTable.outcomeSentiment,
++    })
++    .from(venusDecisionsTable)
++    .where(eq(venusDecisionsTable.chatId, goal.chatId))
++    .orderBy(desc(venusDecisionsTable.createdAt));
++
++  return {
++    ...goal,
++    position: evidenceScoreToPosition(goal.evidenceScore),
++    risk: assessGoalRisk({
++      evidenceScore: goal.evidenceScore,
++      createdAt: goal.createdAt ?? new Date(),
++      deadline: goal.deadline,
++    }),
++    subTasks: subTaskRows.map((r) => ({
++      id: r.id,
++      cardType: r.cardType as "decision" | "roadmap",
++      summary: r.recommendationSummary,
++      status: r.status as "open" | "resolved" | "abandoned",
++      outcomeSentiment: (r.outcomeSentiment ?? null) as "positive" | "negative" | "mixed" | null,
++    })),
++  };
++}
++
++router.get("/chats", requireAuth, async (req, res) => {
++  try {
++    const userId = requireUserId(req);
++    const rows = await db
++      .select()
++      .from(chatsTable)
++      .where(eq(chatsTable.userId, userId))
++      .orderBy(desc(chatsTable.updatedAt));
++    return res.json({ chats: rows });
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to list chats" });
++  }
++});
++
++router.post("/chats", requireAuth, async (req, res) => {
++  try {
++    const body = CreateChatBody.safeParse(req.body ?? {});
++    if (!body.success) return res.status(400).json({ error: "Invalid request body" });
++
++    const userId = requireUserId(req);
++    const [created] = await db
++      .insert(chatsTable)
++      .values({ userId, title: body.data.title || "New Chat" })
++      .returning();
++
++    return res.json(created);
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to create chat" });
++  }
++});
++
++router.get("/chats/:id", requireAuth, async (req, res) => {
++  const id = Number(req.params.id);
++  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid chat id" });
++
++  try {
++    const userId = requireUserId(req);
++    const [chat] = await db
++      .select()
++      .from(chatsTable)
++      .where(and(eq(chatsTable.id, id), eq(chatsTable.userId, userId)))
++      .limit(1);
++    if (!chat) return res.status(404).json({ error: "Chat not found" });
++
++    const [goal] = await db
++      .select()
++      .from(goalsTable)
++      .where(eq(goalsTable.chatId, id))
++      .limit(1);
++
++    return res.json({
++      ...chat,
++      goal: goal ? await attachGoalProgress(goal) : null,
++    });
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to get chat" });
++  }
++});
++
++router.patch("/chats/:id", requireAuth, async (req, res) => {
++  const id = Number(req.params.id);
++  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid chat id" });
++
++  const body = UpdateChatBody.safeParse(req.body);
++  if (!body.success) return res.status(400).json({ error: "Invalid request body" });
++
++  try {
++    const userId = requireUserId(req);
++    const [updated] = await db
++      .update(chatsTable)
++      .set({ title: body.data.title, updatedAt: new Date() })
++      .where(and(eq(chatsTable.id, id), eq(chatsTable.userId, userId)))
++      .returning();
++    if (!updated) return res.status(404).json({ error: "Chat not found" });
++    return res.json(updated);
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to update chat" });
++  }
++});
++
++router.delete("/chats/:id", requireAuth, async (req, res) => {
++  const id = Number(req.params.id);
++  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid chat id" });
++
++  try {
++    const userId = requireUserId(req);
++    const [owned] = await db
++      .select({ id: chatsTable.id })
++      .from(chatsTable)
++      .where(and(eq(chatsTable.id, id), eq(chatsTable.userId, userId)))
++      .limit(1);
++    if (!owned) return res.status(404).json({ error: "Chat not found" });
++
++    await db.delete(goalsTable).where(eq(goalsTable.chatId, id));
++    await db.delete(chatsTable).where(eq(chatsTable.id, id));
++    return res.json({ deleted: true });
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to delete chat" });
++  }
++});
++
++// --- Goal sub-resource ------------------------------------------------
++
++async function loadOwnedChat(chatId: number, userId: string) {
++  const [chat] = await db
++    .select()
++    .from(chatsTable)
++    .where(and(eq(chatsTable.id, chatId), eq(chatsTable.userId, userId)))
++    .limit(1);
++  return chat;
++}
++
++router.get("/chats/:id/goal", requireAuth, async (req, res) => {
++  const chatId = Number(req.params.id);
++  if (!Number.isFinite(chatId)) return res.status(400).json({ error: "Invalid chat id" });
++
++  try {
++    const userId = requireUserId(req);
++    const chat = await loadOwnedChat(chatId, userId);
++    if (!chat) return res.status(404).json({ error: "Chat not found" });
++
++    const [goal] = await db.select().from(goalsTable).where(eq(goalsTable.chatId, chatId)).limit(1);
++    if (!goal) return res.status(404).json({ error: "No goal set on this chat" });
++
++    return res.json(await attachGoalProgress(goal));
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to get goal" });
++  }
++});
++
++// Sets (or fully replaces) the goal on a chat. Deliberately upsert-by-chatId
++// rather than "you must delete first" — switching what a chat's goal says
++// happens as one action from the founder's point of view (this mirrors
++// editing a Claude Project's custom instructions in place), and the OLD
++// goal's resolved evidence isn't discarded by this: only THIS goal row's own
++// title/metric/value/deadline/evidenceScore are replaced. If the founder
++// actually wants a fresh, separate goal with its own history, the product
++// answer is a new chat, not overwriting this one repeatedly — but the API
++// itself doesn't need to enforce that; it just does what's asked to chatId.
++router.put("/chats/:id/goal", requireAuth, async (req, res) => {
++  const chatId = Number(req.params.id);
++  if (!Number.isFinite(chatId)) return res.status(400).json({ error: "Invalid chat id" });
++
++  const body = SetChatGoalBody.safeParse(req.body);
++  if (!body.success) {
++    return res.status(400).json({
++      error: "A goal needs a title, successMetric, valueInr, and deadline — without all four Venus can't reason about urgency or trade-offs.",
++    });
++  }
++
++  try {
++    const userId = requireUserId(req);
++    const chat = await loadOwnedChat(chatId, userId);
++    if (!chat) return res.status(404).json({ error: "Chat not found" });
++
++    const [existing] = await db.select().from(goalsTable).where(eq(goalsTable.chatId, chatId)).limit(1);
++
++    const values = {
++      chatId,
++      userId,
++      title: body.data.title,
++      successMetric: body.data.successMetric,
++      valueInr: body.data.valueInr,
++      deadline: new Date(body.data.deadline),
++    };
++
++    const [saved] = existing
++      ? await db
++          .update(goalsTable)
++          .set({ ...values, status: "active", updatedAt: new Date(), resolvedAt: null })
++          .where(eq(goalsTable.chatId, chatId))
++          .returning()
++      : await db.insert(goalsTable).values(values).returning();
++
++    return res.json(await attachGoalProgress(saved));
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to save goal" });
++  }
++});
++
++router.delete("/chats/:id/goal", requireAuth, async (req, res) => {
++  const chatId = Number(req.params.id);
++  if (!Number.isFinite(chatId)) return res.status(400).json({ error: "Invalid chat id" });
++
++  try {
++    const userId = requireUserId(req);
++    const chat = await loadOwnedChat(chatId, userId);
++    if (!chat) return res.status(404).json({ error: "Chat not found" });
++
++    await db.delete(goalsTable).where(eq(goalsTable.chatId, chatId));
++    return res.json({ deleted: true });
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to clear goal" });
++  }
++});
++
++// Marks the goal resolved one way or the other. History is retained (the row
++// is kept, not deleted) so a completed or abandoned goal's evidence stays
++// real Decision Memory precedent — only `status` and `resolvedAt` change.
++router.patch("/chats/:id/goal/status", requireAuth, async (req, res) => {
++  const chatId = Number(req.params.id);
++  if (!Number.isFinite(chatId)) return res.status(400).json({ error: "Invalid chat id" });
++
++  const body = SetGoalStatusBody.safeParse(req.body);
++  if (!body.success) return res.status(400).json({ error: "status must be 'completed' or 'abandoned'" });
++
++  try {
++    const userId = requireUserId(req);
++    const chat = await loadOwnedChat(chatId, userId);
++    if (!chat) return res.status(404).json({ error: "Chat not found" });
++
++    const [updated] = await db
++      .update(goalsTable)
++      .set({ status: body.data.status, resolvedAt: new Date(), updatedAt: new Date() })
++      .where(eq(goalsTable.chatId, chatId))
++      .returning();
++    if (!updated) return res.status(404).json({ error: "No goal set on this chat" });
++
++    return res.json(await attachGoalProgress(updated));
++  } catch (err) {
++    req.log.error(err);
++    return res.status(500).json({ error: "Failed to update goal status" });
++  }
++});
++
++export default router;
+diff --git a/artifacts/api-server/src/routes/index.ts b/artifacts/api-server/src/routes/index.ts
+index 847c28c..5261e8d 100644
+--- a/artifacts/api-server/src/routes/index.ts
++++ b/artifacts/api-server/src/routes/index.ts
+@@ -8,6 +8,7 @@ import thoughtsRouter from "./thoughts";
+ import aiRouter from "./ai";
+ import settingsRouter from "./settings";
+ import stocksRouter from "./stocks";
++import chatsRouter from "./chats";
+ 
+ const router: IRouter = Router();
+ 
+@@ -20,5 +21,6 @@ router.use(thoughtsRouter);
+ router.use(aiRouter);
+ router.use(settingsRouter);
+ router.use(stocksRouter);
++router.use(chatsRouter);
+ 
+ export default router;
+diff --git a/artifacts/vera-nexus/src/lib/venusHistory.ts b/artifacts/vera-nexus/src/lib/venusHistory.ts
+index b59de5a..45d8bea 100644
+--- a/artifacts/vera-nexus/src/lib/venusHistory.ts
++++ b/artifacts/vera-nexus/src/lib/venusHistory.ts
+@@ -29,6 +29,15 @@ export interface ChatSession {
+   title: string;
+   createdAt: string;
+   messages: ChatMessage[];
++  // Maps this local session to a real server-side `chats` row (see
++  // artifacts/api-server/src/routes/chats.ts). Undefined until the first
++  // message is sent in this session — created lazily rather than on every
++  // "New Analysis" click, so a session someone opens and abandons without
++  // ever sending a message doesn't leave an orphan row server-side. Once
++  // set, this is what a Goal actually attaches to: goals are keyed on
++  // chatId, not on the local session id, so Goal state survives even if
++  // localStorage is cleared as long as the founder is signed in.
++  serverChatId?: number;
+ }
+ 
+ const SESSIONS_KEY = 've_chat_sessions';
+diff --git a/artifacts/vera-nexus/src/pages/GoalPanel.tsx b/artifacts/vera-nexus/src/pages/GoalPanel.tsx
+new file mode 100644
+index 0000000..1809087
+--- /dev/null
++++ b/artifacts/vera-nexus/src/pages/GoalPanel.tsx
+@@ -0,0 +1,327 @@
++import { useState } from 'react';
++import { Target, X, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
++import {
++  useGetChat,
++  useSetChatGoal,
++  useClearChatGoal,
++  useSetGoalStatus,
++} from '@workspace/api-client-react';
++import type { ChatWithGoal, GoalWithProgress } from '@workspace/api-client-react';
++
++// This panel is the actual UI surface for the Goal feature — set once per
++// chat, like a Claude Project's custom instructions, with the three fields
++// (successMetric, valueInr, deadline) that are the ONLY inputs letting Venus
++// reason about urgency/expected-value/trade-offs at all. Deliberately does
++// NOT render a uniform progress bar: the position on the line is driven by
++// resolved evidence (see goalEvidence.ts), and sub-tasks are listed with
++// their own resolved/open/outcome status rather than a checked-off count.
++interface GoalPanelProps {
++  serverChatId: number | undefined;
++  // Called once a chat is lazily created server-side so the parent can
++  // persist serverChatId onto the local ChatSession before the goal form
++  // can actually target something.
++  onRequireServerChat: () => Promise<number>;
++}
++
++function formatInr(n: number): string {
++  return '₹' + n.toLocaleString('en-IN');
++}
++
++function riskLabel(risk: GoalWithProgress['risk']): { label: string; color: string; Icon: typeof TrendingUp } {
++  if (risk === 'on_track') return { label: 'On track', color: 'var(--v7-cyan)', Icon: TrendingUp };
++  if (risk === 'at_risk') return { label: 'At risk', color: 'var(--amber, #d9a441)', Icon: AlertTriangle };
++  return { label: 'Off track', color: 'var(--red, #e5555c)', Icon: AlertTriangle };
++}
++
++// The Origin ──────◉────── Target line itself. `position` (0..1, already
++// soft-compressed past the ends server-side) places the marker; it is NEVER
++// a fraction of (tasks done / total tasks) — it's evidence weight. A
++// position past 1 or below 0 visually would mean the mapping broke, so the
++// bar itself still clamps only the rendered dot to [2%, 98%] for layout
++// safety while the raw position value (which can exceed that range slightly
++// pre-clamp) is what drives color/label logic above it.
++function EvidenceLine({ goal }: { goal: GoalWithProgress }) {
++  const clampedPct = Math.max(2, Math.min(98, goal.position * 100));
++  const { label, color, Icon } = riskLabel(goal.risk);
++  return (
++    <div className="mt-3">
++      <div className="flex items-center justify-between mb-2">
++        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: 'var(--v7-text-mute)' }}>
++          Origin → Target
++        </span>
++        <span className="flex items-center gap-1 text-[11px] font-mono" style={{ color }}>
++          <Icon className="w-3 h-3" />
++          {label}
++        </span>
++      </div>
++      <div className="relative h-[6px] rounded-full" style={{ background: 'var(--v7-bg-raised-2)' }}>
++        <div
++          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2"
++          style={{
++            left: `calc(${clampedPct}% - 6px)`,
++            background: 'var(--v7-bg)',
++            borderColor: color,
++            boxShadow: `0 0 10px -2px ${color}`,
++            transition: 'left 0.4s ease',
++          }}
++        />
++      </div>
++      <div className="flex items-center justify-between mt-1.5 text-[10px] font-mono" style={{ color: 'var(--v7-text-mute)' }}>
++        <span>Origin</span>
++        <span>{goal.successMetric}</span>
++      </div>
++    </div>
++  );
++}
++
++function SubTaskList({ subTasks }: { subTasks: GoalWithProgress['subTasks'] }) {
++  if (subTasks.length === 0) {
++    return (
++      <div className="text-[12px] mt-3" style={{ color: 'var(--v7-text-mute)' }}>
++        No roadmap items yet — the next decision or roadmap card Venus gives you in this chat becomes evidence here automatically.
++      </div>
++    );
++  }
++  return (
++    <div className="mt-3 space-y-1.5">
++      {subTasks.map((t) => {
++        const resolved = t.status === 'resolved';
++        const dotColor = t.outcomeSentiment === 'positive'
++          ? 'var(--v7-cyan)'
++          : t.outcomeSentiment === 'negative'
++            ? 'var(--red, #e5555c)'
++            : 'var(--v7-text-mute)';
++        return (
++          <div key={t.id} className="flex items-start gap-2 text-[12px]" style={{ color: 'var(--v7-text-dim)' }}>
++            <span
++              className="mt-1 w-1.5 h-1.5 rounded-full shrink-0"
++              style={{ background: resolved ? dotColor : 'transparent', border: resolved ? 'none' : '1px solid var(--v7-text-mute)' }}
++            />
++            <span className="flex-1">
++              {t.summary}
++              {!resolved && <span style={{ color: 'var(--v7-text-mute)' }}> — not yet resolved</span>}
++            </span>
++          </div>
++        );
++      })}
++    </div>
++  );
++}
++
++function SetGoalForm({ onSubmit, onCancel, submitting }: {
++  onSubmit: (input: { title: string; successMetric: string; valueInr: number; deadline: string }) => void;
++  onCancel: () => void;
++  submitting: boolean;
++}) {
++  const [title, setTitle] = useState('');
++  const [successMetric, setSuccessMetric] = useState('');
++  const [valueInr, setValueInr] = useState('');
++  const [deadline, setDeadline] = useState('');
++
++  const canSubmit = title.trim() && successMetric.trim() && valueInr.trim() && deadline.trim();
++
++  const inputStyle = {
++    width: '100%',
++    background: 'var(--v7-bg-raised-2)',
++    border: '1px solid var(--v7-border, rgba(255,255,255,0.08))',
++    borderRadius: 10,
++    padding: '8px 10px',
++    fontSize: 13,
++    color: 'var(--v7-text)',
++    marginTop: 4,
++    marginBottom: 10,
++  } as const;
++  const labelStyle = { fontSize: 11, fontFamily: 'var(--v7-font-mono)', textTransform: 'uppercase' as const, letterSpacing: '0.05em', color: 'var(--v7-text-mute)' };
++
++  return (
++    <div>
++      <label style={labelStyle}>Goal</label>
++      <input
++        style={inputStyle}
++        placeholder='e.g. "Close Client X"'
++        value={title}
++        onChange={(e) => setTitle(e.target.value)}
++      />
++      <label style={labelStyle}>Success metric — the concrete win condition</label>
++      <input
++        style={inputStyle}
++        placeholder='e.g. "Demo scheduled and signed by [date]"'
++        value={successMetric}
++        onChange={(e) => setSuccessMetric(e.target.value)}
++      />
++      <label style={labelStyle}>Value if hit (₹)</label>
++      <input
++        style={inputStyle}
++        type="number"
++        min={0}
++        placeholder="e.g. 500000"
++        value={valueInr}
++        onChange={(e) => setValueInr(e.target.value)}
++      />
++      <label style={labelStyle}>Deadline</label>
++      <input
++        style={inputStyle}
++        type="date"
++        value={deadline}
++        onChange={(e) => setDeadline(e.target.value)}
++      />
++      <div className="text-[11px] mb-3" style={{ color: 'var(--v7-text-mute)' }}>
++        All four are required — without a concrete metric, value, and deadline Venus can't reason about urgency or trade-offs in this chat.
++      </div>
++      <div className="flex gap-2">
++        <button
++          disabled={!canSubmit || submitting}
++          onClick={() => onSubmit({
++            title: title.trim(),
++            successMetric: successMetric.trim(),
++            valueInr: Number(valueInr),
++            deadline: new Date(deadline).toISOString(),
++          })}
++          className="text-[13px] font-semibold px-3 py-2 rounded-lg"
++          style={{
++            background: canSubmit ? 'var(--v7-cyan-soft)' : 'var(--v7-bg-raised-2)',
++            border: `1px solid ${canSubmit ? 'var(--v7-cyan-strong)' : 'transparent'}`,
++            color: canSubmit ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
++            opacity: submitting ? 0.6 : 1,
++          }}
++        >
++          {submitting ? 'Saving…' : 'Set Goal'}
++        </button>
++        <button
++          onClick={onCancel}
++          className="text-[13px] px-3 py-2 rounded-lg"
++          style={{ color: 'var(--v7-text-mute)' }}
++        >
++          Cancel
++        </button>
++      </div>
++    </div>
++  );
++}
++
++export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps) {
++  const [open, setOpen] = useState(false);
++  const [editing, setEditing] = useState(false);
++
++  const chatQuery = useGetChat(serverChatId ?? -1, { query: { enabled: !!serverChatId, queryKey: ['/api/chats', serverChatId ?? -1] } });
++  const setGoal = useSetChatGoal();
++  const clearGoal = useClearChatGoal();
++  const setStatus = useSetGoalStatus();
++
++  const chat = chatQuery.data as ChatWithGoal | undefined;
++  const goal = chat?.goal;
++
++  const handleSubmit = async (input: { title: string; successMetric: string; valueInr: number; deadline: string }) => {
++    const id = serverChatId ?? (await onRequireServerChat());
++    setGoal.mutate(
++      { id, data: input },
++      { onSuccess: () => { setEditing(false); chatQuery.refetch(); } },
++    );
++  };
++
++  const handleClear = () => {
++    if (!serverChatId) return;
++    clearGoal.mutate({ id: serverChatId }, { onSuccess: () => chatQuery.refetch() });
++  };
++
++  const handleResolve = (nextStatus: 'completed' | 'abandoned') => {
++    if (!serverChatId) return;
++    setStatus.mutate({ id: serverChatId, data: { status: nextStatus } }, { onSuccess: () => chatQuery.refetch() });
++  };
++
++  if (!open) {
++    return (
++      <button
++        onClick={() => setOpen(true)}
++        className="flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg mb-2"
++        style={{
++          color: goal ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
++          background: goal ? 'var(--v7-cyan-soft)' : 'transparent',
++          border: `1px solid ${goal ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
++        }}
++      >
++        <Target className="w-3 h-3" />
++        {goal ? goal.title : 'No goal set'}
++      </button>
++    );
++  }
++
++  return (
++    <div
++      className="mb-3 p-3 rounded-xl"
++      style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}
++    >
++      <div className="flex items-center justify-between mb-2">
++        <span className="flex items-center gap-1.5 text-[12px] font-bold" style={{ color: 'var(--v7-text)' }}>
++          <Target className="w-3.5 h-3.5" />
++          Chat Goal
++        </span>
++        <button onClick={() => setOpen(false)}>
++          <X className="w-3.5 h-3.5" style={{ color: 'var(--v7-text-mute)' }} />
++        </button>
++      </div>
++
++      {!goal && !editing && (
++        <div>
++          <div className="text-[12px] mb-2" style={{ color: 'var(--v7-text-mute)' }}>
++            Give this chat one named goal — Venus will weigh urgency, value, and trade-offs against it in every answer here.
++          </div>
++          <button
++            onClick={() => setEditing(true)}
++            className="text-[13px] font-semibold px-3 py-2 rounded-lg"
++            style={{ background: 'var(--v7-cyan-soft)', border: '1px solid var(--v7-cyan-strong)', color: 'var(--v7-cyan)' }}
++          >
++            Set Goal
++          </button>
++        </div>
++      )}
++
++      {editing && (
++        <SetGoalForm onSubmit={handleSubmit} onCancel={() => setEditing(false)} submitting={setGoal.isPending} />
++      )}
++
++      {goal && !editing && (
++        <div>
++          <div className="flex items-start justify-between gap-2">
++            <div>
++              <div className="text-[14px] font-semibold" style={{ color: 'var(--v7-text)' }}>{goal.title}</div>
++              <div className="text-[11px] mt-0.5" style={{ color: 'var(--v7-text-mute)' }}>
++                {formatInr(goal.valueInr)} · due {new Date(goal.deadline).toLocaleDateString()}
++              </div>
++            </div>
++            {goal.status === 'active' && (
++              <div className="flex gap-1 shrink-0">
++                <button
++                  title="Mark completed"
++                  onClick={() => handleResolve('completed')}
++                  className="p-1.5 rounded-lg"
++                  style={{ color: 'var(--v7-cyan)' }}
++                >
++                  <CheckCircle2 className="w-3.5 h-3.5" />
++                </button>
++              </div>
++            )}
++          </div>
++
++          {goal.status !== 'active' && (
++            <div className="text-[11px] mt-1 font-mono uppercase" style={{ color: 'var(--v7-text-mute)' }}>
++              {goal.status}
++            </div>
++          )}
++
++          <EvidenceLine goal={goal} />
++          <SubTaskList subTasks={goal.subTasks} />
++
++          <div className="flex gap-3 mt-3">
++            <button onClick={() => setEditing(true)} className="text-[11px]" style={{ color: 'var(--v7-text-mute)' }}>
++              Edit
++            </button>
++            <button onClick={handleClear} className="text-[11px]" style={{ color: 'var(--v7-text-mute)' }}>
++              Remove goal
++            </button>
++          </div>
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/artifacts/vera-nexus/src/pages/Venus.tsx b/artifacts/vera-nexus/src/pages/Venus.tsx
+index bd7d4dc..7826537 100644
+--- a/artifacts/vera-nexus/src/pages/Venus.tsx
++++ b/artifacts/vera-nexus/src/pages/Venus.tsx
+@@ -1,4 +1,4 @@
+-import { useVenusAnalyze } from '@workspace/api-client-react';
++import { useVenusAnalyze, useCreateChat } from '@workspace/api-client-react';
+ import { useState, useRef, useEffect, useCallback } from 'react';
+ import { useLocation } from 'wouter';
+ import {
+@@ -8,6 +8,7 @@ import {
+   type ChatSession, type ChatMessage, type SavedAnalysisType,
+ } from '../lib/venusHistory';
+ import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check } from 'lucide-react';
++import { GoalPanel } from './GoalPanel';
+ 
+ const EXAMPLE_PROMPTS = [
+   "Map the causal chain for my business from the most significant market shifts right now",
+@@ -91,9 +92,27 @@ export function VenusPage() {
+   const [companyReports, setCompanyReports] = useState<Record<string, CompanyReportState>>(loadCompanyReportCache);
+   const endRef = useRef<HTMLDivElement | null>(null);
+   const analyzeMutation = useVenusAnalyze();
++  const createChatMutation = useCreateChat();
+ 
+   const messages = currentSession.messages;
+ 
++  // Lazily creates the real server-side `chats` row the first time it's
++  // actually needed (first message sent, or the Goal panel is opened before
++  // any message exists) rather than on every "New Analysis" click — a
++  // session someone opens and abandons without sending anything or setting
++  // a goal never leaves an orphan row. Persists the returned id onto the
++  // local ChatSession immediately so a second call in the same session
++  // reuses it instead of creating a duplicate chat.
++  const ensureServerChat = useCallback(async (): Promise<number> => {
++    if (currentSession.serverChatId) return currentSession.serverChatId;
++    const created = await createChatMutation.mutateAsync({ data: { title: currentSession.title } });
++    const withServerId: ChatSession = { ...currentSession, serverChatId: created.id };
++    setCurrentSession(withServerId);
++    saveSession(withServerId);
++    setSessions(getSessions());
++    return created.id;
++  }, [currentSession, createChatMutation]);
++
+   useEffect(() => {
+     endRef.current?.scrollIntoView({ behavior: 'smooth' });
+   }, [messages, analyzeMutation.isPending]);
+@@ -120,7 +139,7 @@ export function VenusPage() {
+     if (currentSession.id === id) setCurrentSession(createSession());
+   };
+ 
+-  const handleSend = (preset?: string) => {
++  const handleSend = async (preset?: string) => {
+     const text = (preset || input).trim();
+     if (!text) return;
+     setInput('');
+@@ -131,8 +150,21 @@ export function VenusPage() {
+     setCurrentSession(updated);
+     persistSession(updated);
+ 
++    // Every message needs a real chatId so the backend can (a) inject this
++    // chat's goal into the system prompt and (b) attribute any decision/
++    // roadmap card this turn produces back to this chat — otherwise a Goal
++    // set later would have no evidence to grow from. Failing to create the
++    // server chat should never block sending the message itself; Venus
++    // still answers, it just can't attribute this particular turn.
++    let chatId: number | undefined;
++    try {
++      chatId = await ensureServerChat();
++    } catch {
++      chatId = currentSession.serverChatId;
++    }
++
+     analyzeMutation.mutate(
+-      { data: { message: text, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
++      { data: { message: text, chatId, sessionHistory: messages.map(m => ({ role: m.role, content: m.content ?? '' })) } },
+       {
+         onSuccess: (res) => {
+           const venusMsg: ChatMessage = {
+@@ -442,6 +474,10 @@ export function VenusPage() {
+           </div>
+         </div>
+ 
++        <div style={{ padding: '10px 32px 0' }}>
++          <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />
++        </div>
++
+         {/* Messages */}
+         {messages.length === 0 ? (
+           // NOTE: the outer div is scrollable and the inner div uses `m-auto`
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 057efdb..fa2946f 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -200,6 +200,141 @@ export interface OnboardingInput {
+   primaryGoal?: string;
+ }
+ 
++export interface Chat {
++  id: number;
++  title: string;
++  /** @nullable */
++  createdAt: string | null;
++  /** @nullable */
++  updatedAt: string | null;
++}
++
++export interface CreateChatInput {
++  title?: string;
++}
++
++export interface UpdateChatInput {
++  /** @minLength 1 */
++  title: string;
++}
++
++export type GoalStatus = typeof GoalStatus[keyof typeof GoalStatus];
++
++
++export const GoalStatus = {
++  active: 'active',
++  completed: 'completed',
++  abandoned: 'abandoned',
++} as const;
++
++export interface Goal {
++  id: number;
++  chatId: number;
++  title: string;
++  successMetric: string;
++  valueInr: number;
++  deadline: string;
++  status: GoalStatus;
++  evidenceScore: number;
++  /** @nullable */
++  evidenceLog?: string | null;
++  /** @nullable */
++  createdAt: string | null;
++  /** @nullable */
++  updatedAt: string | null;
++  /** @nullable */
++  resolvedAt?: string | null;
++}
++
++export type GoalWithProgressRisk = typeof GoalWithProgressRisk[keyof typeof GoalWithProgressRisk];
++
++
++export const GoalWithProgressRisk = {
++  on_track: 'on_track',
++  at_risk: 'at_risk',
++  off_track: 'off_track',
++} as const;
++
++export type GoalSubTaskCardType = typeof GoalSubTaskCardType[keyof typeof GoalSubTaskCardType];
++
++
++export const GoalSubTaskCardType = {
++  decision: 'decision',
++  roadmap: 'roadmap',
++} as const;
++
++export type GoalSubTaskStatus = typeof GoalSubTaskStatus[keyof typeof GoalSubTaskStatus];
++
++
++export const GoalSubTaskStatus = {
++  open: 'open',
++  resolved: 'resolved',
++  abandoned: 'abandoned',
++} as const;
++
++/**
++ * @nullable
++ */
++export type GoalSubTaskOutcomeSentiment = typeof GoalSubTaskOutcomeSentiment[keyof typeof GoalSubTaskOutcomeSentiment] | null;
++
++
++export const GoalSubTaskOutcomeSentiment = {
++  positive: 'positive',
++  negative: 'negative',
++  mixed: 'mixed',
++} as const;
++
++export interface GoalSubTask {
++  id: number;
++  cardType: GoalSubTaskCardType;
++  summary: string;
++  status: GoalSubTaskStatus;
++  /** @nullable */
++  outcomeSentiment?: GoalSubTaskOutcomeSentiment;
++}
++
++export type GoalWithProgress = Goal & {
++  /**
++     * @minimum 0
++     * @maximum 1
++     */
++  position: number;
++  risk: GoalWithProgressRisk;
++  subTasks: GoalSubTask[];
++};
++
++export interface ChatWithGoal {
++  id: number;
++  title: string;
++  /** @nullable */
++  createdAt: string | null;
++  /** @nullable */
++  updatedAt: string | null;
++  goal: GoalWithProgress | null;
++}
++
++export interface SetGoalInput {
++  /** @minLength 1 */
++  title: string;
++  /** @minLength 1 */
++  successMetric: string;
++  /** @minimum 0 */
++  valueInr: number;
++  deadline: string;
++}
++
++export type SetGoalStatusInputStatus = typeof SetGoalStatusInputStatus[keyof typeof SetGoalStatusInputStatus];
++
++
++export const SetGoalStatusInputStatus = {
++  completed: 'completed',
++  abandoned: 'abandoned',
++} as const;
++
++export interface SetGoalStatusInput {
++  status: SetGoalStatusInputStatus;
++}
++
+ export interface VenusHistoryMessage {
+   role: string;
+   content: string;
+@@ -209,6 +344,7 @@ export interface VenusAnalyzeInput {
+   /** @minLength 1 */
+   message: string;
+   businessContext?: string;
++  chatId?: number;
+   sessionHistory?: VenusHistoryMessage[];
+ }
+ 
+@@ -226,10 +362,18 @@ export interface VenusCard {
+   content: unknown;
+ }
+ 
++export type VenusResponseConfidence = typeof VenusResponseConfidence[keyof typeof VenusResponseConfidence];
++
++
++export const VenusResponseConfidence = {
++  verified: 'verified',
++  exploratory: 'exploratory',
++} as const;
++
+ export interface VenusResponse {
+   summary: string;
+   cards: VenusCard[];
+-  confidence?: 'verified' | 'exploratory';
++  confidence?: VenusResponseConfidence;
+   confidenceNote?: string;
+   confidenceTier?: string;
+ }
+@@ -280,9 +424,22 @@ export type ListThoughtsParams = {
+ category?: string;
+ };
+ 
++export type ListChats200 = {
++  chats: Chat[];
++};
++
++export type DeleteChat200 = {
++  deleted: boolean;
++};
++
++export type ClearChatGoal200 = {
++  deleted: boolean;
++};
++
+ export type GetStockQuotesParams = {
+ /**
+  * Comma separated list of ticker symbols
+  */
+ symbols: string;
+-};
+\ No newline at end of file
++};
++
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 883a640..c363cb2 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -25,14 +25,21 @@ import type {
+   Autopsy,
+   AutopsyChatInput,
+   AutopsyChatResult,
++  Chat,
++  ChatWithGoal,
++  ClearChatGoal200,
+   Company,
++  CreateChatInput,
++  DeleteChat200,
+   ErrorResponse,
+   Event,
+   GetStockQuotesParams,
++  GoalWithProgress,
+   GroqKeyInput,
+   GroqKeyStatus,
+   HealthStatus,
+   IdeaReviewInput,
++  ListChats200,
+   ListCompaniesParams,
+   ListEventsParams,
+   ListReportsParams,
+@@ -44,10 +51,13 @@ import type {
+   Report,
+   ReportSummary,
+   RippleAnalysis,
++  SetGoalInput,
++  SetGoalStatusInput,
+   Signal,
+   StockQuote,
+   ThoughtInput,
+   ThoughtWithReactions,
++  UpdateChatInput,
+   VenusAnalyzeInput,
+   VenusResponse
+ } from './api.schemas';
+@@ -1733,6 +1743,660 @@ export const useSaveOnboarding = <TError = ErrorType<unknown>,
+       return useMutation(getSaveOnboardingMutationOptions(options));
+     }
+ 
++export const getListChatsUrl = () => {
++
++
++
++
++  return `/api/chats`
++}
++
++/**
++ * @summary List the current user's chats, most recently updated first
++ */
++export const listChats = async ( options?: RequestInit): Promise<ListChats200> => {
++
++  return customFetch<ListChats200>(getListChatsUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListChatsQueryKey = () => {
++    return [
++    `/api/chats`
++    ] as const;
++    }
++
++
++export const getListChatsQueryOptions = <TData = Awaited<ReturnType<typeof listChats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListChatsQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listChats>>> = ({ signal }) => listChats({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListChatsQueryResult = NonNullable<Awaited<ReturnType<typeof listChats>>>
++export type ListChatsQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary List the current user's chats, most recently updated first
++ */
++
++export function useListChats<TData = Awaited<ReturnType<typeof listChats>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListChatsQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getCreateChatUrl = () => {
++
++
++
++
++  return `/api/chats`
++}
++
++/**
++ * @summary Create a new chat
++ */
++export const createChat = async (createChatInput?: CreateChatInput, options?: RequestInit): Promise<Chat> => {
++
++  return customFetch<Chat>(getCreateChatUrl(),
++  {
++    ...options,
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(createChatInput)
++  }
++);}
++
++
++
++
++export const getCreateChatMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext> => {
++
++const mutationKey = ['createChat'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChat>>, {data?: BodyType<CreateChatInput>}> = (props) => {
++          const {data} = props ?? {};
++
++          return  createChat(data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type CreateChatMutationResult = NonNullable<Awaited<ReturnType<typeof createChat>>>
++    export type CreateChatMutationBody = BodyType<CreateChatInput> | undefined
++    export type CreateChatMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Create a new chat
++ */
++export const useCreateChat = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof createChat>>,
++        TError,
++        {data?: BodyType<CreateChatInput>},
++        TContext
++      > => {
++      return useMutation(getCreateChatMutationOptions(options));
++    }
++
++export const getGetChatUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}`
++}
++
++/**
++ * @summary Get a single chat, including its goal if one is set
++ */
++export const getChat = async (id: number, options?: RequestInit): Promise<ChatWithGoal> => {
++
++  return customFetch<ChatWithGoal>(getGetChatUrl(id),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getGetChatQueryKey = (id: number,) => {
++    return [
++    `/api/chats/${id}`
++    ] as const;
++    }
++
++
++export const getGetChatQueryOptions = <TData = Awaited<ReturnType<typeof getChat>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getGetChatQueryKey(id);
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChat>>> = ({ signal }) => getChat(id, { signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type GetChatQueryResult = NonNullable<Awaited<ReturnType<typeof getChat>>>
++export type GetChatQueryError = ErrorType<void>
++
++
++/**
++ * @summary Get a single chat, including its goal if one is set
++ */
++
++export function useGetChat<TData = Awaited<ReturnType<typeof getChat>>, TError = ErrorType<void>>(
++ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getGetChatQueryOptions(id,options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getUpdateChatUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}`
++}
++
++/**
++ * @summary Rename a chat
++ */
++export const updateChat = async (id: number,
++    updateChatInput?: UpdateChatInput, options?: RequestInit): Promise<Chat> => {
++
++  return customFetch<Chat>(getUpdateChatUrl(id),
++  {
++    ...options,
++    method: 'PATCH',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(updateChatInput)
++  }
++);}
++
++
++
++
++export const getUpdateChatMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext> => {
++
++const mutationKey = ['updateChat'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateChat>>, {id: number;data?: BodyType<UpdateChatInput>}> = (props) => {
++          const {id,data} = props ?? {};
++
++          return  updateChat(id,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type UpdateChatMutationResult = NonNullable<Awaited<ReturnType<typeof updateChat>>>
++    export type UpdateChatMutationBody = BodyType<UpdateChatInput> | undefined
++    export type UpdateChatMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Rename a chat
++ */
++export const useUpdateChat = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof updateChat>>,
++        TError,
++        {id: number;data?: BodyType<UpdateChatInput>},
++        TContext
++      > => {
++      return useMutation(getUpdateChatMutationOptions(options));
++    }
++
++export const getDeleteChatUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}`
++}
++
++/**
++ * @summary Delete a chat and its goal
++ */
++export const deleteChat = async (id: number, options?: RequestInit): Promise<DeleteChat200> => {
++
++  return customFetch<DeleteChat200>(getDeleteChatUrl(id),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getDeleteChatMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext> => {
++
++const mutationKey = ['deleteChat'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteChat>>, {id: number}> = (props) => {
++          const {id} = props ?? {};
++
++          return  deleteChat(id,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type DeleteChatMutationResult = NonNullable<Awaited<ReturnType<typeof deleteChat>>>
++
++    export type DeleteChatMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Delete a chat and its goal
++ */
++export const useDeleteChat = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof deleteChat>>,
++        TError,
++        {id: number},
++        TContext
++      > => {
++      return useMutation(getDeleteChatMutationOptions(options));
++    }
++
++export const getGetChatGoalUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}/goal`
++}
++
++/**
++ * @summary Get the goal set on this chat, if any
++ */
++export const getChatGoal = async (id: number, options?: RequestInit): Promise<GoalWithProgress> => {
++
++  return customFetch<GoalWithProgress>(getGetChatGoalUrl(id),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getGetChatGoalQueryKey = (id: number,) => {
++    return [
++    `/api/chats/${id}/goal`
++    ] as const;
++    }
++
++
++export const getGetChatGoalQueryOptions = <TData = Awaited<ReturnType<typeof getChatGoal>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getGetChatGoalQueryKey(id);
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChatGoal>>> = ({ signal }) => getChatGoal(id, { signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type GetChatGoalQueryResult = NonNullable<Awaited<ReturnType<typeof getChatGoal>>>
++export type GetChatGoalQueryError = ErrorType<void>
++
++
++/**
++ * @summary Get the goal set on this chat, if any
++ */
++
++export function useGetChatGoal<TData = Awaited<ReturnType<typeof getChatGoal>>, TError = ErrorType<void>>(
++ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getGetChatGoalQueryOptions(id,options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
++export const getSetChatGoalUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}/goal`
++}
++
++/**
++ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
++ */
++export const setChatGoal = async (id: number,
++    setGoalInput: SetGoalInput, options?: RequestInit): Promise<GoalWithProgress> => {
++
++  return customFetch<GoalWithProgress>(getSetChatGoalUrl(id),
++  {
++    ...options,
++    method: 'PUT',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(setGoalInput)
++  }
++);}
++
++
++
++
++export const getSetChatGoalMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext> => {
++
++const mutationKey = ['setChatGoal'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setChatGoal>>, {id: number;data: BodyType<SetGoalInput>}> = (props) => {
++          const {id,data} = props ?? {};
++
++          return  setChatGoal(id,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type SetChatGoalMutationResult = NonNullable<Awaited<ReturnType<typeof setChatGoal>>>
++    export type SetChatGoalMutationBody = BodyType<SetGoalInput>
++    export type SetChatGoalMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
++ */
++export const useSetChatGoal = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof setChatGoal>>,
++        TError,
++        {id: number;data: BodyType<SetGoalInput>},
++        TContext
++      > => {
++      return useMutation(getSetChatGoalMutationOptions(options));
++    }
++
++export const getClearChatGoalUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}/goal`
++}
++
++/**
++ * @summary Remove the goal from this chat (the chat itself is kept)
++ */
++export const clearChatGoal = async (id: number, options?: RequestInit): Promise<ClearChatGoal200> => {
++
++  return customFetch<ClearChatGoal200>(getClearChatGoalUrl(id),
++  {
++    ...options,
++    method: 'DELETE'
++
++
++  }
++);}
++
++
++
++
++export const getClearChatGoalMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext> => {
++
++const mutationKey = ['clearChatGoal'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearChatGoal>>, {id: number}> = (props) => {
++          const {id} = props ?? {};
++
++          return  clearChatGoal(id,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type ClearChatGoalMutationResult = NonNullable<Awaited<ReturnType<typeof clearChatGoal>>>
++
++    export type ClearChatGoalMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Remove the goal from this chat (the chat itself is kept)
++ */
++export const useClearChatGoal = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof clearChatGoal>>,
++        TError,
++        {id: number},
++        TContext
++      > => {
++      return useMutation(getClearChatGoalMutationOptions(options));
++    }
++
++export const getSetGoalStatusUrl = (id: number,) => {
++
++
++
++
++  return `/api/chats/${id}/goal/status`
++}
++
++/**
++ * @summary Mark the goal completed or abandoned (history retained)
++ */
++export const setGoalStatus = async (id: number,
++    setGoalStatusInput: SetGoalStatusInput, options?: RequestInit): Promise<GoalWithProgress> => {
++
++  return customFetch<GoalWithProgress>(getSetGoalStatusUrl(id),
++  {
++    ...options,
++    method: 'PATCH',
++    headers: { 'Content-Type': 'application/json', ...options?.headers },
++    body: JSON.stringify(setGoalStatusInput)
++  }
++);}
++
++
++
++
++export const getSetGoalStatusMutationOptions = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++): UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext> => {
++
++const mutationKey = ['setGoalStatus'];
++const {mutation: mutationOptions, request: requestOptions} = options ?
++      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
++      options
++      : {...options, mutation: {...options.mutation, mutationKey}}
++      : {mutation: { mutationKey, }, request: undefined};
++
++
++
++
++      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setGoalStatus>>, {id: number;data: BodyType<SetGoalStatusInput>}> = (props) => {
++          const {id,data} = props ?? {};
++
++          return  setGoalStatus(id,data,requestOptions)
++        }
++
++
++
++
++
++
++  return  { mutationFn, ...mutationOptions }}
++
++    export type SetGoalStatusMutationResult = NonNullable<Awaited<ReturnType<typeof setGoalStatus>>>
++    export type SetGoalStatusMutationBody = BodyType<SetGoalStatusInput>
++    export type SetGoalStatusMutationError = ErrorType<unknown>
++
++    /**
++ * @summary Mark the goal completed or abandoned (history retained)
++ */
++export const useSetGoalStatus = <TError = ErrorType<unknown>,
++    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
++ ): UseMutationResult<
++        Awaited<ReturnType<typeof setGoalStatus>>,
++        TError,
++        {id: number;data: BodyType<SetGoalStatusInput>},
++        TContext
++      > => {
++      return useMutation(getSetGoalStatusMutationOptions(options));
++    }
++
+ export const getVenusAnalyzeUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 0a5bd25..1dd17c9 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -402,6 +402,175 @@ paths:
+             application/json:
+               schema: { $ref: "#/components/schemas/OnboardingData" }
+ 
++  /chats:
++    get:
++      operationId: listChats
++      tags: [chats]
++      summary: List the current user's chats, most recently updated first
++      responses:
++        "200":
++          description: Chats
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [chats]
++                properties:
++                  chats:
++                    type: array
++                    items: { $ref: "#/components/schemas/Chat" }
++    post:
++      operationId: createChat
++      tags: [chats]
++      summary: Create a new chat
++      requestBody:
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/CreateChatInput" }
++      responses:
++        "200":
++          description: Created chat
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/Chat" }
++
++  /chats/{id}:
++    get:
++      operationId: getChat
++      tags: [chats]
++      summary: Get a single chat, including its goal if one is set
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      responses:
++        "200":
++          description: Chat with optional goal
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/ChatWithGoal" }
++        "404":
++          description: Not found
++    patch:
++      operationId: updateChat
++      tags: [chats]
++      summary: Rename a chat
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      requestBody:
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/UpdateChatInput" }
++      responses:
++        "200":
++          description: Updated chat
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/Chat" }
++    delete:
++      operationId: deleteChat
++      tags: [chats]
++      summary: Delete a chat and its goal
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      responses:
++        "200":
++          description: Deleted
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [deleted]
++                properties:
++                  deleted: { type: boolean }
++
++  /chats/{id}/goal:
++    get:
++      operationId: getChatGoal
++      tags: [goals]
++      summary: Get the goal set on this chat, if any
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      responses:
++        "200":
++          description: Goal, or null if none set
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/GoalWithProgress" }
++        "404":
++          description: No goal set on this chat
++    put:
++      operationId: setChatGoal
++      tags: [goals]
++      summary: Set or replace the goal on this chat (title, success metric, value, deadline all required)
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/SetGoalInput" }
++      responses:
++        "200":
++          description: The saved goal
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/GoalWithProgress" }
++    delete:
++      operationId: clearChatGoal
++      tags: [goals]
++      summary: Remove the goal from this chat (the chat itself is kept)
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      responses:
++        "200":
++          description: Deleted
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [deleted]
++                properties:
++                  deleted: { type: boolean }
++
++  /chats/{id}/goal/status:
++    patch:
++      operationId: setGoalStatus
++      tags: [goals]
++      summary: Mark the goal completed or abandoned (history retained)
++      parameters:
++        - name: id
++          in: path
++          required: true
++          schema: { type: integer }
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema: { $ref: "#/components/schemas/SetGoalStatusInput" }
++      responses:
++        "200":
++          description: The updated goal
++          content:
++            application/json:
++              schema: { $ref: "#/components/schemas/GoalWithProgress" }
++
+   /ai/analyze:
+     post:
+       operationId: venusAnalyze
+@@ -710,6 +879,104 @@ components:
+         country: { type: string }
+         primaryGoal: { type: string }
+ 
++    Chat:
++      type: object
++      required: [id, title, createdAt, updatedAt]
++      properties:
++        id: { type: integer }
++        title: { type: string }
++        createdAt: { type: ["string", "null"], format: date-time }
++        updatedAt: { type: ["string", "null"], format: date-time }
++
++    CreateChatInput:
++      type: object
++      properties:
++        title: { type: string }
++
++    UpdateChatInput:
++      type: object
++      required: [title]
++      properties:
++        title: { type: string, minLength: 1 }
++
++    ChatWithGoal:
++      type: object
++      required: [id, title, createdAt, updatedAt, goal]
++      properties:
++        id: { type: integer }
++        title: { type: string }
++        createdAt: { type: ["string", "null"], format: date-time }
++        updatedAt: { type: ["string", "null"], format: date-time }
++        goal:
++          oneOf:
++            - $ref: "#/components/schemas/GoalWithProgress"
++            - type: "null"
++
++    # The only three fields that actually let Venus reason about
++    # urgency/expected-value/trade-offs on this goal — all required, no
++    # partial/draft goal is considered "set" without them.
++    SetGoalInput:
++      type: object
++      required: [title, successMetric, valueInr, deadline]
++      properties:
++        title: { type: string, minLength: 1 }
++        successMetric: { type: string, minLength: 1 }
++        valueInr: { type: integer, minimum: 0 }
++        deadline: { type: string, format: date-time }
++
++    SetGoalStatusInput:
++      type: object
++      required: [status]
++      properties:
++        status: { type: string, enum: [completed, abandoned] }
++
++    Goal:
++      type: object
++      required: [id, chatId, title, successMetric, valueInr, deadline, status, evidenceScore, createdAt, updatedAt]
++      properties:
++        id: { type: integer }
++        chatId: { type: integer }
++        title: { type: string }
++        successMetric: { type: string }
++        valueInr: { type: integer }
++        deadline: { type: string, format: date-time }
++        status: { type: string, enum: [active, completed, abandoned] }
++        evidenceScore: { type: number }
++        evidenceLog: { type: ["string", "null"] }
++        createdAt: { type: ["string", "null"], format: date-time }
++        updatedAt: { type: ["string", "null"], format: date-time }
++        resolvedAt: { type: ["string", "null"], format: date-time }
++
++    # What the UI actually renders the Origin──◉──Target line from: `position`
++    # is the raw evidenceScore already mapped into [0,1] (soft-compressed
++    # past the ends, not clamped — see evidenceScoreToPosition), `risk` is the
++    # read-time judgment of whether evidence-so-far is keeping pace with
++    # time-to-deadline, and `subTasks` are the roadmap/decision cards logged
++    # against this goal's chat so the UI can list what's been tried and
++    # whether it counted as evidence for or against, without a uniform
++    # checked-off-count progress bar anywhere in this shape.
++    GoalWithProgress:
++      allOf:
++        - $ref: "#/components/schemas/Goal"
++        - type: object
++          required: [position, risk, subTasks]
++          properties:
++            position: { type: number, minimum: 0, maximum: 1 }
++            risk: { type: string, enum: [on_track, at_risk, off_track] }
++            subTasks:
++              type: array
++              items: { $ref: "#/components/schemas/GoalSubTask" }
++
++    GoalSubTask:
++      type: object
++      required: [id, cardType, summary, status]
++      properties:
++        id: { type: integer }
++        cardType: { type: string, enum: [decision, roadmap] }
++        summary: { type: string }
++        status: { type: string, enum: [open, resolved, abandoned] }
++        outcomeSentiment: { type: ["string", "null"], enum: [positive, negative, mixed, null] }
++
+     VenusHistoryMessage:
+       type: object
+       required: [role, content]
+@@ -723,6 +990,15 @@ components:
+       properties:
+         message: { type: string, minLength: 1 }
+         businessContext: { type: string }
++        # Which chat this message belongs to. When present and that chat has
++        # an active goal, any decision/roadmap card this turn produces is
++        # logged with this chatId (see autoLogDecisionCards) and the goal's
++        # title/successMetric/valueInr/deadline are injected into the system
++        # prompt so Venus reasons about this message in light of the goal,
++        # the way a Claude Project's custom instructions frame every message
++        # in that project. Optional so ungoaled/ordinary chats keep working
++        # exactly as before.
++        chatId: { type: integer }
+         sessionHistory:
+           type: array
+           items: { $ref: "#/components/schemas/VenusHistoryMessage" }
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 83b4d63..b11b683 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -402,6 +402,255 @@ export const SaveOnboardingResponse = zod.object({
+ })
+ 
+ 
++/**
++ * @summary List the current user's chats, most recently updated first
++ */
++export const ListChatsResponse = zod.object({
++  "chats": zod.array(zod.object({
++  "id": zod.number(),
++  "title": zod.string(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable()
++}))
++})
++
++
++/**
++ * @summary Create a new chat
++ */
++export const CreateChatBody = zod.object({
++  "title": zod.string().optional()
++})
++
++export const CreateChatResponse = zod.object({
++  "id": zod.number(),
++  "title": zod.string(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable()
++})
++
++
++/**
++ * @summary Get a single chat, including its goal if one is set
++ */
++export const GetChatParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++export const getChatResponseGoalOneTwoPositionMin = 0;
++export const getChatResponseGoalOneTwoPositionMax = 1;
++
++
++
++export const GetChatResponse = zod.object({
++  "id": zod.number(),
++  "title": zod.string(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable(),
++  "goal": zod.union([zod.object({
++  "id": zod.number(),
++  "chatId": zod.number(),
++  "title": zod.string(),
++  "successMetric": zod.string(),
++  "valueInr": zod.number(),
++  "deadline": zod.coerce.date(),
++  "status": zod.enum(['active', 'completed', 'abandoned']),
++  "evidenceScore": zod.number(),
++  "evidenceLog": zod.string().nullish(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable(),
++  "resolvedAt": zod.coerce.date().nullish()
++}).and(zod.object({
++  "position": zod.number().min(getChatResponseGoalOneTwoPositionMin).max(getChatResponseGoalOneTwoPositionMax),
++  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
++  "subTasks": zod.array(zod.object({
++  "id": zod.number(),
++  "cardType": zod.enum(['decision', 'roadmap']),
++  "summary": zod.string(),
++  "status": zod.enum(['open', 'resolved', 'abandoned']),
++  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
++}))
++})),zod.null()])
++})
++
++
++/**
++ * @summary Rename a chat
++ */
++export const UpdateChatParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++
++
++
++export const UpdateChatBody = zod.object({
++  "title": zod.string().min(1)
++})
++
++export const UpdateChatResponse = zod.object({
++  "id": zod.number(),
++  "title": zod.string(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable()
++})
++
++
++/**
++ * @summary Delete a chat and its goal
++ */
++export const DeleteChatParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++export const DeleteChatResponse = zod.object({
++  "deleted": zod.boolean()
++})
++
++
++/**
++ * @summary Get the goal set on this chat, if any
++ */
++export const GetChatGoalParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++export const getChatGoalResponseTwoPositionMin = 0;
++export const getChatGoalResponseTwoPositionMax = 1;
++
++
++
++export const GetChatGoalResponse = zod.object({
++  "id": zod.number(),
++  "chatId": zod.number(),
++  "title": zod.string(),
++  "successMetric": zod.string(),
++  "valueInr": zod.number(),
++  "deadline": zod.coerce.date(),
++  "status": zod.enum(['active', 'completed', 'abandoned']),
++  "evidenceScore": zod.number(),
++  "evidenceLog": zod.string().nullish(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable(),
++  "resolvedAt": zod.coerce.date().nullish()
++}).and(zod.object({
++  "position": zod.number().min(getChatGoalResponseTwoPositionMin).max(getChatGoalResponseTwoPositionMax),
++  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
++  "subTasks": zod.array(zod.object({
++  "id": zod.number(),
++  "cardType": zod.enum(['decision', 'roadmap']),
++  "summary": zod.string(),
++  "status": zod.enum(['open', 'resolved', 'abandoned']),
++  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
++}))
++}))
++
++
++/**
++ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
++ */
++export const SetChatGoalParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++
++
++export const setChatGoalBodyValueInrMin = 0;
++
++
++
++export const SetChatGoalBody = zod.object({
++  "title": zod.string().min(1),
++  "successMetric": zod.string().min(1),
++  "valueInr": zod.number().min(setChatGoalBodyValueInrMin),
++  "deadline": zod.coerce.date()
++})
++
++export const setChatGoalResponseTwoPositionMin = 0;
++export const setChatGoalResponseTwoPositionMax = 1;
++
++
++
++export const SetChatGoalResponse = zod.object({
++  "id": zod.number(),
++  "chatId": zod.number(),
++  "title": zod.string(),
++  "successMetric": zod.string(),
++  "valueInr": zod.number(),
++  "deadline": zod.coerce.date(),
++  "status": zod.enum(['active', 'completed', 'abandoned']),
++  "evidenceScore": zod.number(),
++  "evidenceLog": zod.string().nullish(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable(),
++  "resolvedAt": zod.coerce.date().nullish()
++}).and(zod.object({
++  "position": zod.number().min(setChatGoalResponseTwoPositionMin).max(setChatGoalResponseTwoPositionMax),
++  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
++  "subTasks": zod.array(zod.object({
++  "id": zod.number(),
++  "cardType": zod.enum(['decision', 'roadmap']),
++  "summary": zod.string(),
++  "status": zod.enum(['open', 'resolved', 'abandoned']),
++  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
++}))
++}))
++
++
++/**
++ * @summary Remove the goal from this chat (the chat itself is kept)
++ */
++export const ClearChatGoalParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++export const ClearChatGoalResponse = zod.object({
++  "deleted": zod.boolean()
++})
++
++
++/**
++ * @summary Mark the goal completed or abandoned (history retained)
++ */
++export const SetGoalStatusParams = zod.object({
++  "id": zod.coerce.number()
++})
++
++export const SetGoalStatusBody = zod.object({
++  "status": zod.enum(['completed', 'abandoned'])
++})
++
++export const setGoalStatusResponseTwoPositionMin = 0;
++export const setGoalStatusResponseTwoPositionMax = 1;
++
++
++
++export const SetGoalStatusResponse = zod.object({
++  "id": zod.number(),
++  "chatId": zod.number(),
++  "title": zod.string(),
++  "successMetric": zod.string(),
++  "valueInr": zod.number(),
++  "deadline": zod.coerce.date(),
++  "status": zod.enum(['active', 'completed', 'abandoned']),
++  "evidenceScore": zod.number(),
++  "evidenceLog": zod.string().nullish(),
++  "createdAt": zod.coerce.date().nullable(),
++  "updatedAt": zod.coerce.date().nullable(),
++  "resolvedAt": zod.coerce.date().nullish()
++}).and(zod.object({
++  "position": zod.number().min(setGoalStatusResponseTwoPositionMin).max(setGoalStatusResponseTwoPositionMax),
++  "risk": zod.enum(['on_track', 'at_risk', 'off_track']),
++  "subTasks": zod.array(zod.object({
++  "id": zod.number(),
++  "cardType": zod.enum(['decision', 'roadmap']),
++  "summary": zod.string(),
++  "status": zod.enum(['open', 'resolved', 'abandoned']),
++  "outcomeSentiment": zod.union([zod.literal('positive'),zod.literal('negative'),zod.literal('mixed'),zod.literal(null)]).nullish()
++}))
++}))
++
++
+ /**
+  * @summary Venus AI structured analysis
+  */
+@@ -411,6 +660,7 @@ export const SaveOnboardingResponse = zod.object({
+ export const VenusAnalyzeBody = zod.object({
+   "message": zod.string().min(1),
+   "businessContext": zod.string().optional(),
++  "chatId": zod.number().optional(),
+   "sessionHistory": zod.array(zod.object({
+   "role": zod.string(),
+   "content": zod.string()
+@@ -423,7 +673,10 @@ export const VenusAnalyzeResponse = zod.object({
+   "type": zod.string(),
+   "title": zod.string(),
+   "content": zod.unknown()
+-}))
++})),
++  "confidence": zod.enum(['verified', 'exploratory']).optional(),
++  "confidenceNote": zod.string().optional(),
++  "confidenceTier": zod.string().optional()
+ })
+ 
+ 
+@@ -446,7 +699,10 @@ export const IdeaReviewResponse = zod.object({
+   "type": zod.string(),
+   "title": zod.string(),
+   "content": zod.unknown()
+-}))
++})),
++  "confidence": zod.enum(['verified', 'exploratory']).optional(),
++  "confidenceNote": zod.string().optional(),
++  "confidenceTier": zod.string().optional()
+ })
+ 
+ 
+diff --git a/lib/api-zod/src/generated/types/chat.ts b/lib/api-zod/src/generated/types/chat.ts
+new file mode 100644
+index 0000000..87be58c
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/chat.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface Chat {
++  id: number;
++  title: string;
++  /** @nullable */
++  createdAt: Date | null;
++  /** @nullable */
++  updatedAt: Date | null;
++}
+diff --git a/lib/api-zod/src/generated/types/chatWithGoal.ts b/lib/api-zod/src/generated/types/chatWithGoal.ts
+new file mode 100644
+index 0000000..8f6b731
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/chatWithGoal.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GoalWithProgress } from './goalWithProgress';
++
++export interface ChatWithGoal {
++  id: number;
++  title: string;
++  /** @nullable */
++  createdAt: Date | null;
++  /** @nullable */
++  updatedAt: Date | null;
++  goal: GoalWithProgress | null;
++}
+diff --git a/lib/api-zod/src/generated/types/clearChatGoal200.ts b/lib/api-zod/src/generated/types/clearChatGoal200.ts
+new file mode 100644
+index 0000000..fd7c722
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/clearChatGoal200.ts
+@@ -0,0 +1,11 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type ClearChatGoal200 = {
++  deleted: boolean;
++};
+diff --git a/lib/api-zod/src/generated/types/createChatInput.ts b/lib/api-zod/src/generated/types/createChatInput.ts
+new file mode 100644
+index 0000000..1174441
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/createChatInput.ts
+@@ -0,0 +1,11 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface CreateChatInput {
++  title?: string;
++}
+diff --git a/lib/api-zod/src/generated/types/deleteChat200.ts b/lib/api-zod/src/generated/types/deleteChat200.ts
+new file mode 100644
+index 0000000..33a98bd
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/deleteChat200.ts
+@@ -0,0 +1,11 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type DeleteChat200 = {
++  deleted: boolean;
++};
+diff --git a/lib/api-zod/src/generated/types/goal.ts b/lib/api-zod/src/generated/types/goal.ts
+new file mode 100644
+index 0000000..ab3c8e6
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goal.ts
+@@ -0,0 +1,27 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GoalStatus } from './goalStatus';
++
++export interface Goal {
++  id: number;
++  chatId: number;
++  title: string;
++  successMetric: string;
++  valueInr: number;
++  deadline: Date;
++  status: GoalStatus;
++  evidenceScore: number;
++  /** @nullable */
++  evidenceLog?: string | null;
++  /** @nullable */
++  createdAt: Date | null;
++  /** @nullable */
++  updatedAt: Date | null;
++  /** @nullable */
++  resolvedAt?: Date | null;
++}
+diff --git a/lib/api-zod/src/generated/types/goalStatus.ts b/lib/api-zod/src/generated/types/goalStatus.ts
+new file mode 100644
+index 0000000..cd716ca
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalStatus.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type GoalStatus = typeof GoalStatus[keyof typeof GoalStatus];
++
++
++export const GoalStatus = {
++  active: 'active',
++  completed: 'completed',
++  abandoned: 'abandoned',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/goalSubTask.ts b/lib/api-zod/src/generated/types/goalSubTask.ts
+new file mode 100644
+index 0000000..4863398
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalSubTask.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { GoalSubTaskCardType } from './goalSubTaskCardType';
++import type { GoalSubTaskOutcomeSentiment } from './goalSubTaskOutcomeSentiment';
++import type { GoalSubTaskStatus } from './goalSubTaskStatus';
++
++export interface GoalSubTask {
++  id: number;
++  cardType: GoalSubTaskCardType;
++  summary: string;
++  status: GoalSubTaskStatus;
++  /** @nullable */
++  outcomeSentiment?: GoalSubTaskOutcomeSentiment;
++}
+diff --git a/lib/api-zod/src/generated/types/goalSubTaskCardType.ts b/lib/api-zod/src/generated/types/goalSubTaskCardType.ts
+new file mode 100644
+index 0000000..e3c6c12
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalSubTaskCardType.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type GoalSubTaskCardType = typeof GoalSubTaskCardType[keyof typeof GoalSubTaskCardType];
++
++
++export const GoalSubTaskCardType = {
++  decision: 'decision',
++  roadmap: 'roadmap',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/goalSubTaskOutcomeSentiment.ts b/lib/api-zod/src/generated/types/goalSubTaskOutcomeSentiment.ts
+new file mode 100644
+index 0000000..edff01b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalSubTaskOutcomeSentiment.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * @nullable
++ */
++export type GoalSubTaskOutcomeSentiment = typeof GoalSubTaskOutcomeSentiment[keyof typeof GoalSubTaskOutcomeSentiment] | null;
++
++
++export const GoalSubTaskOutcomeSentiment = {
++  positive: 'positive',
++  negative: 'negative',
++  mixed: 'mixed',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/goalSubTaskStatus.ts b/lib/api-zod/src/generated/types/goalSubTaskStatus.ts
+new file mode 100644
+index 0000000..02e922b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalSubTaskStatus.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type GoalSubTaskStatus = typeof GoalSubTaskStatus[keyof typeof GoalSubTaskStatus];
++
++
++export const GoalSubTaskStatus = {
++  open: 'open',
++  resolved: 'resolved',
++  abandoned: 'abandoned',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/goalWithProgress.ts b/lib/api-zod/src/generated/types/goalWithProgress.ts
+new file mode 100644
+index 0000000..86f06aa
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalWithProgress.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { Goal } from './goal';
++import type { GoalSubTask } from './goalSubTask';
++import type { GoalWithProgressRisk } from './goalWithProgressRisk';
++
++export type GoalWithProgress = Goal & {
++  /**
++     * @minimum 0
++     * @maximum 1
++     */
++  position: number;
++  risk: GoalWithProgressRisk;
++  subTasks: GoalSubTask[];
++};
+diff --git a/lib/api-zod/src/generated/types/goalWithProgressRisk.ts b/lib/api-zod/src/generated/types/goalWithProgressRisk.ts
+new file mode 100644
+index 0000000..e2abc5a
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/goalWithProgressRisk.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type GoalWithProgressRisk = typeof GoalWithProgressRisk[keyof typeof GoalWithProgressRisk];
++
++
++export const GoalWithProgressRisk = {
++  on_track: 'on_track',
++  at_risk: 'at_risk',
++  off_track: 'off_track',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 6649956..283a58f 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -13,14 +13,28 @@ export * from './autopsy';
+ export * from './autopsyChatInput';
+ export * from './autopsyChatMessage';
+ export * from './autopsyChatResult';
++export * from './chat';
++export * from './chatWithGoal';
++export * from './clearChatGoal200';
+ export * from './company';
++export * from './createChatInput';
++export * from './deleteChat200';
+ export * from './errorResponse';
+ export * from './event';
+ export * from './getStockQuotesParams';
++export * from './goal';
++export * from './goalStatus';
++export * from './goalSubTask';
++export * from './goalSubTaskCardType';
++export * from './goalSubTaskOutcomeSentiment';
++export * from './goalSubTaskStatus';
++export * from './goalWithProgress';
++export * from './goalWithProgressRisk';
+ export * from './groqKeyInput';
+ export * from './groqKeyStatus';
+ export * from './healthStatus';
+ export * from './ideaReviewInput';
++export * from './listChats200';
+ export * from './listCompaniesParams';
+ export * from './listEventsParams';
+ export * from './listReportsParams';
+@@ -35,13 +49,18 @@ export * from './rippleAnalysis';
+ export * from './rippleFlowchart';
+ export * from './rippleFlowchartEdge';
+ export * from './rippleFlowchartNode';
++export * from './setGoalInput';
++export * from './setGoalStatusInput';
++export * from './setGoalStatusInputStatus';
+ export * from './signal';
+ export * from './stockQuote';
+ export * from './thought';
+ export * from './thoughtInput';
+ export * from './thoughtWithReactions';
+ export * from './thoughtWithReactionsReactions';
++export * from './updateChatInput';
+ export * from './venusAnalyzeInput';
+ export * from './venusCard';
+ export * from './venusHistoryMessage';
+ export * from './venusResponse';
++export * from './venusResponseConfidence';
+diff --git a/lib/api-zod/src/generated/types/listChats200.ts b/lib/api-zod/src/generated/types/listChats200.ts
+new file mode 100644
+index 0000000..1823864
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/listChats200.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { Chat } from './chat';
++
++export type ListChats200 = {
++  chats: Chat[];
++};
+diff --git a/lib/api-zod/src/generated/types/setGoalInput.ts b/lib/api-zod/src/generated/types/setGoalInput.ts
+new file mode 100644
+index 0000000..a2f4d09
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/setGoalInput.ts
+@@ -0,0 +1,17 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface SetGoalInput {
++  /** @minLength 1 */
++  title: string;
++  /** @minLength 1 */
++  successMetric: string;
++  /** @minimum 0 */
++  valueInr: number;
++  deadline: Date;
++}
+diff --git a/lib/api-zod/src/generated/types/setGoalStatusInput.ts b/lib/api-zod/src/generated/types/setGoalStatusInput.ts
+new file mode 100644
+index 0000000..02a4e62
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/setGoalStatusInput.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++import type { SetGoalStatusInputStatus } from './setGoalStatusInputStatus';
++
++export interface SetGoalStatusInput {
++  status: SetGoalStatusInputStatus;
++}
+diff --git a/lib/api-zod/src/generated/types/setGoalStatusInputStatus.ts b/lib/api-zod/src/generated/types/setGoalStatusInputStatus.ts
+new file mode 100644
+index 0000000..7865fce
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/setGoalStatusInputStatus.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type SetGoalStatusInputStatus = typeof SetGoalStatusInputStatus[keyof typeof SetGoalStatusInputStatus];
++
++
++export const SetGoalStatusInputStatus = {
++  completed: 'completed',
++  abandoned: 'abandoned',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/updateChatInput.ts b/lib/api-zod/src/generated/types/updateChatInput.ts
+new file mode 100644
+index 0000000..308dfe7
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/updateChatInput.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface UpdateChatInput {
++  /** @minLength 1 */
++  title: string;
++}
+diff --git a/lib/api-zod/src/generated/types/venusAnalyzeInput.ts b/lib/api-zod/src/generated/types/venusAnalyzeInput.ts
+index a0bce15..cb14d9c 100644
+--- a/lib/api-zod/src/generated/types/venusAnalyzeInput.ts
++++ b/lib/api-zod/src/generated/types/venusAnalyzeInput.ts
+@@ -11,5 +11,6 @@ export interface VenusAnalyzeInput {
+   /** @minLength 1 */
+   message: string;
+   businessContext?: string;
++  chatId?: number;
+   sessionHistory?: VenusHistoryMessage[];
+ }
+diff --git a/lib/api-zod/src/generated/types/venusResponse.ts b/lib/api-zod/src/generated/types/venusResponse.ts
+index d5a03a4..6ae21d3 100644
+--- a/lib/api-zod/src/generated/types/venusResponse.ts
++++ b/lib/api-zod/src/generated/types/venusResponse.ts
+@@ -6,11 +6,12 @@
+  * OpenAPI spec version: 0.1.0
+  */
+ import type { VenusCard } from './venusCard';
++import type { VenusResponseConfidence } from './venusResponseConfidence';
+ 
+ export interface VenusResponse {
+   summary: string;
+   cards: VenusCard[];
+-  confidence?: 'verified' | 'exploratory';
++  confidence?: VenusResponseConfidence;
+   confidenceNote?: string;
+   confidenceTier?: string;
+-}
+\ No newline at end of file
++}
+diff --git a/lib/api-zod/src/generated/types/venusResponseConfidence.ts b/lib/api-zod/src/generated/types/venusResponseConfidence.ts
+new file mode 100644
+index 0000000..4d793c5
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/venusResponseConfidence.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * Vera Nexus API specification
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type VenusResponseConfidence = typeof VenusResponseConfidence[keyof typeof VenusResponseConfidence];
++
++
++export const VenusResponseConfidence = {
++  verified: 'verified',
++  exploratory: 'exploratory',
++} as const;
+diff --git a/lib/db/src/schema/chats.ts b/lib/db/src/schema/chats.ts
+new file mode 100644
+index 0000000..88edcbf
+--- /dev/null
++++ b/lib/db/src/schema/chats.ts
+@@ -0,0 +1,28 @@
++import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
++import { createInsertSchema } from "drizzle-zod";
++import { z } from "zod/v4";
++
++// Until now, "a chat" only existed as a `ChatSession` object in the frontend's
++// localStorage (see vera-nexus/src/lib/venusHistory.ts) — the server had no
++// concept of it at all. Every /ai/* route was keyed on `sessionId` (now the
++// Clerk userId), which is really "this whole person's account," not "this one
++// conversation." That collapse is exactly why a per-chat Goal couldn't exist
++// server-side: there was no row to hang it off.
++//
++// This table is that row. One per chat/thread, owned by a real user. The
++// frontend's local chat list becomes a cache/mirror of these rows (and can
++// eventually be dropped in favor of always reading from here), and
++// venus_decisions / goals both reference chatId so a founder's decision
++// history and roadmap can be scoped to "the Aurelian chat" vs "the Vera chat"
++// instead of bleeding into one global per-user bucket.
++export const chatsTable = pgTable("chats", {
++  id: serial("id").primaryKey(),
++  userId: text("user_id").notNull(),
++  title: text("title").notNull().default("New Chat"),
++  createdAt: timestamp("created_at").defaultNow(),
++  updatedAt: timestamp("updated_at").defaultNow(),
++});
++
++export const insertChatSchema = createInsertSchema(chatsTable).omit({ id: true, createdAt: true, updatedAt: true });
++export type InsertChat = z.infer<typeof insertChatSchema>;
++export type Chat = typeof chatsTable.$inferSelect;
+diff --git a/lib/db/src/schema/goals.ts b/lib/db/src/schema/goals.ts
+new file mode 100644
+index 0000000..0e361ad
+--- /dev/null
++++ b/lib/db/src/schema/goals.ts
+@@ -0,0 +1,80 @@
++import { pgTable, serial, integer, text, real, timestamp } from "drizzle-orm/pg-core";
++import { createInsertSchema } from "drizzle-zod";
++import { z } from "zod/v4";
++
++// A Goal is the thing that turns a chat from "a place I asked Venus some
++// questions" into "the thread I'm running this specific fight through" —
++// e.g. Aurelian's chat carries "close Client X, demo scheduled [date]", the
++// Vera chat carries its own build/launch goal. Set once per chat the way a
++// Claude Project gets custom instructions: it frames every answer in that
++// chat afterward, and every roadmap/decision card generated in that chat is
++// implicitly a sub-task of it.
++//
++// One goal per chat at a time (chatId is unique) — a chat with no goal set
++// is just an ordinary chat with no urgency/EV frame attached, which is the
++// deliberate default. When a goal is done or no longer relevant the founder
++// starts a NEW chat for the next goal; the old chat + its goal are kept,
++// never overwritten, so history is retained exactly like switching Claude
++// Projects rather than editing one in place.
++//
++// successMetric / valueInr / deadline are NOT optional embellishments — they
++// are the only inputs that let Venus reason about urgency, expected value, or
++// trade-offs at all. A goal without a concrete win condition, a rupee value,
++// and a deadline is not reasoned about differently than an ordinary chat;
++// the API layer should enforce all three are present before a goal is
++// considered "set" rather than "draft."
++export const goalsTable = pgTable("goals", {
++  id: serial("id").primaryKey(),
++  chatId: integer("chat_id").notNull().unique(),
++  userId: text("user_id").notNull(),
++
++  title: text("title").notNull(),
++  // The concrete, falsifiable win condition — "demo scheduled and signed by
++  // [date]", not "grow the business." This is what lets a roadmap item be
++  // judged as evidence FOR or AGAINST the goal instead of just "done."
++  successMetric: text("success_metric").notNull(),
++  // Rupee value of hitting the goal. Stored as an integer (paise-free, whole
++  // rupees) rather than a float — founders size these in round numbers and
++  // float rounding has no upside here.
++  valueInr: integer("value_inr").notNull(),
++  deadline: timestamp("deadline").notNull(),
++
++  // "active" until explicitly resolved. "completed" = success metric was hit.
++  // "abandoned" = founder moved on without hitting it (still useful: an
++  // abandoned goal's resolved decisions remain real evidence in Decision
++  // Memory even though the goal itself didn't land). "at_risk" is NOT a
++  // status — it's a read-time judgment derived from evidence vs. time-to-
++  // deadline, not a state anyone sets.
++  status: text("status").notNull().default("active"),
++
++  // The navigation-line marker position: Origin(0) -> Target(1), but NOT
++  // clamped to [0,1] and NOT driven by "N of M tasks checked off." It moves
++  // when a roadmap/decision card tied to this goal resolves — a resolved
++  // card with outcomeSentiment "positive" pushes it meaningfully toward 1;
++  // "negative" barely moves it (or can push it backward — see below);
++  // "mixed" moves it a little. This is a running score, not a percentage:
++  // recomputing it is a sum over resolved evidence, never a fraction of
++  // total sub-tasks, so an unresolved or abandoned roadmap item does not
++  // silently count as partial progress.
++  evidenceScore: real("evidence_score").notNull().default(0),
++
++  // Free-text, append-only log of why the score moved the way it did (e.g.
++  // "cold outreach batch 2: 0/40 replies — approach likely wrong, not just
++  // slow" ) so the UI can explain a bend in the path instead of just showing
++  // a number. Kept as plain text (one entry per line) rather than a separate
++  // table since this is a display aid, not queried structured data.
++  evidenceLog: text("evidence_log"),
++
++  createdAt: timestamp("created_at").defaultNow(),
++  updatedAt: timestamp("updated_at").defaultNow(),
++  resolvedAt: timestamp("resolved_at"),
++});
++
++export const insertGoalSchema = createInsertSchema(goalsTable).omit({
++  id: true,
++  createdAt: true,
++  updatedAt: true,
++  resolvedAt: true,
++});
++export type InsertGoal = z.infer<typeof insertGoalSchema>;
++export type Goal = typeof goalsTable.$inferSelect;
+diff --git a/lib/db/src/schema/index.ts b/lib/db/src/schema/index.ts
+index 5a80579..6ea0e71 100644
+--- a/lib/db/src/schema/index.ts
++++ b/lib/db/src/schema/index.ts
+@@ -5,4 +5,6 @@ export * from "./signals";
+ export * from "./thoughts";
+ export * from "./settings";
+ export * from "./precedents";
+-export * from "./venus_decisions";
+\ No newline at end of file
++export * from "./venus_decisions";
++export * from "./chats";
++export * from "./goals";
+\ No newline at end of file
+diff --git a/lib/db/src/schema/venus_decisions.ts b/lib/db/src/schema/venus_decisions.ts
+index 23ddcd7..66f1b62 100644
+--- a/lib/db/src/schema/venus_decisions.ts
++++ b/lib/db/src/schema/venus_decisions.ts
+@@ -33,6 +33,15 @@ export const venusDecisionsTable = pgTable("venus_decisions", {
+   id: serial("id").primaryKey(),
+   sessionId: text("session_id").notNull(),
+ 
++  // Which chat this card was generated in. Nullable because pre-Goal-feature
++  // rows and cards from chats with no chatId wired up yet won't have one —
++  // treat null as "not attributable to any goal," not as an error. When
++  // present AND that chat has an active goal, resolving this decision is
++  // what moves the goal's evidenceScore (see goals.ts) — a roadmap card is a
++  // sub-task of the goal precisely by virtue of living in the same chatId,
++  // not through any separate linking table.
++  chatId: integer("chat_id"),
++
+   // The founder's original question/message that produced this decision.
+   query: text("query").notNull(),
+   // Snapshot of the business context at the time, so a resolved decision
+-- 
+2.43.0
+

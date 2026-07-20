@@ -25,14 +25,21 @@ import type {
   Autopsy,
   AutopsyChatInput,
   AutopsyChatResult,
+  Chat,
+  ChatWithGoal,
+  ClearChatGoal200,
   Company,
+  CreateChatInput,
+  DeleteChat200,
   ErrorResponse,
   Event,
   GetStockQuotesParams,
+  GoalWithProgress,
   GroqKeyInput,
   GroqKeyStatus,
   HealthStatus,
   IdeaReviewInput,
+  ListChats200,
   ListCompaniesParams,
   ListEventsParams,
   ListReportsParams,
@@ -44,10 +51,13 @@ import type {
   Report,
   ReportSummary,
   RippleAnalysis,
+  SetGoalInput,
+  SetGoalStatusInput,
   Signal,
   StockQuote,
   ThoughtInput,
   ThoughtWithReactions,
+  UpdateChatInput,
   VenusAnalyzeInput,
   VenusResponse
 } from './api.schemas';
@@ -1731,6 +1741,660 @@ export const useSaveOnboarding = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSaveOnboardingMutationOptions(options));
+    }
+
+export const getListChatsUrl = () => {
+
+
+
+
+  return `/api/chats`
+}
+
+/**
+ * @summary List the current user's chats, most recently updated first
+ */
+export const listChats = async ( options?: RequestInit): Promise<ListChats200> => {
+
+  return customFetch<ListChats200>(getListChatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListChatsQueryKey = () => {
+    return [
+    `/api/chats`
+    ] as const;
+    }
+
+
+export const getListChatsQueryOptions = <TData = Awaited<ReturnType<typeof listChats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListChatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listChats>>> = ({ signal }) => listChats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListChatsQueryResult = NonNullable<Awaited<ReturnType<typeof listChats>>>
+export type ListChatsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the current user's chats, most recently updated first
+ */
+
+export function useListChats<TData = Awaited<ReturnType<typeof listChats>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListChatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateChatUrl = () => {
+
+
+
+
+  return `/api/chats`
+}
+
+/**
+ * @summary Create a new chat
+ */
+export const createChat = async (createChatInput?: CreateChatInput, options?: RequestInit): Promise<Chat> => {
+
+  return customFetch<Chat>(getCreateChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createChatInput)
+  }
+);}
+
+
+
+
+export const getCreateChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext> => {
+
+const mutationKey = ['createChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChat>>, {data?: BodyType<CreateChatInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateChatMutationResult = NonNullable<Awaited<ReturnType<typeof createChat>>>
+    export type CreateChatMutationBody = BodyType<CreateChatInput> | undefined
+    export type CreateChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a new chat
+ */
+export const useCreateChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChat>>, TError,{data?: BodyType<CreateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createChat>>,
+        TError,
+        {data?: BodyType<CreateChatInput>},
+        TContext
+      > => {
+      return useMutation(getCreateChatMutationOptions(options));
+    }
+
+export const getGetChatUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}`
+}
+
+/**
+ * @summary Get a single chat, including its goal if one is set
+ */
+export const getChat = async (id: number, options?: RequestInit): Promise<ChatWithGoal> => {
+
+  return customFetch<ChatWithGoal>(getGetChatUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetChatQueryKey = (id: number,) => {
+    return [
+    `/api/chats/${id}`
+    ] as const;
+    }
+
+
+export const getGetChatQueryOptions = <TData = Awaited<ReturnType<typeof getChat>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetChatQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChat>>> = ({ signal }) => getChat(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetChatQueryResult = NonNullable<Awaited<ReturnType<typeof getChat>>>
+export type GetChatQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a single chat, including its goal if one is set
+ */
+
+export function useGetChat<TData = Awaited<ReturnType<typeof getChat>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChat>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetChatQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateChatUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}`
+}
+
+/**
+ * @summary Rename a chat
+ */
+export const updateChat = async (id: number,
+    updateChatInput?: UpdateChatInput, options?: RequestInit): Promise<Chat> => {
+
+  return customFetch<Chat>(getUpdateChatUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateChatInput)
+  }
+);}
+
+
+
+
+export const getUpdateChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext> => {
+
+const mutationKey = ['updateChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateChat>>, {id: number;data?: BodyType<UpdateChatInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateChat(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateChatMutationResult = NonNullable<Awaited<ReturnType<typeof updateChat>>>
+    export type UpdateChatMutationBody = BodyType<UpdateChatInput> | undefined
+    export type UpdateChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Rename a chat
+ */
+export const useUpdateChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChat>>, TError,{id: number;data?: BodyType<UpdateChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateChat>>,
+        TError,
+        {id: number;data?: BodyType<UpdateChatInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateChatMutationOptions(options));
+    }
+
+export const getDeleteChatUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}`
+}
+
+/**
+ * @summary Delete a chat and its goal
+ */
+export const deleteChat = async (id: number, options?: RequestInit): Promise<DeleteChat200> => {
+
+  return customFetch<DeleteChat200>(getDeleteChatUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteChat>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteChat(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteChatMutationResult = NonNullable<Awaited<ReturnType<typeof deleteChat>>>
+
+    export type DeleteChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a chat and its goal
+ */
+export const useDeleteChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChat>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteChat>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteChatMutationOptions(options));
+    }
+
+export const getGetChatGoalUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}/goal`
+}
+
+/**
+ * @summary Get the goal set on this chat, if any
+ */
+export const getChatGoal = async (id: number, options?: RequestInit): Promise<GoalWithProgress> => {
+
+  return customFetch<GoalWithProgress>(getGetChatGoalUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetChatGoalQueryKey = (id: number,) => {
+    return [
+    `/api/chats/${id}/goal`
+    ] as const;
+    }
+
+
+export const getGetChatGoalQueryOptions = <TData = Awaited<ReturnType<typeof getChatGoal>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetChatGoalQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChatGoal>>> = ({ signal }) => getChatGoal(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetChatGoalQueryResult = NonNullable<Awaited<ReturnType<typeof getChatGoal>>>
+export type GetChatGoalQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the goal set on this chat, if any
+ */
+
+export function useGetChatGoal<TData = Awaited<ReturnType<typeof getChatGoal>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChatGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetChatGoalQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSetChatGoalUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}/goal`
+}
+
+/**
+ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
+ */
+export const setChatGoal = async (id: number,
+    setGoalInput: SetGoalInput, options?: RequestInit): Promise<GoalWithProgress> => {
+
+  return customFetch<GoalWithProgress>(getSetChatGoalUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setGoalInput)
+  }
+);}
+
+
+
+
+export const getSetChatGoalMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext> => {
+
+const mutationKey = ['setChatGoal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setChatGoal>>, {id: number;data: BodyType<SetGoalInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setChatGoal(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetChatGoalMutationResult = NonNullable<Awaited<ReturnType<typeof setChatGoal>>>
+    export type SetChatGoalMutationBody = BodyType<SetGoalInput>
+    export type SetChatGoalMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Set or replace the goal on this chat (title, success metric, value, deadline all required)
+ */
+export const useSetChatGoal = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setChatGoal>>, TError,{id: number;data: BodyType<SetGoalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setChatGoal>>,
+        TError,
+        {id: number;data: BodyType<SetGoalInput>},
+        TContext
+      > => {
+      return useMutation(getSetChatGoalMutationOptions(options));
+    }
+
+export const getClearChatGoalUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}/goal`
+}
+
+/**
+ * @summary Remove the goal from this chat (the chat itself is kept)
+ */
+export const clearChatGoal = async (id: number, options?: RequestInit): Promise<ClearChatGoal200> => {
+
+  return customFetch<ClearChatGoal200>(getClearChatGoalUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getClearChatGoalMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['clearChatGoal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearChatGoal>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  clearChatGoal(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearChatGoalMutationResult = NonNullable<Awaited<ReturnType<typeof clearChatGoal>>>
+
+    export type ClearChatGoalMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove the goal from this chat (the chat itself is kept)
+ */
+export const useClearChatGoal = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearChatGoal>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearChatGoal>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getClearChatGoalMutationOptions(options));
+    }
+
+export const getSetGoalStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/chats/${id}/goal/status`
+}
+
+/**
+ * @summary Mark the goal completed or abandoned (history retained)
+ */
+export const setGoalStatus = async (id: number,
+    setGoalStatusInput: SetGoalStatusInput, options?: RequestInit): Promise<GoalWithProgress> => {
+
+  return customFetch<GoalWithProgress>(getSetGoalStatusUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setGoalStatusInput)
+  }
+);}
+
+
+
+
+export const getSetGoalStatusMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext> => {
+
+const mutationKey = ['setGoalStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setGoalStatus>>, {id: number;data: BodyType<SetGoalStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setGoalStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetGoalStatusMutationResult = NonNullable<Awaited<ReturnType<typeof setGoalStatus>>>
+    export type SetGoalStatusMutationBody = BodyType<SetGoalStatusInput>
+    export type SetGoalStatusMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Mark the goal completed or abandoned (history retained)
+ */
+export const useSetGoalStatus = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setGoalStatus>>, TError,{id: number;data: BodyType<SetGoalStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setGoalStatus>>,
+        TError,
+        {id: number;data: BodyType<SetGoalStatusInput>},
+        TContext
+      > => {
+      return useMutation(getSetGoalStatusMutationOptions(options));
     }
 
 export const getVenusAnalyzeUrl = () => {

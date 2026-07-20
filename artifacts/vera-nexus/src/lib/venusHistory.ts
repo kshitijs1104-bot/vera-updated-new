@@ -29,6 +29,15 @@ export interface ChatSession {
   title: string;
   createdAt: string;
   messages: ChatMessage[];
+  // Maps this local session to a real server-side `chats` row (see
+  // artifacts/api-server/src/routes/chats.ts). Undefined until the first
+  // message is sent in this session — created lazily rather than on every
+  // "New Analysis" click, so a session someone opens and abandons without
+  // ever sending a message doesn't leave an orphan row server-side. Once
+  // set, this is what a Goal actually attaches to: goals are keyed on
+  // chatId, not on the local session id, so Goal state survives even if
+  // localStorage is cleared as long as the founder is signed in.
+  serverChatId?: number;
 }
 
 const SESSIONS_KEY = 've_chat_sessions';
