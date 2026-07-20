@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Target, X, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Target, X, TrendingUp, AlertTriangle, CheckCircle2, ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
 import {
   useGetChat,
   useSetChatGoal,
@@ -7,6 +7,26 @@ import {
   useSetGoalStatus,
 } from '@workspace/api-client-react';
 import type { ChatWithGoal, GoalWithProgress } from '@workspace/api-client-react';
+
+// /ai/decisions/:id/outcome isn't in the OpenAPI spec yet (it predates the
+// Goal feature's client generation), so there's no generated hook for it.
+// Raw fetch, same pattern as the company-report call elsewhere in Venus.tsx —
+// cookies carry auth for same-origin requests in this app, no bearer token
+// needed. This is the ONLY write path that moves a goal's evidenceScore
+// (see goalEvidence.ts): reporting a subtask's real-world outcome here is
+// what lets the Origin──Target marker actually move, including backward on
+// a reported failure.
+type OutcomeSentiment = 'positive' | 'negative' | 'mixed';
+
+async function reportSubTaskOutcome(id: number, outcome: string, sentiment: OutcomeSentiment) {
+  const response = await fetch(`/api/ai/decisions/${id}/outcome`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome, sentiment }),
+  });
+  if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+  return response.json();
+}
 
 // This panel is the actual UI surface for the Goal feature — set once per
 // chat, like a Claude Project's custom instructions, with the three fields
@@ -33,6 +53,16 @@ function riskLabel(risk: GoalWithProgress['risk']): { label: string; color: stri
   return { label: 'Off track', color: 'var(--red, #e5555c)', Icon: AlertTriangle };
 }
 
+// `position` is a soft-compressed [0,1] display value, not the raw evidence
+// score — rounding it straight to a percentage is the correct, honest
+// reading of "how far along the line the marker sits," which is exactly
+// what a founder glancing at the bar wants to know. Floor rather than round
+// so a goal never reads as e.g. "100%" until it has actually reached the
+// visual end of the line.
+function goalPercent(goal: GoalWithProgress): number {
+  return Math.max(0, Math.min(100, Math.floor(goal.position * 100)));
+}
+
 // The Origin ──────◉────── Target line itself. `position` (0..1, already
 // soft-compressed past the ends server-side) places the marker; it is NEVER
 // a fraction of (tasks done / total tasks) — it's evidence weight. A
@@ -40,25 +70,35 @@ function riskLabel(risk: GoalWithProgress['risk']): { label: string; color: stri
 // bar itself still clamps only the rendered dot to [2%, 98%] for layout
 // safety while the raw position value (which can exceed that range slightly
 // pre-clamp) is what drives color/label logic above it.
-function EvidenceLine({ goal }: { goal: GoalWithProgress }) {
+function EvidenceLine({ goal, big }: { goal: GoalWithProgress; big?: boolean }) {
   const clampedPct = Math.max(2, Math.min(98, goal.position * 100));
   const { label, color, Icon } = riskLabel(goal.risk);
+  const pct = goalPercent(goal);
   return (
-    <div className="mt-3">
+    <div className={big ? 'mt-2' : 'mt-3'}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: 'var(--v7-text-mute)' }}>
-          Origin → Target
+        <span
+          className="font-mono font-bold"
+          style={{ color, fontSize: big ? 26 : 15, lineHeight: 1, letterSpacing: '-0.01em' }}
+        >
+          {pct}%
         </span>
         <span className="flex items-center gap-1 text-[11px] font-mono" style={{ color }}>
           <Icon className="w-3 h-3" />
           {label}
         </span>
       </div>
-      <div className="relative h-[6px] rounded-full" style={{ background: 'var(--v7-bg-raised-2)' }}>
+      <div className="relative rounded-full" style={{ height: big ? 8 : 6, background: 'var(--v7-bg-raised-2)' }}>
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2"
+          className="absolute top-0 left-0 h-full rounded-full"
+          style={{ width: `${clampedPct}%`, background: color, opacity: 0.35, transition: 'width 0.4s ease' }}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 rounded-full border-2"
           style={{
-            left: `calc(${clampedPct}% - 6px)`,
+            width: big ? 14 : 12,
+            height: big ? 14 : 12,
+            left: `calc(${clampedPct}% - ${big ? 7 : 6}px)`,
             background: 'var(--v7-bg)',
             borderColor: color,
             boxShadow: `0 0 10px -2px ${color}`,
@@ -66,15 +106,105 @@ function EvidenceLine({ goal }: { goal: GoalWithProgress }) {
           }}
         />
       </div>
-      <div className="flex items-center justify-between mt-1.5 text-[10px] font-mono" style={{ color: 'var(--v7-text-mute)' }}>
+      <div className="flex items-center justify-between mt-1.5 text-[10px] font-mono uppercase tracking-wider" style={{ color: 'var(--v7-text-mute)' }}>
         <span>Origin</span>
-        <span>{goal.successMetric}</span>
+        <span className="text-right" style={{ maxWidth: '70%' }}>{goal.successMetric}</span>
       </div>
     </div>
   );
 }
 
-function SubTaskList({ subTasks }: { subTasks: GoalWithProgress['subTasks'] }) {
+// Small inline form for reporting what actually happened with an open
+// subtask. This was the missing piece: the backend (goalEvidence.ts,
+// /ai/decisions/:id/outcome) already knew how to move the goal's
+// evidenceScore off a sentiment, but nothing in the UI ever sent one.
+function ReportOutcomeForm({ taskId, onDone }: { taskId: number; onDone: () => void }) {
+  const [outcome, setOutcome] = useState('');
+  const [sentiment, setSentiment] = useState<OutcomeSentiment | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sentimentOptions: { value: OutcomeSentiment; label: string; Icon: typeof ThumbsUp; color: string }[] = [
+    { value: 'positive', label: 'Worked', Icon: ThumbsUp, color: 'var(--v7-cyan)' },
+    { value: 'mixed', label: 'Mixed', Icon: Minus, color: 'var(--amber, #d9a441)' },
+    { value: 'negative', label: "Didn't work", Icon: ThumbsDown, color: 'var(--red, #e5555c)' },
+  ];
+
+  const canSubmit = outcome.trim() && sentiment && !submitting;
+
+  const handleSubmit = async () => {
+    if (!canSubmit || !sentiment) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await reportSubTaskOutcome(taskId, outcome.trim(), sentiment);
+      onDone();
+    } catch (e) {
+      setError('Failed to save — try again.');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 p-2 rounded-lg" style={{ background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}>
+      <div className="flex gap-1.5 mb-2">
+        {sentimentOptions.map(({ value, label, Icon, color }) => {
+          const active = sentiment === value;
+          return (
+            <button
+              key={value}
+              onClick={() => setSentiment(value)}
+              className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
+              style={{
+                color: active ? color : 'var(--v7-text-mute)',
+                background: active ? `${color}1a` : 'transparent',
+                border: `1px solid ${active ? color : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
+              }}
+            >
+              <Icon className="w-3 h-3" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <textarea
+        value={outcome}
+        onChange={(e) => setOutcome(e.target.value)}
+        placeholder="What actually happened?"
+        rows={2}
+        className="w-full text-[12px] rounded-md px-2 py-1.5"
+        style={{
+          background: 'var(--v7-bg)',
+          border: '1px solid var(--v7-border, rgba(255,255,255,0.08))',
+          color: 'var(--v7-text)',
+          resize: 'none',
+        }}
+      />
+      {error && <div className="text-[11px] mt-1" style={{ color: 'var(--red, #e5555c)' }}>{error}</div>}
+      <div className="flex gap-2 mt-2">
+        <button
+          disabled={!canSubmit}
+          onClick={handleSubmit}
+          className="text-[11px] font-semibold px-2.5 py-1 rounded-md"
+          style={{
+            background: canSubmit ? 'var(--v7-cyan-soft)' : 'transparent',
+            border: `1px solid ${canSubmit ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
+            color: canSubmit ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+          }}
+        >
+          {submitting ? 'Saving…' : 'Save outcome'}
+        </button>
+        <button onClick={onDone} className="text-[11px]" style={{ color: 'var(--v7-text-mute)' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SubTaskList({ subTasks, onResolved }: { subTasks: GoalWithProgress['subTasks']; onResolved: () => void }) {
+  const [reportingId, setReportingId] = useState<number | null>(null);
+
   if (subTasks.length === 0) {
     return (
       <div className="text-[12px] mt-3" style={{ color: 'var(--v7-text-mute)' }}>
@@ -91,16 +221,39 @@ function SubTaskList({ subTasks }: { subTasks: GoalWithProgress['subTasks'] }) {
           : t.outcomeSentiment === 'negative'
             ? 'var(--red, #e5555c)'
             : 'var(--v7-text-mute)';
+        const reporting = reportingId === t.id;
         return (
-          <div key={t.id} className="flex items-start gap-2 text-[12px]" style={{ color: 'var(--v7-text-dim)' }}>
-            <span
-              className="mt-1 w-1.5 h-1.5 rounded-full shrink-0"
-              style={{ background: resolved ? dotColor : 'transparent', border: resolved ? 'none' : '1px solid var(--v7-text-mute)' }}
-            />
-            <span className="flex-1">
-              {t.summary}
-              {!resolved && <span style={{ color: 'var(--v7-text-mute)' }}> — not yet resolved</span>}
-            </span>
+          <div key={t.id} className="text-[12px]" style={{ color: 'var(--v7-text-dim)' }}>
+            <div className="flex items-start gap-2">
+              <span
+                className="mt-1 w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ background: resolved ? dotColor : 'transparent', border: resolved ? 'none' : '1px solid var(--v7-text-mute)' }}
+              />
+              <span className="flex-1">
+                {t.summary}
+                {!resolved && !reporting && (
+                  <>
+                    <span style={{ color: 'var(--v7-text-mute)' }}> — not yet resolved · </span>
+                    <button
+                      onClick={() => setReportingId(t.id)}
+                      className="underline underline-offset-2"
+                      style={{ color: 'var(--v7-cyan)' }}
+                    >
+                      report outcome
+                    </button>
+                  </>
+                )}
+              </span>
+            </div>
+            {reporting && (
+              <ReportOutcomeForm
+                taskId={t.id}
+                onDone={() => {
+                  setReportingId(null);
+                  onResolved();
+                }}
+              />
+            )}
           </div>
         );
       })}
@@ -230,18 +383,40 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
   };
 
   if (!open) {
+    // No goal set yet — still a real affordance, just smaller, since there's
+    // nothing to show a bar for. Clicking opens the panel to set one.
+    if (!goal) {
+      return (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg mb-3"
+          style={{ color: 'var(--v7-text-mute)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}
+        >
+          <Target className="w-3 h-3" />
+          No goal set
+        </button>
+      );
+    }
+
+    // The persistent, always-visible bar — replaces the old small pill
+    // button. Goal title big and centered, full Origin→Target bar with a
+    // percentage underneath, stays on screen whether or not the detail
+    // panel is open. Clicking anywhere opens the detail view (the popup
+    // from the original screenshot).
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg mb-2"
-        style={{
-          color: goal ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
-          background: goal ? 'var(--v7-cyan-soft)' : 'transparent',
-          border: `1px solid ${goal ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
-        }}
+        className="w-full text-left mb-3 p-3.5 rounded-xl block"
+        style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-cyan-strong)' }}
       >
-        <Target className="w-3 h-3" />
-        {goal ? goal.title : 'No goal set'}
+        <div className="flex items-center justify-center gap-1.5 mb-0.5">
+          <Target className="w-3.5 h-3.5" style={{ color: 'var(--v7-cyan)' }} />
+          <span className="text-[15px] font-bold text-center" style={{ color: 'var(--v7-text)' }}>{goal.title}</span>
+        </div>
+        <div className="text-[11px] text-center mb-1" style={{ color: 'var(--v7-text-mute)' }}>
+          {formatInr(goal.valueInr)} · due {new Date(goal.deadline).toLocaleDateString()}
+        </div>
+        <EvidenceLine goal={goal} big />
       </button>
     );
   }
@@ -310,7 +485,7 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
           )}
 
           <EvidenceLine goal={goal} />
-          <SubTaskList subTasks={goal.subTasks} />
+          <SubTaskList subTasks={goal.subTasks} onResolved={() => chatQuery.refetch()} />
 
           <div className="flex gap-3 mt-3">
             <button onClick={() => setEditing(true)} className="text-[11px]" style={{ color: 'var(--v7-text-mute)' }}>
