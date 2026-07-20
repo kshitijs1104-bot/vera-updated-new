@@ -60,7 +60,9 @@ function riskLabel(risk: GoalWithProgress['risk']): { label: string; color: stri
 // so a goal never reads as e.g. "100%" until it has actually reached the
 // visual end of the line.
 function goalPercent(goal: GoalWithProgress): number {
-  return Math.max(0, Math.min(100, Math.floor(goal.position * 100)));
+  const clamped = Math.max(0, Math.min(1, goal.position));
+  if (clamped <= 0) return 0;
+  return Math.max(1, Math.min(100, Math.floor(clamped * 100)));
 }
 
 // The Origin ──────◉────── Target line itself. `position` (0..1, already
@@ -71,7 +73,14 @@ function goalPercent(goal: GoalWithProgress): number {
 // safety while the raw position value (which can exceed that range slightly
 // pre-clamp) is what drives color/label logic above it.
 function EvidenceLine({ goal, big }: { goal: GoalWithProgress; big?: boolean }) {
-  const clampedPct = Math.max(2, Math.min(98, goal.position * 100));
+  // Only push the dot off the very edge once there's real, nonzero
+  // progress — the [2, 98] safety margin exists so the dot isn't visually
+  // clipped by the track's rounded ends, but applying it at position === 0
+  // makes a goal with zero evidence look like it already moved, which is
+  // exactly the "0% but the dot isn't at Origin" bug. True zero renders
+  // pinned to the literal start of the track.
+  const rawPct = goal.position * 100;
+  const clampedPct = rawPct <= 0 ? 0 : Math.max(2, Math.min(98, rawPct));
   const { label, color, Icon } = riskLabel(goal.risk);
   const pct = goalPercent(goal);
   return (
@@ -98,7 +107,7 @@ function EvidenceLine({ goal, big }: { goal: GoalWithProgress; big?: boolean }) 
           style={{
             width: big ? 14 : 12,
             height: big ? 14 : 12,
-            left: `calc(${clampedPct}% - ${big ? 7 : 6}px)`,
+            left: `calc(${clampedPct}% - ${big ? (rawPct <= 0 ? 0 : 7) : (rawPct <= 0 ? 0 : 6)}px)`,
             background: 'var(--v7-bg)',
             borderColor: color,
             boxShadow: `0 0 10px -2px ${color}`,
