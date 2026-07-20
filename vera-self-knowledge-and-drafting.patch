@@ -1,0 +1,102 @@
+diff --git a/artifacts/api-server/src/lib/groq.ts b/artifacts/api-server/src/lib/groq.ts
+index d93ed2a..8bbcd16 100644
+--- a/artifacts/api-server/src/lib/groq.ts
++++ b/artifacts/api-server/src/lib/groq.ts
+@@ -6,6 +6,15 @@ const VENUS_SYSTEM_PROMPT = `You are Venus AI, the founder's most experienced ad
+ 
+ Use the founder's full context (onboarding, business context, past sessions) in every answer, calibrated to their actual stage, not a generic default.
+ 
++WHAT VENUS ACTUALLY IS — READ THIS BEFORE ANSWERING ANY QUESTION ABOUT YOURSELF ("what can you do", "does Venus do X", "what should I post about your features", etc.): you are not a general-purpose meetings tool, agenda planner, or note-taker, and you have no memory-summary or transcript-processing feature. Your real, currently-shipped capabilities are exactly this list and nothing else:
++1. Strategic/causal advice on the founder's specific business — the core chat you're running right now (diagnosing bottlenecks, comparing options, roadmapping, weighing decisions).
++2. Business idea review — evaluate a new idea against verified precedents from Venus's curated dataset.
++3. Decision logging and outcome tracking — Venus remembers calls it made for this founder and what happened after, and uses that as evidence in later answers.
++4. Company research reports — pull founders, funding, timeline, and a written analysis on a named company.
++5. Article summarization.
++6. Content drafting — LinkedIn posts, short-form video/reel scripts, presentation talking points, and similar founder-facing copy, delivered as plain written text, not a strategy card.
++That's the whole list. If a founder asks whether Venus does something not on it (meeting summaries, calendar sync, CRM, email drafting, anything else) say plainly that it isn't a Venus feature yet — never guess, never invent a plausible-sounding feature, and never apply the confidence/precedent framing below to a question about your own capabilities. A capability question is not a strategy question — do not run CONTEXT SUFFICIENCY GATE, EVIDENCE-FIRST REASONING, or the card schema logic on it; answer briefly and plainly instead, still inside the required JSON shape (the plain answer goes in "summary", omit cards or use at most one "solution" card only if genuinely useful, and skip "confidence"/"confidenceNote" — a fact about your own feature set isn't a verified/exploratory precedent judgment).
++
+ CONTEXT SUFFICIENCY GATE (decide first, before drafting; the only place you decide whether to answer or ask more):
+ 
+ (A) ENOUGH TO ANSWER — default. True when: the message has a concrete decision/number/tradeoff; OR context/history gives sector, stage, team size, or a related constraint; OR it's a general strategic call (hire vs wait, build vs buy, raise vs bootstrap) an operator could reason about from stated norms alone. Missing one exact number is not a reason to withhold — give bottleneck, recommendation, causal link.
+@@ -60,8 +69,11 @@ You never return prose — always a single valid JSON object, nothing before or
+ 
+ The "summary" field is 2-3 plain sentences only — no headings, no bullet/numbered lists, no bold markdown, no code fences, ever. Never restate the cards array inside summary; a fact belongs in exactly one place. If summary contains a newline+"#" or triple-backticks, that's a critical failure — rewrite as plain sentences.
+ 
++DRAFTING MODE — EXCEPTION TO THE ABOVE: when the founder is asking you to draft actual copy (a LinkedIn post, an Instagram/reel script, presentation talking points, or similar written content they intend to copy and use, as opposed to asking for strategic advice about content), the 2-3 sentence cap does not apply. Put the complete draft directly in "summary" as plain prose — full length, real line breaks where natural, written the way it should actually be posted or read aloud, still no markdown headings/bold/code-fences. Return zero cards for a pure drafting request — no analysis/decision/roadmap card fabricated just to fill the array. If the founder asks for strategic advice ABOUT content (what to post about, when, why) rather than the draft itself, that is a normal strategy question — use the regular reasoning framework and card schema, not this exception. If a single message asks for both (e.g. "what should I post and can you draft it"), answer the strategy part briefly first, then the full draft, both inside "summary".
++
+ The JSON always has this shape:
+-{ "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }
++{ "summary": "2 to 3 sentence sharp executive insight, the thing they most need to hear right now", "isDraft": false, "confidence": "verified" or "exploratory", "confidenceNote": "brief note explaining whether the answer is grounded in verified precedents or should be treated as exploratory reasoning", "cards": [ { "type": "one of analysis, market, risk, roadmap, decision, precedent, funnel, solution", "role": "primary" or "supporting", "title": "Card title", "content": { } } ] }
++Set "isDraft": true only for a DRAFTING MODE response as defined above (the summary contains an actual LinkedIn post / script / talking points the founder will copy, not advice about content) — this tells the system to preserve your line breaks instead of collapsing them into one paragraph. Leave it false for every normal strategy answer, including questions about what to post.
+ 
+ The content object shape depends on the card type.
+ For analysis cards the content is: { "points": [ { "label": "insight label", "value": "what you actually see here", "sentiment": "positive or negative or neutral" } ] }
+@@ -212,7 +224,7 @@ export function repairTruncatedCardsArray(content: string): string | null {
+ // just the genuine leading prose, rather than de-formatting and keeping the
+ // whole duplicate report (which would just turn a broken structured mess into
+ // one long, still-duplicated wall of text).
+-function sanitizeSummaryText(summary: string): string {
++function sanitizeSummaryText(summary: string, isDraft: boolean = false): string {
+   let text = summary;
+ 
+   // A bare title line like "# Venus AI Analysis" carries no real content —
+@@ -225,16 +237,35 @@ function sanitizeSummaryText(summary: string): string {
+   // the same thing: everything from that point onward is the model
+   // re-rendering its own cards array as markdown, not summary prose. Cut
+   // there rather than trying to preserve any of it — the real content
+-  // already exists properly structured in the cards array.
+-  const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);
+-  if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "number") {
+-    text = text.slice(0, structuralMarkerMatch.index);
++  // already exists properly structured in the cards array. Skipped in draft
++  // mode: a drafted script legitimately has structure of its own (e.g. a
++  // numbered list of talking points), and isDraft responses don't carry a
++  // cards array worth deferring to anyway.
++  if (!isDraft) {
++    const structuralMarkerMatch = text.match(/\n\s*(#{1,6}\s|```|Card\s*$)/m);
++    if (structuralMarkerMatch && typeof structuralMarkerMatch.index === "number") {
++      text = text.slice(0, structuralMarkerMatch.index);
++    }
+   }
+ 
+   // Defensive second pass in case a fence appeared without a preceding
+   // newline (e.g. mid-sentence), or anything else slipped through above.
+   text = text.replace(/```[\s\S]*$/g, "");
+ 
++  if (isDraft) {
++    // Draft mode: keep the model's real line/paragraph breaks (a LinkedIn
++    // post or script is unusable flattened to one line) and keep list
++    // markers and bold/italic if the model used them for the draft's own
++    // structure. Only strip stray heading markers (frontend can't render
++    // markdown headings) and collapse 3+ blank lines down to one for
++    // tidiness — do NOT join lines with spaces the way the non-draft path
++    // does below.
++    text = text.replace(/^#{1,6}\s+/gm, "");
++    text = text.split("\n").map((line) => line.replace(/[ \t]+$/g, "")).join("\n");
++    text = text.replace(/\n{3,}/g, "\n\n").trim();
++    return text.length > 0 ? text : summary.trim();
++  }
++
+   // Strip any remaining inline markdown markers from the surviving prose.
+   text = text.replace(/^#{1,6}\s+/gm, "");
+   text = text.replace(/^\s*[-*]\s+/gm, "");
+@@ -370,10 +401,18 @@ function cardHasRealContent(card: Record<string, unknown>): boolean {
+ export function sanitizeVenusResponse(parsed: any): any {
+   if (!parsed || typeof parsed !== "object") return parsed;
+ 
++  const isDraft = parsed.isDraft === true;
++
+   if (typeof parsed.summary === "string") {
+-    parsed.summary = sanitizeSummaryText(parsed.summary);
++    parsed.summary = sanitizeSummaryText(parsed.summary, isDraft);
+   }
+ 
++  // isDraft only exists to steer the sanitizer above (preserve line breaks
++  // vs. collapse to executive-summary prose) — it's not part of the
++  // established client-facing response shape, so don't ship it downstream
++  // where nothing consumes it.
++  delete parsed.isDraft;
++
+   if (Array.isArray(parsed.cards)) {
+     const droppedIndexes: number[] = [];
+     const kept = parsed.cards.filter((card: any, index: number) => {
