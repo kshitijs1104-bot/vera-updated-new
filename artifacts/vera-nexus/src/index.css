@@ -418,8 +418,14 @@
   --v7-cyan-soft: #e9e6e0;
   --v7-cyan-strong: #157a4d;
   --v7-pink-soft: #e9e6e0;
-  --v7-tint: #eaf0ec;
-  --v7-tint-border: #c7d6cc;
+  /* Was a pale green pastel — read as "blue" once rendered (the chat
+     bubble, precedent/recommendation badges). Matches --v7-bg-raised (the
+     sidebar's white) instead: lighter than the cream page background,
+     neutral, no color cast to misread. --v7-tint-border stays a real
+     border since white-on-cream needs a visible edge to read as its own
+     element rather than blending into the page. */
+  --v7-tint: #ffffff;
+  --v7-tint-border: #c9c1b0;
   --v7-glow-1: rgba(21,122,77,0.07);
   --v7-glow-2: rgba(31,150,96,0.05);
   --v7-glow-shadow-a: rgba(21,122,77,0.16);
