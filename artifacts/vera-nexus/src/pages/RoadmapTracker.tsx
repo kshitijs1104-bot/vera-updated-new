@@ -59,7 +59,7 @@ export function RoadmapTracker({ chatId }: { chatId: number | undefined }) {
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-3">
+        <div className="px-3 pb-3 space-y-3 max-h-[420px] overflow-y-auto">
           {roadmap.phases.map((phase, phaseIndex) => (
             <div key={phaseIndex}>
               <div className="flex items-baseline justify-between gap-2 mb-1">

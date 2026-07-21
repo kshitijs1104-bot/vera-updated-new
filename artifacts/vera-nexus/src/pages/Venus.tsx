@@ -1520,48 +1520,84 @@ function formatPlainValue(value: unknown, depth = 0): string {
   return String(value);
 }
 
+// Same normalization the JSX roadmap renderer needed: the model doesn't
+// always return every list item (a phase, a risk, an option...) at the same
+// nesting depth in the same response — some arrive as real objects, others
+// as a JSON-encoded STRING of the same shape. Reading `.label`/`.title`/etc
+// straight off a string is always undefined, which is what produced the
+// bare "•" lines with nothing after them in a copied/downloaded roadmap —
+// not missing data, just unparsed data. Every per-item access below goes
+// through this first.
+function asItem(value: unknown): Record<string, any> {
+  const parsed = parseMaybeJson(value);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function actionText(action: unknown): string {
+  const parsed = parseMaybeJson(action);
+  if (typeof parsed === 'string') return parsed;
+  if (isRecord(parsed)) return String(parsed.text ?? parsed.action ?? '');
+  return action == null ? '' : String(action);
+}
+
 function cardToText(card: any): string {
   const c = card?.content ?? {};
   const lines: string[] = [(card.title ?? 'Card').toUpperCase()];
 
   switch (card.type) {
     case 'analysis':
-      (c.points ?? []).forEach((p: any) => lines.push(`• ${p.label}: ${p.value}`));
+      (c.points ?? []).forEach((raw: unknown) => {
+        const p = asItem(raw);
+        lines.push(`• ${p.label}: ${p.value}`);
+      });
       break;
     case 'risk':
-      (c.risks ?? []).forEach((r: any) =>
-        lines.push(`• ${r.name} (${r.impact}${r.probability != null ? `, ${r.probability}%` : ''}) — ${r.mitigation}`),
-      );
+      (c.risks ?? []).forEach((raw: unknown) => {
+        const r = asItem(raw);
+        lines.push(`• ${r.name} (${r.impact}${r.probability != null ? `, ${r.probability}%` : ''}) — ${r.mitigation}`);
+      });
       break;
     case 'roadmap':
-      (c.milestones ?? c.phases ?? []).forEach((m: any) => {
+      (c.milestones ?? c.phases ?? []).forEach((raw: unknown) => {
+        const m = asItem(raw);
         const head = m.period ?? m.phase ?? '';
         const title = m.title ? ` — ${m.title}` : '';
         const summary = m.goal ?? m.description;
         lines.push(`• ${head}${title}${summary ? `: ${summary}` : ''}`);
-        (m.actions ?? []).forEach((a: string) => lines.push(`    - ${a}`));
-        if (m.metric) lines.push(`    Success metric: ${m.metric}`);
+        (m.actions ?? []).forEach((a: unknown) => {
+          const text = actionText(a);
+          if (text) lines.push(`    - ${text}`);
+        });
+        if (m.metric) lines.push(`    Success metric: ${typeof m.metric === 'string' ? m.metric : JSON.stringify(m.metric)}`);
       });
       break;
     case 'market':
       if (c.tam || c.sam || c.som || c.growth)
         lines.push(`TAM ${c.tam ?? '—'} · SAM ${c.sam ?? '—'} · SOM ${c.som ?? '—'} · Growth ${c.growth ?? '—'}`);
-      (c.competitors ?? []).forEach((x: string) => lines.push(`• ${x}`));
+      (c.competitors ?? []).forEach((x: unknown) => lines.push(`• ${actionText(x)}`));
       if (c.whitespace) lines.push(`Whitespace: ${c.whitespace}`);
       break;
     case 'decision':
-      (c.options ?? []).forEach((o: any) => lines.push(`• ${o.name}: ${o.verdict ?? ''}`));
+      (c.options ?? []).forEach((raw: unknown) => {
+        const o = asItem(raw);
+        lines.push(`• ${o.name}: ${o.verdict ?? ''}`);
+      });
       if (c.recommendation) lines.push(`Recommendation: ${c.recommendation}`);
       break;
     case 'precedent':
-      (c.precedents ?? []).forEach((p: any) =>
-        lines.push(`• ${p.company} (${p.year}${p.outcome ? `, ${p.outcome}` : ''}): ${p.lesson}`),
-      );
+      (c.precedents ?? []).forEach((raw: unknown) => {
+        const p = asItem(raw);
+        lines.push(`• ${p.company} (${p.year}${p.outcome ? `, ${p.outcome}` : ''}): ${p.lesson}`);
+      });
       break;
     default:
       lines.push(formatPlainValue(c));
   }
-  return lines.join('\n');
+
+  // Defense in depth: even after normalizing above, a genuinely malformed
+  // item (missing every expected field) can still produce a bullet with
+  // nothing after it — never emit that line in the exported text.
+  return lines.filter((line) => line.replace(/^[\s•\-]+/, '').trim().length > 0).join('\n');
 }
 
 function messageToText(msg: ChatMessage): string {
