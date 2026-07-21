@@ -642,7 +642,6 @@ export function VenusPage() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div style={{ padding: '14px 32px 0' }}>
-          <TodayCard />
           {showGoalPanel && <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />}
           {showRoadmap && <RoadmapTracker chatId={currentSession.serverChatId} />}
         </div>
@@ -668,6 +667,12 @@ export function VenusPage() {
             ></div>
 
             <div className="m-auto flex flex-col items-center w-full max-w-[600px] relative">
+              {/* Only ever shown on this "new chat" landing view, never
+                  overlaid on an in-progress chat thread — a check-in is a
+                  start-of-session moment, not something that should follow
+                  the founder into every chat they switch to. */}
+              <TodayCard />
+
               <div
                 className="w-14 h-14 flex items-center justify-center relative mb-5 venus-hero-mark"
                 style={{ borderRadius: '18px', background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)' }}

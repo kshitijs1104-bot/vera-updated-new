@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
-import { Sunrise, ChevronDown, ChevronRight, ThumbsUp, ThumbsDown, Minus, X, Check } from 'lucide-react';
+import { Sunrise, Sun, MoonStar, ChevronUp, ChevronDown, ThumbsUp, ThumbsDown, Minus, X, Check } from 'lucide-react';
 import {
   useGoals,
   useDailyBrief,
@@ -12,12 +12,13 @@ import { reportSubTaskOutcome, type OutcomeSentiment } from './GoalPanel';
 
 // Morning Check-In + Decision Inbox — NOT new features, both are views over
 // the same Goal/Roadmap/Decision/Company-Memory data GoalPanel,
-// RoadmapTracker, and DecisionsOverview already read and write. This card
-// renders nothing on a day with nothing to say, and disappears for the rest
-// of the day the moment the founder engages with it (answers/skips the
-// check-in, or dismisses the inbox) — same once-a-day localStorage gate
-// GoalPanel's OutcomeReminderBanner already uses, just for the whole card
-// rather than one goal's reminder.
+// RoadmapTracker, and DecisionsOverview already read and write. Deliberately
+// styled and placed differently from those two: it only ever renders on the
+// "new chat" landing view (see Venus.tsx), not as another permanent bar
+// stacked above every chat thread, and it disappears the moment the founder
+// clears it — same once-a-day localStorage gate GoalPanel's
+// OutcomeReminderBanner already uses, just for the whole card rather than
+// one goal's reminder.
 const DISMISS_KEY = 've_today_seen';
 
 function todayKey(): string {
@@ -42,13 +43,24 @@ function dismissToday() {
   }
 }
 
+// Reads the device's own clock, not a server timestamp — this card can pop
+// up any time of day (first open, not literally sunrise), but the greeting
+// it shows must actually match when the founder is looking at it, or
+// "Good morning" at 6pm reads as broken rather than warm.
+function greeting(): { text: string; Icon: typeof Sunrise } {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return { text: 'Good morning', Icon: Sunrise };
+  if (hour >= 12 && hour < 17) return { text: 'Good afternoon', Icon: Sun };
+  return { text: 'Good evening', Icon: MoonStar };
+}
+
 type CheckinStep =
   | { kind: 'subtask'; subtaskId: number; summary: string }
   | { kind: 'roadmap'; roadmapId: number; phaseIndex: number; actionIndex: number; text: string }
   | { kind: 'freeform' };
 
 const SENTIMENT_OPTIONS: { value: OutcomeSentiment; label: string; Icon: typeof ThumbsUp; color: string }[] = [
-  { value: 'positive', label: 'Worked', Icon: ThumbsUp, color: 'var(--v7-cyan)' },
+  { value: 'positive', label: 'Worked', Icon: ThumbsUp, color: 'var(--v7-mint, var(--v7-cyan))' },
   { value: 'mixed', label: 'Mixed', Icon: Minus, color: 'var(--amber, #d9a441)' },
   { value: 'negative', label: "Didn't work", Icon: ThumbsDown, color: 'var(--red, #e5555c)' },
 ];
@@ -105,6 +117,7 @@ function SubtaskStep({ subtaskId, summary, onDone }: { subtaskId: number; summar
         <input
           value={outcome}
           onChange={(e) => setOutcome(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
           placeholder="What actually happened? (one line)"
           className="flex-1 text-[12px] rounded-md px-2 py-1.5"
           style={{ background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))', color: 'var(--v7-text)' }}
@@ -114,9 +127,9 @@ function SubtaskStep({ subtaskId, summary, onDone }: { subtaskId: number; summar
           onClick={handleSubmit}
           className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
           style={{
-            background: canSubmit ? 'var(--v7-cyan-soft)' : 'transparent',
-            border: `1px solid ${canSubmit ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
-            color: canSubmit ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+            background: canSubmit ? 'var(--v7-pink-soft, rgba(255,122,209,0.14))' : 'transparent',
+            border: `1px solid ${canSubmit ? 'var(--v7-pink)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
+            color: canSubmit ? 'var(--v7-pink)' : 'var(--v7-text-mute)',
           }}
         >
           {submitting ? 'Saving…' : 'Save'}
@@ -155,7 +168,7 @@ function RoadmapStep({
           disabled={setAction.isPending}
           onClick={markDone}
           className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-          style={{ background: 'var(--v7-cyan-soft)', border: '1px solid var(--v7-cyan-strong)', color: 'var(--v7-cyan)' }}
+          style={{ background: 'var(--v7-pink-soft, rgba(255,122,209,0.14))', border: '1px solid var(--v7-pink)', color: 'var(--v7-pink)' }}
         >
           <Check className="w-3 h-3" />
           Done
@@ -197,9 +210,9 @@ function FreeformStep({ onDone }: { onDone: () => void }) {
           onClick={handleSubmit}
           className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
           style={{
-            background: text.trim() ? 'var(--v7-cyan-soft)' : 'transparent',
-            border: `1px solid ${text.trim() ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
-            color: text.trim() ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+            background: text.trim() ? 'var(--v7-pink-soft, rgba(255,122,209,0.14))' : 'transparent',
+            border: `1px solid ${text.trim() ? 'var(--v7-pink)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
+            color: text.trim() ? 'var(--v7-pink)' : 'var(--v7-text-mute)',
           }}
         >
           {addFact.isPending ? 'Saving…' : 'Save'}
@@ -211,7 +224,12 @@ function FreeformStep({ onDone }: { onDone: () => void }) {
 
 export function TodayCard() {
   const [, navigate] = useLocation();
-  const [open, setOpen] = useState(false);
+  // Starts expanded, not collapsed like GoalPanel/RoadmapTracker — this
+  // only ever appears once, on the landing view, with nothing else on
+  // screen competing for attention yet, so making the founder click twice
+  // to even see what it wants is pure friction. Still collapsible for
+  // anyone who wants it out of the way while they read the rest of the page.
+  const [open, setOpen] = useState(true);
   const [dismissed, setDismissed] = useState(isDismissedToday);
 
   const goalsQuery = useGoals();
@@ -282,6 +300,12 @@ export function TodayCard() {
   if (dismissed) return null;
   if (!checkinStep && inboxItems.length === 0) return null;
 
+  const { text: greetingText, Icon: GreetingIcon } = greeting();
+  const cardStyle = {
+    background: 'linear-gradient(135deg, rgba(255,122,209,0.07), rgba(91,79,232,0.05))',
+    border: '1px solid rgba(255,122,209,0.28)',
+  };
+
   if (!open) {
     const parts: string[] = [];
     if (checkinStep) parts.push('1 quick question');
@@ -289,30 +313,40 @@ export function TodayCard() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full text-left mb-2.5 flex items-center justify-between gap-2 px-3 py-2 rounded-xl"
-        style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}
+        className="w-full text-left mb-5 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl"
+        style={cardStyle}
       >
-        <span className="flex items-center gap-1.5 min-w-0">
-          <Sunrise className="w-3 h-3 shrink-0" style={{ color: 'var(--v7-cyan)' }} />
+        <span className="flex items-center gap-2 min-w-0">
+          <span
+            className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(255,122,209,0.18)' }}
+          >
+            <GreetingIcon className="w-3 h-3" style={{ color: 'var(--v7-pink)' }} />
+          </span>
           <span className="text-[12px] font-semibold truncate" style={{ color: 'var(--v7-text)' }}>
-            Good morning — {parts.join(' · ')}
+            {greetingText} — {parts.join(' · ')}
           </span>
         </span>
-        <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--v7-text-mute)' }} />
+        <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--v7-text-mute)' }} />
       </button>
     );
   }
 
   return (
-    <div className="mb-2.5 p-3 rounded-xl" style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}>
+    <div className="w-full mb-5 p-3.5 rounded-2xl text-left" style={cardStyle}>
       <div className="flex items-center justify-between mb-2.5">
-        <span className="flex items-center gap-1.5 text-[12px] font-bold" style={{ color: 'var(--v7-text)' }}>
-          <Sunrise className="w-3.5 h-3.5" style={{ color: 'var(--v7-cyan)' }} />
-          Today
+        <span className="flex items-center gap-2 text-[12px] font-bold" style={{ color: 'var(--v7-text)' }}>
+          <span
+            className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(255,122,209,0.18)' }}
+          >
+            <GreetingIcon className="w-3 h-3" style={{ color: 'var(--v7-pink)' }} />
+          </span>
+          {greetingText}
         </span>
         <div className="flex items-center gap-2">
           <button onClick={() => setOpen(false)}>
-            <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--v7-text-mute)' }} />
+            <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--v7-text-mute)' }} />
           </button>
           <button onClick={handleDismiss} aria-label="Dismiss for today">
             <X className="w-3.5 h-3.5" style={{ color: 'var(--v7-text-mute)' }} />
@@ -321,7 +355,7 @@ export function TodayCard() {
       </div>
 
       {checkinStep && (
-        <div className="pb-2.5 mb-2.5" style={{ borderBottom: inboxItems.length > 0 ? '1px solid var(--v7-border, rgba(255,255,255,0.08))' : 'none' }}>
+        <div className="pb-2.5 mb-2.5" style={{ borderBottom: inboxItems.length > 0 ? '1px solid rgba(255,122,209,0.18)' : 'none' }}>
           {checkinStep.kind === 'subtask' && (
             <SubtaskStep subtaskId={checkinStep.subtaskId} summary={checkinStep.summary} onDone={handleDismiss} />
           )}
@@ -352,7 +386,7 @@ export function TodayCard() {
             >
               <span
                 className="text-[9.5px] font-mono uppercase shrink-0 px-1.5 py-0.5 rounded"
-                style={{ background: 'var(--v7-bg-raised-2)', color: 'var(--v7-text-mute)' }}
+                style={{ background: 'rgba(255,122,209,0.12)', color: 'var(--v7-pink)' }}
               >
                 {item.label}
               </span>
@@ -368,6 +402,20 @@ export function TodayCard() {
               </span>
             </div>
           ))}
+
+          {/* No question was asked this round (no active goal to check in
+              on) — reading the flagged items IS the whole interaction, so
+              give it an explicit, obvious way to be marked handled instead
+              of relying on the small corner X. */}
+          {!checkinStep && (
+            <button
+              onClick={handleDismiss}
+              className="text-[11px] font-semibold mt-1"
+              style={{ color: 'var(--v7-pink)' }}
+            >
+              Got it — clear for today
+            </button>
+          )}
         </div>
       )}
     </div>
