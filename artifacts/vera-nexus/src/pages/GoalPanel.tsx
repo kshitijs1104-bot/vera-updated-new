@@ -125,8 +125,14 @@ function EvidenceLine({ goal, big }: { goal: GoalWithProgress; big?: boolean }) 
 
 const REMINDER_STORAGE_PREFIX = 've_outcome_reminder_seen_';
 
+// Local calendar date, not UTC — toISOString() would put the day rollover
+// at UTC midnight, which reads as late evening rather than midnight for an
+// IST founder (this app's primary audience per its ₹ formatting throughout),
+// so the once-a-day reminder would stay suppressed for hours past their
+// actual local midnight.
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function hasOpenSubTasks(goal: GoalWithProgress): boolean {
@@ -162,7 +168,7 @@ function dismissReminderForToday(goalId: number) {
 function OutcomeReminderBanner({ goal, onOpen }: { goal: GoalWithProgress; onOpen: () => void }) {
   const [dismissed, setDismissed] = useState(() => isReminderDismissedToday(goal.id));
 
-  if (dismissed || !hasOpenSubTasks(goal)) return null;
+  if (dismissed || goal.status !== 'active' || !hasOpenSubTasks(goal)) return null;
 
   return (
     <div
@@ -493,7 +499,7 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
     // from the original screenshot).
     return (
       <>
-        <OutcomeReminderBanner goal={goal} onOpen={() => setOpen(true)} />
+        <OutcomeReminderBanner key={goal.id} goal={goal} onOpen={() => setOpen(true)} />
         <button
           onClick={() => setOpen(true)}
           className="w-full text-left mb-2.5 px-3 py-2 rounded-xl block"
@@ -546,6 +552,14 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
 
       {editing && (
         <SetGoalForm
+          // Keyed on chat+goal identity, not just conditionally rendered:
+          // GoalPanel itself is never remounted when the founder switches
+          // chats (no key on <GoalPanel> in Venus.tsx), so without this the
+          // form's useState-seeded fields would keep showing whichever
+          // goal/chat they were mounted with if `editing` is left open
+          // across a chat switch — silently submitting stale data onto the
+          // newly-selected chat's goal.
+          key={`${serverChatId ?? 'local'}-${goal?.id ?? 'new'}`}
           onSubmit={handleSubmit}
           onCancel={() => setEditing(false)}
           submitting={setGoal.isPending}
