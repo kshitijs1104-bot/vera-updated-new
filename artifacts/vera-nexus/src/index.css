@@ -522,8 +522,8 @@
 
 /* Vera concept v7 — hero mark breathing glow, used on Venus.tsx empty state */
 @keyframes v7-breathe {
-  0%, 100% { box-shadow: 0 0 30px -10px rgba(44,232,214,0.35); }
-  50% { box-shadow: 0 0 40px -8px rgba(44,232,214,0.55); }
+  0%, 100% { box-shadow: 0 0 30px -10px rgba(0,229,176,0.35); }
+  50% { box-shadow: 0 0 40px -8px rgba(0,229,176,0.55); }
 }
 .venus-hero-mark {
   animation: v7-breathe 3.4s ease-in-out infinite;

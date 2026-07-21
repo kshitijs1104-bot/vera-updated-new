@@ -300,10 +300,12 @@ export function VenusPage() {
               style={{ borderRadius: '9px', background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border-strong)' }}
             >
               <svg viewBox="0 0 24 24" fill="none" className="w-[14px] h-[14px]">
-                <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.7" strokeLinecap="round"/>
-                <circle cx="6" cy="18" r="1.9" fill="#2ce8d6"/>
-                <circle cx="12" cy="12" r="1.9" fill="#2ce8d6"/>
-                <circle cx="18" cy="6" r="2.5" fill="#ff7ad1"/>
+                <circle cx="12" cy="12" r="9.5" stroke="#3a3d47" strokeWidth="0.8"/>
+                <g transform="rotate(-16 12 12)">
+                  <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0"/>
+                  <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8"/>
+                </g>
+                <circle cx="12" cy="12" r="1.1" fill="#20232c" stroke="#3a3d47" strokeWidth="0.5"/>
               </svg>
             </div>
             <span className="font-extrabold text-[15px]" style={{ letterSpacing: '-0.01em' }}>Vera</span>
@@ -493,7 +495,7 @@ export function VenusPage() {
               style={{
                 top: '6%', left: '50%', transform: 'translateX(-50%)',
                 width: '460px', height: '460px', borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(44,232,214,0.10) 0%, rgba(255,122,209,0.05) 45%, transparent 72%)',
+                background: 'radial-gradient(circle, rgba(0,229,176,0.10) 0%, rgba(91,79,232,0.06) 45%, transparent 72%)',
               }}
             ></div>
 
@@ -503,10 +505,12 @@ export function VenusPage() {
                 style={{ borderRadius: '18px', background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)' }}
               >
                 <svg viewBox="0 0 24 24" fill="none" className="w-[30px] h-[30px]">
-                  <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.6" strokeLinecap="round"/>
-                  <circle cx="6" cy="18" r="2.1" fill="#2ce8d6"/>
-                  <circle cx="12" cy="12" r="2.1" fill="#2ce8d6"/>
-                  <circle cx="18" cy="6" r="2.8" fill="#ff7ad1"/>
+                  <circle cx="12" cy="12" r="9.5" stroke="#3a3d47" strokeWidth="0.8"/>
+                  <g transform="rotate(-16 12 12)">
+                    <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0"/>
+                    <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8"/>
+                  </g>
+                  <circle cx="12" cy="12" r="1.1" fill="#181a21" stroke="#3a3d47" strokeWidth="0.5"/>
                 </svg>
               </div>
 
