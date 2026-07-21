@@ -376,82 +376,91 @@
    inside this class, so it keeps reading the untouched dark values above.
    Deliberately overrides BOTH token families Vera actually uses: the
    --v7-* set (sidebar, Goal/Roadmap/Today panels, overview pages) AND the
-   app-wide --bg/--surface/--indigo/--mint set (Venus.tsx's own chat thread
-   and response cards use this second family, not --v7-*) — CSS custom
-   properties cascade from whichever ancestor last defined them, so
+   app-wide --bg/--surface/--indigo/--mint/--green set (Venus.tsx's own chat
+   thread and response cards use this second family, not --v7-*) — CSS
+   custom properties cascade from whichever ancestor last defined them, so
    overriding both here is enough; no component code needs to change what
-   variable it reads.
-   Third pass on this palette. First was a single indigo accent (read as
-   washed-out/samey). Second was teal+indigo (read as "purple doesn't suit
-   light" — cool blue-gray background plus indigo/violet accent). This one
-   drops purple/indigo entirely: warm beige/off-white base (not cool
-   blue-gray, not stark white) with ONE calm sage-green accent family, two
-   weights, nothing else. "Soft"/tint tokens are flat solid pastel hexes
-   here, not alpha-blended rgba — an alpha wash over a light page reads as
-   a muddy translucent smear (see --v7-tint below, the fix for the actual
-   chat-bubble/badge spots in Venus.tsx that used a raw indigo/20 opacity
-   modifier), where a flat pastel reads as a clean, deliberate tint.
-   Fourth pass: the sage green from pass three was too desaturated — read
-   as "blueish, plain, colorblind"-ish once every soft/inactive background
-   was tinted with it. Fix is a division of labor, not another hue swap:
-   structural fills (panel/button/pill backgrounds, including the ones
-   that used to carry a pale accent tint) are now plain neutral gray, full
-   stop — the accent color itself got MORE saturated and is reserved for
-   things that are actually the signal (icon, border, text, active state)
-   rather than smeared across every background. That's also the fix for
-   "generic like every AI chatbot" — the structural chrome is gray like
-   everyone else's, but the accent stays a real, confident color instead
-   of disappearing into a pastel wash. Text tokens deepened across the
-   board so nothing depends on bold weight to stay legible against cream,
-   white, or the gray panels alike. */
+   variable it reads, and dark mode (which never sits inside .v7-light)
+   never sees any of this.
+
+   Fifth pass. Every prior pass collapsed the four "accent" slots
+   (--v7-cyan/--v7-pink and --indigo/--mint) down to variants of a SINGLE
+   hue — first indigo, then teal+indigo, then one sage green — chasing
+   "simple," which is exactly what made it monotonous: card-type labels,
+   buttons, badges, and highlights all rendered the same color regardless
+   of what they were, so the page read as flat and repetitive even though
+   individual pieces were fine in isolation. This pass restores real hue
+   separation with a clear division of labor instead of one repeated color:
+
+     PRIMARY (1 hue) — a muted denim/indigo-blue. Used for buttons, active
+     states, links, the evidence-line marker, hero glow — i.e. anything
+     that's an ACTION or the current state of the primary Goal/Roadmap
+     surfaces. --v7-cyan and --indigo both point here so the two panel
+     systems share one consistent "this is interactive" identity.
+
+     SECONDARY (3 hues, used selectively, not as backgrounds everywhere):
+       - muted plum/violet (--indigo-light) — analysis/funnel/hypothesis
+         card-type labels.
+       - muted forest green (--mint) — market/precedent card-type labels.
+         Deliberately darker/less saturated than a mint/seafoam green so
+         it doesn't fall back into the "everything green" trap.
+       - muted terracotta/coral (--v7-pink, and --green repurposed — see
+         below) — gives TodayCard its own identity separate from Goal/
+         Roadmap's blue, and covers decision/solution/funding/fundraising
+         card-type labels.
+
+     SEMANTIC (unchanged) — --red/--amber stay the app's standard
+     danger/caution colors, not part of this accent system.
+
+   --green is repurposed on purpose: it's a real pre-existing CSS variable
+   name (not a new one), read by four of the eleven VenusCard types
+   (decision/solution/funding/fundraising) and by nothing outside Vera's
+   scoped subtree, so overriding it here to the same coral as --v7-pink
+   costs nothing and buys back a fourth independent color slot without
+   inventing new tokens or touching any component code. Dark mode's
+   :root/.dark --green (#22c55e) is untouched — this only exists inside
+   .v7-light.
+
+   "Soft" fill tokens are now genuine pastel tints of their hue (not
+   plain gray, not alpha-blended rgba) — solid so they don't read as a
+   translucent wash, but tinted so surfaces/chips/hover states actually
+   carry the color variety this pass is about, instead of pushing all of
+   it onto borders and text alone. */
 .v7-light {
-  --v7-bg: #f8f6f2;
+  --v7-bg: #f7f5f1;
   --v7-bg-raised: #ffffff;
-  --v7-bg-raised-2: #e9e6e0;
-  --v7-border: #ddd7ca;
-  --v7-border-strong: #c9c1b0;
-  --v7-text: #201c16;
-  --v7-text-dim: #5c554a;
-  --v7-text-mute: #7d7669;
-  --v7-cyan: #157a4d;
-  --v7-pink: #1f9660;
-  --v7-cyan-soft: #e9e6e0;
-  --v7-cyan-strong: #157a4d;
-  --v7-pink-soft: #e9e6e0;
-  /* Was a pale green pastel — read as "blue" once rendered (the chat
-     bubble, precedent/recommendation badges). Matches --v7-bg-raised (the
-     sidebar's white) instead: lighter than the cream page background,
-     neutral, no color cast to misread. --v7-tint-border stays a real
-     border since white-on-cream needs a visible edge to read as its own
-     element rather than blending into the page. */
+  --v7-bg-raised-2: #eae6de;
+  --v7-border: #ddd5c8;
+  --v7-border-strong: #c7bba8;
+  --v7-text: #1c1a17;
+  --v7-text-dim: #57534a;
+  --v7-text-mute: #7c766b;
+  --v7-cyan: #3a5998;
+  --v7-pink: #bf5b3f;
+  --v7-cyan-soft: #e6eaf1;
+  --v7-cyan-strong: #3a5998;
+  --v7-pink-soft: #f5e6df;
   --v7-tint: #ffffff;
   --v7-tint-border: #c9c1b0;
-  --v7-glow-1: rgba(21,122,77,0.07);
-  --v7-glow-2: rgba(31,150,96,0.05);
-  --v7-glow-shadow-a: rgba(21,122,77,0.16);
-  --v7-glow-shadow-b: rgba(21,122,77,0.26);
+  --v7-glow-1: rgba(58,89,152,0.07);
+  --v7-glow-2: rgba(124,92,168,0.05);
+  --v7-glow-shadow-a: rgba(58,89,152,0.16);
+  --v7-glow-shadow-b: rgba(58,89,152,0.26);
 
-  --bg: #f8f6f2;
+  --bg: #f7f5f1;
   --surface: #ffffff;
-  --surface2: #e9e6e0;
-  --surface3: #ddd7ca;
-  --border: #c9c1b0;
-  --border2: #c9c1b0;
-  --text: #201c16;
-  /* --muted and --muted-text are two DIFFERENT pre-existing tokens (the
-     shadcn --muted foreground color vs. this codebase's own --muted-text) —
-     Venus.tsx's card rendering uses both interchangeably depending on which
-     part of the file it's in. --muted was never in this override block
-     before, so it silently kept resolving to the dark-mode default
-     (#9ca0b3) regardless of theme — the actual cause behind most of the
-     "washed out / low contrast" card body text. Overriding both here,
-     to the same value, is what actually fixes it everywhere at once. */
-  --muted: #5c554a;
-  --muted-text: #5c554a;
-  --dim: #7d7669;
-  --indigo: #157a4d;
-  --indigo-light: #1f9660;
-  --mint: #157a4d;
+  --surface2: #eae6de;
+  --surface3: #ddd5c8;
+  --border: #c7bba8;
+  --border2: #c7bba8;
+  --text: #1c1a17;
+  --muted: #57534a;
+  --muted-text: #57534a;
+  --dim: #7c766b;
+  --indigo: #3a5998;
+  --indigo-light: #7c5ca8;
+  --mint: #3d6b4f;
+  --green: #bf5b3f;
   font-weight: 500;
 }
 
