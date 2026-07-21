@@ -371,40 +371,43 @@
    properties cascade from whichever ancestor last defined them, so
    overriding both here is enough; no component code needs to change what
    variable it reads.
-   One quiet accent (a deep indigo/violet, two weights) instead of the dark
-   theme's two competing neon hues — kept close to the existing --indigo so
-   it still reads as the same brand, just toned for a light background
-   instead of glowing on black. */
+   Two real hues (a deep teal + an indigo/violet), not one accent reused
+   for both slots — a first pass tried a single monochrome indigo and it
+   read as everything-the-same-washed-out-lavender ("thought I had color
+   blindness"), because the two token families share the same page and
+   need to stay visually distinguishable from each other, not just from
+   the background. Off-white page background (not stark white) with white
+   raised cards for clear tonal separation between layers. */
 .v7-light {
-  --v7-bg: #f7f7f9;
+  --v7-bg: #f6f7fb;
   --v7-bg-raised: #ffffff;
-  --v7-bg-raised-2: #eef0f3;
-  --v7-border: rgba(15,15,25,0.08);
-  --v7-border-strong: rgba(15,15,25,0.16);
-  --v7-text: #16171d;
-  --v7-text-dim: #55586a;
-  --v7-text-mute: #8b8e9c;
-  --v7-cyan: #4338ca;
-  --v7-pink: #6366f1;
-  --v7-cyan-soft: rgba(67,56,202,0.10);
-  --v7-cyan-strong: rgba(67,56,202,0.38);
-  --v7-pink-soft: rgba(99,102,241,0.10);
-  --v7-glow-1: rgba(67,56,202,0.07);
-  --v7-glow-2: rgba(99,102,241,0.05);
-  --v7-glow-shadow-a: rgba(67,56,202,0.16);
-  --v7-glow-shadow-b: rgba(67,56,202,0.26);
+  --v7-bg-raised-2: #eaecf3;
+  --v7-border: rgba(20,22,40,0.10);
+  --v7-border-strong: rgba(20,22,40,0.20);
+  --v7-text: #14161f;
+  --v7-text-dim: #52566a;
+  --v7-text-mute: #868aa0;
+  --v7-cyan: #0d9488;
+  --v7-pink: #4f46e5;
+  --v7-cyan-soft: rgba(13,148,136,0.12);
+  --v7-cyan-strong: rgba(13,148,136,0.42);
+  --v7-pink-soft: rgba(79,70,229,0.12);
+  --v7-glow-1: rgba(13,148,136,0.08);
+  --v7-glow-2: rgba(79,70,229,0.06);
+  --v7-glow-shadow-a: rgba(13,148,136,0.18);
+  --v7-glow-shadow-b: rgba(13,148,136,0.28);
 
-  --bg: #f7f7f9;
+  --bg: #f6f7fb;
   --surface: #ffffff;
-  --surface2: #eef0f3;
-  --surface3: #e4e6ec;
-  --border2: rgba(15,15,25,0.16);
-  --text: #16171d;
-  --muted-text: #55586a;
-  --dim: #8b8e9c;
-  --indigo: #4338ca;
-  --indigo-light: #6366f1;
-  --mint: #6366f1;
+  --surface2: #eaecf3;
+  --surface3: #e1e4ee;
+  --border2: rgba(20,22,40,0.20);
+  --text: #14161f;
+  --muted-text: #52566a;
+  --dim: #868aa0;
+  --indigo: #4f46e5;
+  --indigo-light: #7c74ea;
+  --mint: #0d9488;
 }
 
 @layer base {
