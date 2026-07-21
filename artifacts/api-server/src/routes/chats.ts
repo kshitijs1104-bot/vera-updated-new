@@ -18,7 +18,7 @@ const router = Router();
 // `risk`, or `subTasks` are stored — they're recomputed on every read so the
 // stored evidenceScore stays the single source of truth and the visual
 // mapping/risk heuristic can be tuned later without a migration.
-async function attachGoalProgress(goal: typeof goalsTable.$inferSelect) {
+export async function attachGoalProgress(goal: typeof goalsTable.$inferSelect) {
   const subTaskRows = await db
     .select({
       id: venusDecisionsTable.id,

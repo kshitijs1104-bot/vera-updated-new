@@ -77,6 +77,20 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Dev-only: the raw (non-generated-client) fetch calls throughout this
+    // app (GoalPanel, Venus.tsx, venusApi.ts) all hit relative `/api/...`
+    // paths on the assumption that the frontend and api-server are served
+    // same-origin — true in production (see the api-server's CORS
+    // credentials:false + cookie-based Clerk session), but not true for two
+    // independent `vite dev` / `pnpm dev` processes on different ports. This
+    // proxies `/api` to the local api-server dev port so that assumption
+    // actually holds during local development too.
+    proxy: {
+      "/api": {
+        target: `http://localhost:${process.env.API_PORT ?? 8080}`,
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,

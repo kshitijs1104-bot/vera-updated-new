@@ -1,0 +1,164 @@
+import { useState } from 'react';
+import { useLocation } from 'wouter';
+import { ArrowLeft, ListChecks, ThumbsUp, ThumbsDown, Minus, Archive } from 'lucide-react';
+import { useDecisions, useArchiveDecision, type VenusDecisionRow, type DecisionFilters } from '../lib/venusApi';
+
+// The browse surface Decision Memory never had — the backend has logged and
+// resolved decisions since the Goal feature shipped (see venus_decisions.ts),
+// but the only place they were ever visible was as sub-tasks inside a
+// goaled chat's GoalPanel. This is every decision Venus has logged for the
+// founder, independent of any one chat or goal.
+const STATUS_FILTERS: { value: DecisionFilters['status'] | 'all'; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'abandoned', label: 'Abandoned' },
+];
+
+function sentimentBadge(sentiment: VenusDecisionRow['outcomeSentiment']) {
+  if (sentiment === 'positive') return { Icon: ThumbsUp, color: 'var(--v7-cyan)', label: 'Worked' };
+  if (sentiment === 'negative') return { Icon: ThumbsDown, color: 'var(--red, #e5555c)', label: "Didn't work" };
+  if (sentiment === 'mixed') return { Icon: Minus, color: 'var(--amber, #d9a441)', label: 'Mixed' };
+  return null;
+}
+
+function DecisionCard({ decision, onArchive }: { decision: VenusDecisionRow; onArchive: (id: number) => void }) {
+  const sentiment = sentimentBadge(decision.outcomeSentiment);
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}
+    >
+      <div className="flex items-start justify-between gap-3 mb-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <span
+            className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded"
+            style={{ background: 'var(--v7-bg-raised-2)', color: 'var(--v7-text-mute)' }}
+          >
+            {decision.cardType}
+          </span>
+          {decision.decisionType && (
+            <span
+              className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded"
+              style={{ background: 'var(--v7-bg-raised-2)', color: 'var(--v7-cyan)' }}
+            >
+              {decision.decisionType}
+            </span>
+          )}
+          {decision.reinforcedCount > 1 && (
+            <span className="text-[9.5px] font-mono" style={{ color: 'var(--v7-text-mute)' }}>
+              asked {decision.reinforcedCount}×
+            </span>
+          )}
+        </div>
+        {!decision.archived && (
+          <button
+            onClick={() => onArchive(decision.id)}
+            title="Archive"
+            className="shrink-0"
+            style={{ color: 'var(--v7-text-mute)' }}
+          >
+            <Archive className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className="text-[13px] font-semibold mb-1" style={{ color: 'var(--v7-text)' }}>{decision.query}</div>
+      <div className="text-[12px] mb-2" style={{ color: 'var(--v7-text-dim)' }}>{decision.recommendationSummary}</div>
+
+      {decision.status === 'resolved' ? (
+        <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--v7-border, rgba(255,255,255,0.08))' }}>
+          {sentiment && (
+            <div className="flex items-center gap-1 text-[11px] mb-1" style={{ color: sentiment.color }}>
+              <sentiment.Icon className="w-3 h-3" />
+              {sentiment.label}
+            </div>
+          )}
+          {decision.lesson && (
+            <div className="text-[12px]" style={{ color: 'var(--v7-text-dim)' }}>{decision.lesson}</div>
+          )}
+        </div>
+      ) : (
+        <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--v7-text-mute)' }}>{decision.status}</div>
+      )}
+    </div>
+  );
+}
+
+export function DecisionsOverview() {
+  const [, navigate] = useLocation();
+  const [status, setStatus] = useState<DecisionFilters['status'] | 'all'>('all');
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const { data, isLoading } = useDecisions({ status: status === 'all' ? undefined : status, includeArchived });
+  const archiveMutation = useArchiveDecision();
+  const decisions = data?.decisions ?? [];
+
+  return (
+    <div className="min-h-screen w-full" style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
+      <div className="max-w-2xl mx-auto px-6 py-8">
+        <button
+          onClick={() => navigate('/venus')}
+          className="flex items-center gap-1.5 text-[13px] font-medium mb-6"
+          style={{ color: 'var(--v7-text-mute)' }}
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back to Vera
+        </button>
+
+        <div className="flex items-center gap-2 mb-1">
+          <ListChecks className="w-4 h-4" style={{ color: 'var(--v7-cyan)' }} />
+          <h1 className="text-[19px] font-extrabold">Decisions</h1>
+        </div>
+        <p className="text-[13px] mb-5" style={{ color: 'var(--v7-text-mute)' }}>
+          Everything Venus has recommended, and what happened when you acted on it.
+        </p>
+
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          {STATUS_FILTERS.map((f) => {
+            const active = status === f.value;
+            return (
+              <button
+                key={f.value}
+                onClick={() => setStatus(f.value)}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md"
+                style={{
+                  color: active ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+                  background: active ? 'var(--v7-cyan-soft)' : 'transparent',
+                  border: `1px solid ${active ? 'var(--v7-cyan-strong)' : 'var(--v7-border, rgba(255,255,255,0.08))'}`,
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setIncludeArchived((v) => !v)}
+            className="text-[11px] font-medium px-2.5 py-1 rounded-md ml-auto"
+            style={{
+              color: includeArchived ? 'var(--v7-text)' : 'var(--v7-text-mute)',
+              border: '1px solid var(--v7-border, rgba(255,255,255,0.08))',
+            }}
+          >
+            {includeArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+        </div>
+
+        {isLoading && <div className="text-[13px] mt-4" style={{ color: 'var(--v7-text-mute)' }}>Loading…</div>}
+
+        {!isLoading && decisions.length === 0 && (
+          <div className="text-[13px] rounded-xl p-4 mt-4" style={{ background: 'var(--v7-bg-raised)', color: 'var(--v7-text-mute)' }}>
+            Nothing here yet — a decision or roadmap card Venus gives you in any chat gets logged here automatically.
+          </div>
+        )}
+
+        <div className="space-y-2.5 mt-4">
+          {decisions.map((d) => (
+            <DecisionCard key={d.id} decision={d} onArchive={(id) => archiveMutation.mutate(id)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

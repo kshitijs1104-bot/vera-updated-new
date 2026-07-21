@@ -7,8 +7,9 @@ import {
   detectAnalysisType, typeLabel, titleFromMessage,
   type ChatSession, type ChatMessage, type SavedAnalysisType,
 } from '../lib/venusHistory';
-import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check } from 'lucide-react';
+import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check, Target, ListChecks, Map as MapIcon } from 'lucide-react';
 import { GoalPanel } from './GoalPanel';
+import { RoadmapTracker } from './RoadmapTracker';
 
 const EXAMPLE_PROMPTS = [
   "Map the causal chain for my business from the most significant market shifts right now",
@@ -68,6 +69,36 @@ function persistCompanyReportCache(cache: Record<string, CompanyReportState>) {
   } catch {}
 }
 
+// Whether the Goal/Roadmap panels show above the chat thread at all — a
+// global per-founder preference, not per-chat. GoalPanel already has its
+// own open/closed state for its DETAIL view, and RoadmapTracker its own for
+// its phase list, but neither could previously be hidden entirely: the
+// summary bar always took header space, on every chat, every visit, even
+// collapsed. This is the layer above that — "do I want to see this at all
+// right now" — controlled from the sidebar (see the toggle row below) so
+// hiding one never affects the other, and the choice sticks instead of
+// resetting on the next visit.
+const SHOW_GOAL_PANEL_KEY = 've_show_goal_panel';
+const SHOW_ROADMAP_KEY = 've_show_roadmap';
+
+function loadPanelPref(key: string): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function savePanelPref(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // Best-effort — a private-browsing tab with no localStorage just means
+    // the preference resets next visit, which is harmless.
+  }
+}
+
 function groupSavedByType(saved: ReturnType<typeof getSavedAnalyses>) {
   const groups: Partial<Record<SavedAnalysisType, typeof saved>> = {};
   for (const s of saved) {
@@ -87,6 +118,8 @@ export function VenusPage() {
   const [saved, setSaved] = useState(getSavedAnalyses);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
+  const [showGoalPanel, setShowGoalPanel] = useState(() => loadPanelPref(SHOW_GOAL_PANEL_KEY));
+  const [showRoadmap, setShowRoadmap] = useState(() => loadPanelPref(SHOW_ROADMAP_KEY));
   const [groqKey, setGroqKey] = useState(() => localStorage.getItem('ve_groq_key') || '');
   const [input, setInput] = useState('');
   const [companyReports, setCompanyReports] = useState<Record<string, CompanyReportState>>(loadCompanyReportCache);
@@ -126,6 +159,9 @@ export function VenusPage() {
     const s = createSession();
     setCurrentSession(s);
   };
+
+  const toggleGoalPanel = () => setShowGoalPanel((v) => { const next = !v; savePanelPref(SHOW_GOAL_PANEL_KEY, next); return next; });
+  const toggleRoadmap = () => setShowRoadmap((v) => { const next = !v; savePanelPref(SHOW_ROADMAP_KEY, next); return next; });
 
   const handleSelectSession = (s: ChatSession) => {
     setCurrentSession(s);
@@ -356,6 +392,39 @@ export function VenusPage() {
           New Analysis
         </button>
 
+        {/* Panel visibility — whether Goal/Roadmap show above the chat at
+            all. Lives here (not as always-on bars in the chat header) so
+            wanting just the goal doesn't force the roadmap into view too,
+            and the choice persists instead of nagging on every visit. */}
+        <div className="flex items-center gap-[6px] mb-[18px]">
+          <button
+            onClick={toggleGoalPanel}
+            className="flex-1 flex items-center justify-center gap-[6px] text-[11px] font-semibold py-[7px] rounded-[10px] transition-colors"
+            style={{
+              color: showGoalPanel ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+              background: showGoalPanel ? 'var(--v7-cyan-soft)' : 'var(--v7-bg-raised-2)',
+              border: `1px solid ${showGoalPanel ? 'var(--v7-cyan-strong)' : 'transparent'}`,
+            }}
+            title={showGoalPanel ? 'Hide goal panel' : 'Show goal panel'}
+          >
+            <Target className="w-3 h-3" />
+            Goal
+          </button>
+          <button
+            onClick={toggleRoadmap}
+            className="flex-1 flex items-center justify-center gap-[6px] text-[11px] font-semibold py-[7px] rounded-[10px] transition-colors"
+            style={{
+              color: showRoadmap ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
+              background: showRoadmap ? 'var(--v7-cyan-soft)' : 'var(--v7-bg-raised-2)',
+              border: `1px solid ${showRoadmap ? 'var(--v7-cyan-strong)' : 'transparent'}`,
+            }}
+            title={showRoadmap ? 'Hide roadmap panel' : 'Show roadmap panel'}
+          >
+            <MapIcon className="w-3 h-3" />
+            Roadmap
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto min-h-0" style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           {/* Chat History */}
           {sessions.length > 0 && (
@@ -437,6 +506,26 @@ export function VenusPage() {
         {/* Bottom Settings */}
         <div style={{ borderTop: '1px solid var(--v7-border)', marginTop: '12px', paddingTop: '14px' }}>
           <button
+            onClick={() => navigate('/venus/goals')}
+            className="w-full flex items-center gap-[9px] text-[13px] font-medium transition-colors mb-1"
+            style={{ color: 'var(--v7-text-dim)', paddingLeft: '8px' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+          >
+            <Target className="w-3.5 h-3.5" />
+            Goals
+          </button>
+          <button
+            onClick={() => navigate('/venus/decisions')}
+            className="w-full flex items-center gap-[9px] text-[13px] font-medium transition-colors mb-1"
+            style={{ color: 'var(--v7-text-dim)', paddingLeft: '8px' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+            Decisions
+          </button>
+          <button
             onClick={() => setShowSettings(v => !v)}
             className="w-full flex items-center gap-[9px] text-[13px] font-medium transition-colors"
             style={{ color: 'var(--v7-text-dim)', paddingLeft: '8px' }}
@@ -476,7 +565,8 @@ export function VenusPage() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div style={{ padding: '14px 32px 0' }}>
-          <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />
+          {showGoalPanel && <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />}
+          {showRoadmap && <RoadmapTracker chatId={currentSession.serverChatId} />}
         </div>
 
         {/* Messages */}

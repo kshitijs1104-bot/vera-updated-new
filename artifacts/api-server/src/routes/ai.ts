@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, settingsTable, venusDecisionsTable, goalsTable } from "@workspace/db";
+import { db, settingsTable, venusDecisionsTable, goalsTable, type VenusDecision } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
@@ -8,6 +8,9 @@ import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecis
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
+import { classifyDecisionType, archiveStaleOpenDecisions } from "../lib/decisionMemory";
+import { materializeRoadmapFromCard } from "../lib/roadmap";
+import { addCompanyFact } from "../lib/companyMemory";
 
 const router = Router();
 
@@ -386,6 +389,8 @@ function summarizeCardForLogging(card: any): string | null {
 // the row just sits as "open" and isn't retrieved for future answers (only
 // resolved decisions are, since an unresolved recommendation has no ground
 // truth in it yet — see retrieveOwnResolvedDecisions).
+const DUPLICATE_WINDOW_MS = 24 * 60 * 60_000;
+
 async function autoLogDecisionCards(
   sessionId: string,
   query: string,
@@ -395,20 +400,83 @@ async function autoLogDecisionCards(
 ): Promise<void> {
   if (!Array.isArray(cards) || cards.length === 0) return;
   try {
+    // Fetched once per call (not per card) — every card in this batch came
+    // from the same founder message, so the dedup check against "open
+    // decisions from this founder in the last 24h" only needs one query.
+    let recentOpen: VenusDecision[] = [];
+    try {
+      recentOpen = await db
+        .select()
+        .from(venusDecisionsTable)
+        .where(and(eq(venusDecisionsTable.sessionId, sessionId), eq(venusDecisionsTable.status, "open")));
+    } catch {
+      recentOpen = [];
+    }
+    const normalizedQuery = normalizeQueryText(query);
+    const since = Date.now() - DUPLICATE_WINDOW_MS;
+
     for (const card of cards) {
       if (!card || (card.type !== "decision" && card.type !== "roadmap")) continue;
       const summary = summarizeCardForLogging(card);
       if (!summary) continue; // don't log a card we can't meaningfully summarize
-      await db.insert(venusDecisionsTable).values({
-        sessionId,
-        chatId: chatId ?? null,
-        query,
-        businessContextSnapshot: businessContext ?? null,
-        cardType: card.type,
-        recommendationSummary: summary,
-        cardContentJson: JSON.stringify(card.content ?? {}),
-        status: "open",
-      });
+
+      // Dedup guard: a near-identical open question re-asked by the same
+      // founder within 24h (mid-session re-ask, retried message, etc.)
+      // reinforces the existing row instead of bloating the log with a
+      // near-duplicate that would otherwise compete for the same retrieval
+      // slot as a genuinely distinct decision.
+      const duplicate = recentOpen.find(
+        (r) =>
+          r.cardType === card.type &&
+          normalizeQueryText(r.query) === normalizedQuery &&
+          r.createdAt &&
+          new Date(r.createdAt).getTime() >= since,
+      );
+      if (duplicate) {
+        db.update(venusDecisionsTable)
+          .set({ reinforcedCount: (duplicate.reinforcedCount ?? 1) + 1 })
+          .where(eq(venusDecisionsTable.id, duplicate.id))
+          .catch((err) => console.error("[autoLogDecisionCards] failed to bump reinforcedCount", err));
+        continue;
+      }
+
+      const [inserted] = await db
+        .insert(venusDecisionsTable)
+        .values({
+          sessionId,
+          chatId: chatId ?? null,
+          query,
+          businessContextSnapshot: businessContext ?? null,
+          cardType: card.type,
+          recommendationSummary: summary,
+          cardContentJson: JSON.stringify(card.content ?? {}),
+          status: "open",
+          decisionType: classifyDecisionType(query),
+        })
+        .returning();
+
+      // Materialize trackable roadmap state (phases/actions that can be
+      // checked off over time) alongside the decision-log row — additive
+      // only, never blocks or affects the decision row itself. Requires a
+      // chatId since roadmaps are scoped to a chat/project the same way
+      // goals are (see roadmaps.ts).
+      if (card.type === "roadmap" && chatId && inserted) {
+        materializeRoadmapFromCard({
+          userId: sessionId,
+          chatId,
+          sourceDecisionId: inserted.id,
+          title: summary,
+          cardContent: card.content,
+        })
+          .then((roadmap) => {
+            if (!roadmap) return;
+            return db
+              .update(venusDecisionsTable)
+              .set({ roadmapId: roadmap.id })
+              .where(eq(venusDecisionsTable.id, inserted.id));
+          })
+          .catch((err) => console.error("[autoLogDecisionCards] failed to link roadmapId", err));
+      }
     }
   } catch (err) {
     // Never let logging failure break the actual chat response — this is
@@ -703,6 +771,11 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
         ? `${storedContext} | ${body.data.message}`
         : body.data.message;
       await saveStoredBusinessContext(sessionId, combinedContext);
+      // Also log the atomic new statement (not the whole growing blob) as
+      // its own structured fact — see companyMemory.ts for why this exists
+      // alongside the blob rather than replacing it. Fire-and-forget:
+      // addCompanyFact never throws, but this must never delay the response.
+      addCompanyFact({ userId: sessionId, factText: body.data.message, sourceType: "chat" }).catch(() => {});
       return res.json(buildContextAcknowledgment(combinedContext));
     }
 
@@ -717,6 +790,7 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // it now so it survives into future sessions too.
     if (effectiveBusinessContext && !storedContext) {
       await saveStoredBusinessContext(sessionId, effectiveBusinessContext);
+      addCompanyFact({ userId: sessionId, factText: effectiveBusinessContext, sourceType: "chat" }).catch(() => {});
     }
 
     // Classify BEFORE running any of the expensive retrieval/web-search work
@@ -990,16 +1064,57 @@ const ReportOutcomeBody = z.object({
 router.get("/ai/decisions", requireAuth, async (req, res) => {
   try {
     const sessionId = requireUserId(req);
+
+    // Best-effort maintenance sweep on read, not a cron job — see
+    // decisionMemory.ts. Never blocks or fails the actual list response.
+    archiveStaleOpenDecisions(sessionId).catch(() => {});
+
+    const conditions = [eq(venusDecisionsTable.sessionId, sessionId)];
+    if (typeof req.query.status === "string") {
+      conditions.push(eq(venusDecisionsTable.status, req.query.status));
+    }
+    if (typeof req.query.decisionType === "string") {
+      conditions.push(eq(venusDecisionsTable.decisionType, req.query.decisionType));
+    }
+    // Archived rows are excluded by default (the common "browse my active
+    // memory" case) — pass ?includeArchived=true to see everything.
+    if (req.query.includeArchived !== "true") {
+      conditions.push(eq(venusDecisionsTable.archived, false));
+    }
+
     const rows = await db
       .select()
       .from(venusDecisionsTable)
-      .where(eq(venusDecisionsTable.sessionId, sessionId))
+      .where(and(...conditions))
       .orderBy(desc(venusDecisionsTable.createdAt))
       .limit(50);
     return res.json({ decisions: rows });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Failed to load decision history" });
+  }
+});
+
+// Soft-hide noise (an accidental re-ask, a test query) from default browse
+// views without discarding it as causal history — see venus_decisions'
+// `archived` column comment. Idempotent: archiving an already-archived row
+// is a no-op success, not an error.
+router.patch("/ai/decisions/:id/archive", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid decision id" });
+
+  try {
+    const sessionId = requireUserId(req);
+    const [updated] = await db
+      .update(venusDecisionsTable)
+      .set({ archived: true })
+      .where(and(eq(venusDecisionsTable.id, id), eq(venusDecisionsTable.sessionId, sessionId)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Decision not found" });
+    return res.json(updated);
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to archive decision" });
   }
 });
 

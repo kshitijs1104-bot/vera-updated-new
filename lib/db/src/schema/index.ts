@@ -8,3 +8,5 @@ export * from "./precedents";
 export * from "./venus_decisions";
 export * from "./chats";
 export * from "./goals";
+export * from "./company_facts";
+export * from "./roadmaps";

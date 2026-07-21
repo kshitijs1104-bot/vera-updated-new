@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
-import { 
+import {
   useGetGroqKeyStatus, useSaveGroqKey, useDeleteGroqKey,
-  useGetOnboarding, useSaveOnboarding 
+  useGetOnboarding, useSaveOnboarding
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetGroqKeyStatusQueryKey, getGetOnboardingQueryKey } from '@workspace/api-client-react';
+import { useCompanyFacts } from '../lib/venusApi';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { data: keyStatus } = useGetGroqKeyStatus();
   const { data: onboarding } = useGetOnboarding();
+  const { data: factsData } = useCompanyFacts();
+  const facts = factsData?.facts ?? [];
 
   const [apiKey, setApiKey] = useState('');
   
@@ -187,6 +190,32 @@ export function SettingsPage() {
           </div>
         </form>
       </section>
+
+      {/* What Vera Knows — read-only view of the structured Company Memory
+          (company_facts table), separate from the free-text business context
+          above. Each row is captured automatically from things you've told
+          Venus in chat, not something you fill in by hand. */}
+      {facts.length > 0 && (
+        <section className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-8">
+          <h2 className="text-lg font-syne font-bold text-white mb-1">What Vera Knows</h2>
+          <p className="text-xs text-[var(--muted)] mb-6">
+            Captured automatically from your conversations — this is what Venus factors into every answer, beyond the context above.
+          </p>
+          <ul className="space-y-2">
+            {facts.map((fact) => (
+              <li
+                key={fact.id}
+                className="flex items-start gap-3 text-sm text-[var(--muted)] bg-[var(--surface2)] border border-[var(--border)] rounded p-3"
+              >
+                <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--dim)] shrink-0 mt-0.5 px-1.5 py-0.5 rounded bg-[var(--surface3)]">
+                  {fact.factType}
+                </span>
+                <span className="text-white">{fact.factText}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

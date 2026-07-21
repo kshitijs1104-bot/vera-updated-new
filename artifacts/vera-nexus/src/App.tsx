@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ComponentType } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn, useAuth } from "@clerk/clerk-react";
@@ -13,6 +13,8 @@ import { SightPage } from "@/pages/Sight";
 import { CryptPage } from "@/pages/Crypt";
 import { ThoughtsPage } from "@/pages/Thoughts";
 import { VenusPage } from "@/pages/Venus";
+import { GoalsOverview } from "@/pages/GoalsOverview";
+import { DecisionsOverview } from "@/pages/DecisionsOverview";
 import { SettingsPage } from "@/pages/Settings";
 import { SignupGate } from "@/pages/enterprise/Signup";
 import { OnboardingGate } from "@/pages/enterprise/Onboarding";
@@ -52,11 +54,13 @@ function AuthTokenBridge() {
 // req.ip on the backend). This wraps it with real identity: signed-out users
 // get redirected to sign-in, signed-in users get the page with a verified
 // Clerk session token attached to every API call they make from here on.
-function VenusGate() {
+// Shared by every /venus/* route (chat, goals list, decisions list) since
+// they all read/write the same signed-in founder's data.
+function AuthGate({ component: Component }: { component: ComponentType }) {
   return (
     <>
       <SignedIn>
-        <VenusPage />
+        <Component />
       </SignedIn>
       <SignedOut>
         <RedirectToSignIn />
@@ -98,7 +102,13 @@ function Router() {
         </Layout>
       </Route>
       <Route path="/venus">
-        <VenusGate />
+        <AuthGate component={VenusPage} />
+      </Route>
+      <Route path="/venus/goals">
+        <AuthGate component={GoalsOverview} />
+      </Route>
+      <Route path="/venus/decisions">
+        <AuthGate component={DecisionsOverview} />
       </Route>
       <Route path="/settings">
         <Layout>

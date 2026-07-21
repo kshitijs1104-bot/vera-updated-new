@@ -9,6 +9,9 @@ import aiRouter from "./ai";
 import settingsRouter from "./settings";
 import stocksRouter from "./stocks";
 import chatsRouter from "./chats";
+import goalsRouter from "./goals";
+import companyFactsRouter from "./companyFacts";
+import roadmapsRouter from "./roadmaps";
 
 const router: IRouter = Router();
 
@@ -22,5 +25,8 @@ router.use(aiRouter);
 router.use(settingsRouter);
 router.use(stocksRouter);
 router.use(chatsRouter);
+router.use(goalsRouter);
+router.use(companyFactsRouter);
+router.use(roadmapsRouter);
 
 export default router;
