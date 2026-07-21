@@ -429,13 +429,24 @@
   --surface: #ffffff;
   --surface2: #e9e6e0;
   --surface3: #ddd7ca;
+  --border: #c9c1b0;
   --border2: #c9c1b0;
   --text: #201c16;
+  /* --muted and --muted-text are two DIFFERENT pre-existing tokens (the
+     shadcn --muted foreground color vs. this codebase's own --muted-text) —
+     Venus.tsx's card rendering uses both interchangeably depending on which
+     part of the file it's in. --muted was never in this override block
+     before, so it silently kept resolving to the dark-mode default
+     (#9ca0b3) regardless of theme — the actual cause behind most of the
+     "washed out / low contrast" card body text. Overriding both here,
+     to the same value, is what actually fixes it everywhere at once. */
+  --muted: #5c554a;
   --muted-text: #5c554a;
   --dim: #7d7669;
   --indigo: #157a4d;
   --indigo-light: #1f9660;
   --mint: #157a4d;
+  font-weight: 500;
 }
 
 @layer base {

@@ -783,8 +783,8 @@ export function VenusPage() {
                     <div className="max-w-[90%] space-y-3 group">
                       <div className="flex items-center justify-between gap-3 mb-1">
                         <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black">V</div>
-                          <span className="text-[10px] font-mono uppercase text-[var(--muted)]">Vera</span>
+                          <VeraAvatar />
+                          <span className="text-[10px] font-mono uppercase text-[var(--muted-text)]">Vera</span>
                         </div>
                         {msg.role === 'venus' && !(msg as any).isError && <ConfidenceBadge confidence={msg.confidence} note={msg.confidenceNote} />}
                       </div>
@@ -841,7 +841,7 @@ export function VenusPage() {
             {analyzeMutation.isPending && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-3">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--indigo)] to-[var(--mint)] flex items-center justify-center text-[7px] font-bold text-black animate-pulse">V</div>
+                  <VeraAvatar pulse />
                   <div className="flex gap-1">
                     {[0, 150, 300].map(delay => (
                       <span key={delay} className="w-1.5 h-1.5 bg-[var(--mint)] rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
@@ -896,6 +896,30 @@ export function VenusPage() {
 // "### Card" / "{}" lines seen in the UI.
 function stripStrayCodeFences(text: string): string {
   return text.replace(/```[\s\S]*?```/g, '').replace(/```[\s\S]*$/g, '');
+}
+
+// The compass brand mark, shrunk to fit the per-message avatar slot —
+// replaces a plain gradient circle with "V" in it so every Vera response
+// carries the same mark as the sidebar/hero, in both themes. Needle colors
+// stay fixed brand colors (not theme-driven, same choice as the sidebar
+// mark); the ring and center dot use --v7-* tokens so they still blend
+// into the badge correctly whichever theme is active.
+function VeraAvatar({ pulse = false }: { pulse?: boolean }) {
+  return (
+    <div
+      className={`w-5 h-5 rounded-full shrink-0 flex items-center justify-center${pulse ? ' animate-pulse' : ''}`}
+      style={{ background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border-strong)' }}
+    >
+      <svg viewBox="0 0 24 24" fill="none" className="w-3 h-3">
+        <circle cx="12" cy="12" r="9.5" stroke="#3a3d47" strokeWidth="1" />
+        <g transform="rotate(-16 12 12)">
+          <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0" />
+          <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8" />
+        </g>
+        <circle cx="12" cy="12" r="1.3" fill="var(--v7-bg-raised-2)" stroke="#3a3d47" strokeWidth="0.6" />
+      </svg>
+    </div>
+  );
 }
 
 /* Render Venus response with basic markdown-like formatting */
@@ -1010,7 +1034,7 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
     return (
       <ul className="space-y-1.5 list-disc pl-5">
         {parsed.map((item, index) => (
-          <li key={index} className="text-sm text-[var(--text)]/90">
+          <li key={index} className="text-sm text-[var(--text)]">
             {renderStructuredValue(item, depth + 1)}
           </li>
         ))}
@@ -1024,8 +1048,8 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
       <div className="space-y-2">
         {entries.map(([key, entryValue]) => (
           <div key={key} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
-            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] mb-1">{key.replace(/_/g, ' ')}</div>
-            <div className="text-sm text-[var(--text)]/90">{renderStructuredValue(entryValue, depth + 1)}</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted-text)] mb-1">{key.replace(/_/g, ' ')}</div>
+            <div className="text-sm text-[var(--text)]">{renderStructuredValue(entryValue, depth + 1)}</div>
           </div>
         ))}
       </div>
@@ -1103,7 +1127,7 @@ function CompetitorList({ competitors }: { competitors: unknown }) {
   const normalized = normalizeCompetitors(competitors);
   if (normalized.length === 0) return null;
   return (
-    <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+    <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted-text)]">
       {normalized.map((item, idx) => (
         <li key={`${item}-${idx}`}>{renderInline(item)}</li>
       ))}
@@ -1124,8 +1148,8 @@ function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'expl
   const isExploratory = confidence === 'exploratory';
   const label = isExploratory ? 'Exploratory — no precedent match' : 'Verified precedent';
   const classes = isExploratory
-    ? 'border-[var(--amber)]/30 bg-[var(--amber)]/10 text-[var(--amber)]'
-    : 'border-[var(--mint)]/30 bg-[var(--mint)]/10 text-[var(--mint)]';
+    ? 'border-[var(--v7-tint-border)] bg-[var(--v7-tint)] text-[var(--amber)]'
+    : 'border-[var(--v7-tint-border)] bg-[var(--v7-tint)] text-[var(--mint)]';
 
   return (
     <div className="relative group shrink-0">
@@ -1134,7 +1158,7 @@ function ConfidenceBadge({ confidence, note }: { confidence?: 'verified' | 'expl
         {label}
       </button>
       {note && (
-        <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 hidden w-64 rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-2.5 text-[11px] leading-relaxed text-[var(--muted)] shadow-lg group-hover:block group-focus-within:block">
+        <div className="pointer-events-none absolute right-0 top-full z-20 mt-2 hidden w-64 rounded-lg border border-[var(--border)] bg-[var(--surface2)] p-2.5 text-[11px] leading-relaxed text-[var(--muted-text)] shadow-lg group-hover:block group-focus-within:block">
           {note}
         </div>
       )}
@@ -1173,13 +1197,13 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
           <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
         </div>
         {p.outcome && (
-          <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--mint)]/15 text-[var(--mint)] tracking-wider">
+          <span className="text-[9.5px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--v7-tint)] text-[var(--mint)] tracking-wider">
             {p.outcome}
           </span>
         )}
       </div>
       <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Causal lesson</div>
-      <p className="text-[13px] text-[var(--muted)] leading-relaxed">{renderInline(p.lesson)}</p>
+      <p className="text-[13px] text-[var(--muted-text)] leading-relaxed">{renderInline(p.lesson)}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
@@ -1194,7 +1218,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
             setReportExpanded(true);
             await onGenerateCompanyReport(String(p.company));
           }}
-          className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] disabled:cursor-wait disabled:opacity-70"
+          className="rounded border border-[var(--v7-tint-border)] bg-[var(--v7-tint)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] disabled:cursor-wait disabled:opacity-70"
           disabled={reportState?.status === 'loading'}
         >
           {reportState?.status === 'loading' ? 'Researching…' : reportState?.status === 'ready' ? (reportExpanded ? 'Hide report' : 'Show report') : 'Generate Report'}
@@ -1203,13 +1227,13 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
 
       {reportExpanded && reportState && (
         <div className="mt-3 rounded border border-[var(--border)] bg-[var(--surface)]/70 p-3">
-          {reportState.status === 'loading' && <div className="text-sm text-[var(--muted)]">Gathering public details and sources…</div>}
+          {reportState.status === 'loading' && <div className="text-sm text-[var(--muted-text)]">Gathering public details and sources…</div>}
           {reportState.status === 'error' && <div className="text-sm text-[var(--red)]">{reportState.error ?? 'Report generation failed.'}</div>}
           {reportState.status === 'ready' && reportState.report && (
             <div className="space-y-3">
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Snapshot</div>
-                <div className="space-y-1 text-sm text-[var(--muted)]">
+                <div className="space-y-1 text-sm text-[var(--muted-text)]">
                   {reportState.report.snapshot.foundedYear && <div>Founded: {renderInline(reportState.report.snapshot.foundedYear)}</div>}
                   {reportState.report.snapshot.founders && reportState.report.snapshot.founders.length > 0 && <div>Founders: {renderInline(reportState.report.snapshot.founders.join(', '))}</div>}
                   {reportState.report.snapshot.fundingRaised && <div>Funding: {renderInline(reportState.report.snapshot.fundingRaised)}</div>}
@@ -1218,7 +1242,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
               </div>
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Timeline</div>
-                <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
+                <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted-text)]">
                   {reportState.report.timeline.map((entry, entryIndex) => (
                     <li key={`${entry.label}-${entryIndex}`}><span className="text-[var(--text)]">{entry.label}</span>: {renderInline(entry.detail)}</li>
                   ))}
@@ -1226,7 +1250,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
               </div>
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">What happened</div>
-                <p className="text-sm text-[var(--muted)] leading-relaxed">{renderInline(reportState.report.analysis)}</p>
+                <p className="text-sm text-[var(--muted-text)] leading-relaxed">{renderInline(reportState.report.analysis)}</p>
               </div>
               {reportState.report.sources.length > 0 && (
                 <div>
@@ -1322,10 +1346,10 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {(normalizedContent.risks ?? []).map((risk: any, i: number) => (
             <div key={i} className="bg-[var(--surface)] p-3 rounded border border-[var(--border)]">
               <div className="flex justify-between items-center mb-1.5">
-                <span className="text-sm font-bold text-[var(--amber)]">{risk.name}</span>
-                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--red)]/20 text-[var(--red)]">{risk.impact}</span>
+                <span className="text-sm font-bold text-[var(--text)]">{risk.name}</span>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[var(--red)] text-white">{risk.impact}</span>
               </div>
-              <p className="text-xs text-[var(--muted)]">{risk.mitigation}</p>
+              <p className="text-xs text-[var(--muted-text)]">{risk.mitigation}</p>
             </div>
           ))}
         </div>
@@ -1360,9 +1384,9 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
                   <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Phase ${i + 1}`}</div>
                   {m.title && <div className="text-sm font-semibold text-[var(--text)]">{m.title}</div>}
                 </div>
-                {summaryLine && <div className="text-sm text-[var(--text)]/90 mb-2">{summaryLine}</div>}
+                {summaryLine && <div className="text-sm text-[var(--text)] mb-2">{summaryLine}</div>}
                 {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
-                  <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--text)]/90 mt-2">
+                  <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--text)] mt-2">
                     {m.actions.map((action: unknown, actionIndex: number) => {
                       const parsedAction = parseMaybeJson(action);
                       const text = typeof parsedAction === 'string' ? parsedAction : isRecord(parsedAction) ? (parsedAction.text ?? parsedAction.action ?? JSON.stringify(parsedAction)) : String(action);
@@ -1414,7 +1438,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {normalizedContent.whitespace && (
             <div>
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-2">Whitespace</div>
-              <div className="text-sm text-[var(--muted)]">{renderInline(String(normalizedContent.whitespace))}</div>
+              <div className="text-sm text-[var(--muted-text)]">{renderInline(String(normalizedContent.whitespace))}</div>
             </div>
           )}
         </div>
@@ -1426,7 +1450,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
             <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <div className="font-semibold text-[var(--text)]">{option.name ?? `Option ${i + 1}`}</div>
-                {option.verdict && <div className="text-sm text-[var(--muted)]">{renderInline(String(option.verdict))}</div>}
+                {option.verdict && <div className="text-sm text-[var(--muted-text)]">{renderInline(String(option.verdict))}</div>}
               </div>
               {option.scores && isRecord(option.scores) && (
                 <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1441,9 +1465,9 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
             </div>
           ))}
           {normalizedContent.recommendation && (
-            <div className="rounded border border-[var(--mint)]/30 bg-[var(--mint)]/10 p-3">
+            <div className="rounded border border-[var(--v7-tint-border)] bg-[var(--v7-tint)] p-3">
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] mb-1">Recommendation</div>
-              <div className="text-sm text-[var(--muted)]">{renderInline(String(normalizedContent.recommendation))}</div>
+              <div className="text-sm text-[var(--muted-text)]">{renderInline(String(normalizedContent.recommendation))}</div>
             </div>
           )}
         </div>
@@ -1457,7 +1481,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--v7-tint)] text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-[var(--text)]">{renderInline(String(stage.stage_title ?? stage.title ?? stage.name ?? 'Stage'))}</div>
-                  <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(stage.stage_detail ?? stage.detail ?? stage.description ?? ''))}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-text)] leading-snug">{renderInline(String(stage.stage_detail ?? stage.detail ?? stage.description ?? ''))}</div>
                 </div>
               </div>
             </div>
@@ -1470,7 +1494,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {(normalizedContent.solutions ?? normalizedContent.options ?? []).map((solution: any, solutionIndex: number) => (
             <div key={solutionIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
               <div className="text-sm font-semibold text-[var(--text)]">{renderInline(String(solution.stage_title ?? solution.title ?? solution.name ?? 'Solution'))}</div>
-              <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(solution.stage_detail ?? solution.detail ?? solution.description ?? ''))}</div>
+              <div className="mt-1 text-sm text-[var(--muted-text)] leading-snug">{renderInline(String(solution.stage_detail ?? solution.detail ?? solution.description ?? ''))}</div>
             </div>
           ))}
         </div>

@@ -60,7 +60,7 @@ type CheckinStep =
   | { kind: 'freeform' };
 
 const SENTIMENT_OPTIONS: { value: OutcomeSentiment; label: string; Icon: typeof ThumbsUp; color: string }[] = [
-  { value: 'positive', label: 'Worked', Icon: ThumbsUp, color: 'var(--v7-mint, var(--v7-cyan))' },
+  { value: 'positive', label: 'Worked', Icon: ThumbsUp, color: 'var(--v7-cyan)' },
   { value: 'mixed', label: 'Mixed', Icon: Minus, color: 'var(--amber, #d9a441)' },
   { value: 'negative', label: "Didn't work", Icon: ThumbsDown, color: 'var(--red, #e5555c)' },
 ];
