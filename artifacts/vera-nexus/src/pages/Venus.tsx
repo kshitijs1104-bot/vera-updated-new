@@ -11,6 +11,8 @@ import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Chec
 import { GoalPanel } from './GoalPanel';
 import { RoadmapTracker } from './RoadmapTracker';
 import { TodayCard } from './TodayCard';
+import { VenusThemeToggle } from './VenusThemeToggle';
+import { useVenusTheme } from '../lib/venusTheme';
 
 const EXAMPLE_PROMPTS = [
   "Map the causal chain for my business from the most significant market shifts right now",
@@ -112,6 +114,7 @@ function groupSavedByType(saved: ReturnType<typeof getSavedAnalyses>) {
 
 export function VenusPage() {
   const [, navigate] = useLocation();
+  const { theme, toggle: toggleTheme } = useVenusTheme();
   const [sessions, setSessions] = useState<ChatSession[]>(getSessions);
   const [currentSession, setCurrentSession] = useState<ChatSession>(() => {
     const existing = getSessions();
@@ -336,7 +339,7 @@ export function VenusPage() {
 
   return (
     <div
-      className="flex h-screen w-full overflow-hidden"
+      className={`flex h-screen w-full overflow-hidden ${theme === 'light' ? 'v7-light' : ''}`}
       style={{
         background: 'var(--v7-bg)',
         color: 'var(--v7-text)',
@@ -348,7 +351,7 @@ export function VenusPage() {
           doesn't reset back open on the next visit. */}
       {sidebarCollapsed ? (
         <div
-          className="w-[44px] flex flex-col items-center shrink-0 sticky top-0 h-screen"
+          className="w-[44px] flex flex-col items-center gap-1 shrink-0 sticky top-0 h-screen"
           style={{ background: 'var(--v7-bg-raised)', borderRight: '1px solid var(--v7-border)', paddingTop: '20px' }}
         >
           <button
@@ -361,6 +364,7 @@ export function VenusPage() {
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
+          <VenusThemeToggle theme={theme} onToggle={toggleTheme} />
         </div>
       ) : (
       <aside
@@ -382,7 +386,7 @@ export function VenusPage() {
                   <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0"/>
                   <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8"/>
                 </g>
-                <circle cx="12" cy="12" r="1.1" fill="#20232c" stroke="#3a3d47" strokeWidth="0.5"/>
+                <circle cx="12" cy="12" r="1.1" fill="var(--v7-bg-raised-2)" stroke="#3a3d47" strokeWidth="0.5"/>
               </svg>
             </div>
             <span className="font-extrabold text-[15px]" style={{ letterSpacing: '-0.01em' }}>Vera</span>
@@ -415,16 +419,19 @@ export function VenusPage() {
             <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5"><path d="M15 5L8 12L15 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
             Back to Vera Nexus
           </button>
-          <button
-            onClick={toggleSidebar}
-            title="Collapse sidebar"
-            className="p-1.5 rounded-lg shrink-0"
-            style={{ color: 'var(--v7-text-mute)' }}
-            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
-          >
-            <PanelLeftClose className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <VenusThemeToggle theme={theme} onToggle={toggleTheme} />
+            <button
+              onClick={toggleSidebar}
+              title="Collapse sidebar"
+              className="p-1.5 rounded-lg shrink-0"
+              style={{ color: 'var(--v7-text-mute)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
+            >
+              <PanelLeftClose className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* New Chat */}
@@ -548,7 +555,7 @@ export function VenusPage() {
                 <div key={type} className="mb-2">
                   <button
                     onClick={() => toggleGroup(type)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider hover:text-white transition-colors"
+                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors"
                     style={{ color: SAVED_TYPE_COLORS[type] }}
                   >
                     {collapsedGroups.has(type) ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -662,7 +669,7 @@ export function VenusPage() {
               style={{
                 top: '6%', left: '50%', transform: 'translateX(-50%)',
                 width: '460px', height: '460px', borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(0,229,176,0.10) 0%, rgba(91,79,232,0.06) 45%, transparent 72%)',
+                background: 'radial-gradient(circle, var(--v7-glow-1) 0%, var(--v7-glow-2) 45%, transparent 72%)',
               }}
             ></div>
 
@@ -673,18 +680,21 @@ export function VenusPage() {
                   the founder into every chat they switch to. */}
               <TodayCard />
 
-              <div
-                className="w-14 h-14 flex items-center justify-center relative mb-5 venus-hero-mark"
-                style={{ borderRadius: '18px', background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)' }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" className="w-[30px] h-[30px]">
-                  <circle cx="12" cy="12" r="9.5" stroke="#3a3d47" strokeWidth="0.8"/>
-                  <g transform="rotate(-16 12 12)">
-                    <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0"/>
-                    <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8"/>
-                  </g>
-                  <circle cx="12" cy="12" r="1.1" fill="#181a21" stroke="#3a3d47" strokeWidth="0.5"/>
-                </svg>
+              <div className="flex items-center gap-3 mb-5">
+                <div
+                  className="w-14 h-14 flex items-center justify-center relative venus-hero-mark"
+                  style={{ borderRadius: '18px', background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border-strong)' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" className="w-[30px] h-[30px]">
+                    <circle cx="12" cy="12" r="9.5" stroke="#3a3d47" strokeWidth="0.8"/>
+                    <g transform="rotate(-16 12 12)">
+                      <path d="M12 4.5L13.6 12H10.4L12 4.5Z" fill="#00e5b0"/>
+                      <path d="M12 19.5L11.1 12H12.9L12 19.5Z" fill="#5b4fe8"/>
+                    </g>
+                    <circle cx="12" cy="12" r="1.1" fill="var(--v7-bg-raised)" stroke="#3a3d47" strokeWidth="0.5"/>
+                  </svg>
+                </div>
+                <span className="font-extrabold" style={{ fontSize: '28px', letterSpacing: '-0.01em', color: 'var(--v7-text)' }}>Vera</span>
               </div>
 
               <div
@@ -766,7 +776,7 @@ export function VenusPage() {
               return (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'user' ? (
-                    <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-white rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
+                    <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-[var(--text)] rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
                       {msg.content}
                     </div>
                   ) : (
@@ -902,10 +912,10 @@ function VenusMessage({ content, confidence }: { content: string; confidence?: '
           return <h3 key={i} className="text-xs font-mono text-[var(--mint)] uppercase tracking-wider pt-3 first:pt-0">{line.slice(4)}</h3>;
         }
         if (line.startsWith('## ')) {
-          return <h2 key={i} className="text-sm font-syne font-bold text-white pt-3 first:pt-0">{line.slice(3)}</h2>;
+          return <h2 key={i} className="text-sm font-syne font-bold text-[var(--text)] pt-3 first:pt-0">{line.slice(3)}</h2>;
         }
         if (line.startsWith('# ')) {
-          return <h1 key={i} className="text-base font-syne font-extrabold text-white pt-2 first:pt-0">{line.slice(2)}</h1>;
+          return <h1 key={i} className="text-base font-syne font-extrabold text-[var(--text)] pt-2 first:pt-0">{line.slice(2)}</h1>;
         }
         if (line.startsWith('- ') || line.startsWith('* ')) {
           return (
@@ -949,7 +959,7 @@ function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+      return <strong key={i} className="text-[var(--text)] font-semibold">{part.slice(2, -2)}</strong>;
     }
     return <span key={i}>{highlightFigures(part)}</span>;
   });
@@ -994,7 +1004,7 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
     return <span>{renderInline(parsed)}</span>;
   }
   if (typeof parsed === 'number' || typeof parsed === 'boolean') {
-    return <span className="font-mono text-white">{String(parsed)}</span>;
+    return <span className="font-mono text-[var(--text)]">{String(parsed)}</span>;
   }
   if (Array.isArray(parsed)) {
     return (
@@ -1136,7 +1146,7 @@ function ResponseJumpNav({ cards }: { cards: any[] }) {
   return (
     <div className="mb-2 flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface2)]/80 p-2">
       {cards.map((card, index) => (
-        <a key={index} href={`#venus-card-${index}`} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] hover:border-[var(--indigo)] hover:text-white">
+        <a key={index} href={`#venus-card-${index}`} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] hover:border-[var(--indigo)] hover:text-[var(--text)]">
           {card.title?.replace(/\s+/g, ' ').trim() || `Section ${index + 1}`}
         </a>
       ))}
@@ -1159,7 +1169,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
     <div className="relative bg-[var(--surface)] border-l-2 border border-[var(--mint)]/40 border-l-[var(--mint)] rounded-r-lg rounded-l-sm p-4 pl-[18px]">
       <div className="flex items-baseline justify-between gap-3 mb-1.5 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <span className="font-syne font-bold text-[15px] text-white">{p.company}</span>
+          <span className="font-syne font-bold text-[15px] text-[var(--text)]">{p.company}</span>
           <span className="font-mono text-[11px] text-[var(--mint)]">{p.year}</span>
         </div>
         {p.outcome && (
@@ -1210,7 +1220,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">Timeline</div>
                 <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)]">
                   {reportState.report.timeline.map((entry, entryIndex) => (
-                    <li key={`${entry.label}-${entryIndex}`}><span className="text-white">{entry.label}</span>: {renderInline(entry.detail)}</li>
+                    <li key={`${entry.label}-${entryIndex}`}><span className="text-[var(--text)]">{entry.label}</span>: {renderInline(entry.detail)}</li>
                   ))}
                 </ul>
               </div>
@@ -1224,7 +1234,7 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
                   <ul className="space-y-1 text-sm">
                     {reportState.report.sources.map((source, sourceIndex) => (
                       <li key={`${source.url}-${sourceIndex}`}>
-                        <a href={source.url} target="_blank" rel="noreferrer" className="text-[var(--mint)] hover:text-white underline decoration-dotted">
+                        <a href={source.url} target="_blank" rel="noreferrer" className="text-[var(--mint)] hover:text-[var(--text)] underline decoration-dotted">
                           {source.title || source.url}
                         </a>
                       </li>
@@ -1301,7 +1311,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {(normalizedContent.points ?? []).map((pt: any, i: number) => (
             <li key={i} className="flex flex-col gap-1 text-sm border-b border-[var(--border)] border-dashed pb-3 last:border-0">
               <span className="text-[var(--dim)] text-[11px] font-mono uppercase tracking-wide">{pt.label}</span>
-              <span className="text-white leading-relaxed">{pt.value}</span>
+              <span className="text-[var(--text)] leading-relaxed">{pt.value}</span>
             </li>
           ))}
         </ul>
@@ -1348,7 +1358,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
               <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
                   <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Phase ${i + 1}`}</div>
-                  {m.title && <div className="text-sm font-semibold text-white">{m.title}</div>}
+                  {m.title && <div className="text-sm font-semibold text-[var(--text)]">{m.title}</div>}
                 </div>
                 {summaryLine && <div className="text-sm text-[var(--text)]/90 mb-2">{summaryLine}</div>}
                 {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
@@ -1391,7 +1401,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
             ].filter(([, value]) => value != null && value !== '').map(([label, value]) => (
               <div key={label} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{label}</div>
-                <div className="text-sm text-white font-mono">{String(value)}</div>
+                <div className="text-sm text-[var(--text)] font-mono">{String(value)}</div>
               </div>
             ))}
           </div>
@@ -1415,7 +1425,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {(normalizedContent.options ?? []).map((option: any, i: number) => (
             <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <div className="font-semibold text-white">{option.name ?? `Option ${i + 1}`}</div>
+                <div className="font-semibold text-[var(--text)]">{option.name ?? `Option ${i + 1}`}</div>
                 {option.verdict && <div className="text-sm text-[var(--muted)]">{renderInline(String(option.verdict))}</div>}
               </div>
               {option.scores && isRecord(option.scores) && (
@@ -1423,7 +1433,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
                   {Object.entries(option.scores).map(([scoreKey, scoreValue]) => (
                     <div key={scoreKey} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
                       <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{scoreKey.replace(/_/g, ' ')}</div>
-                      <div className="text-sm font-mono text-white">{String(scoreValue)}</div>
+                      <div className="text-sm font-mono text-[var(--text)]">{String(scoreValue)}</div>
                     </div>
                   ))}
                 </div>
@@ -1446,7 +1456,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
               <div className="flex items-start gap-2">
                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--indigo)]/20 text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-white">{renderInline(String(stage.stage_title ?? stage.title ?? stage.name ?? 'Stage'))}</div>
+                  <div className="text-sm font-semibold text-[var(--text)]">{renderInline(String(stage.stage_title ?? stage.title ?? stage.name ?? 'Stage'))}</div>
                   <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(stage.stage_detail ?? stage.detail ?? stage.description ?? ''))}</div>
                 </div>
               </div>
@@ -1459,7 +1469,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
         <div className="space-y-2">
           {(normalizedContent.solutions ?? normalizedContent.options ?? []).map((solution: any, solutionIndex: number) => (
             <div key={solutionIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
-              <div className="text-sm font-semibold text-white">{renderInline(String(solution.stage_title ?? solution.title ?? solution.name ?? 'Solution'))}</div>
+              <div className="text-sm font-semibold text-[var(--text)]">{renderInline(String(solution.stage_title ?? solution.title ?? solution.name ?? 'Solution'))}</div>
               <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(solution.stage_detail ?? solution.detail ?? solution.description ?? ''))}</div>
             </div>
           ))}

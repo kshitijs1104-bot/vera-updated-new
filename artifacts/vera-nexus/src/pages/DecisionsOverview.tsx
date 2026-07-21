@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowLeft, ListChecks, ThumbsUp, ThumbsDown, Minus, Archive } from 'lucide-react';
 import { useDecisions, useArchiveDecision, type VenusDecisionRow, type DecisionFilters } from '../lib/venusApi';
+import { VenusThemeToggle } from './VenusThemeToggle';
+import { useVenusTheme } from '../lib/venusTheme';
 
 // The browse surface Decision Memory never had — the backend has logged and
 // resolved decisions since the Goal feature shipped (see venus_decisions.ts),
@@ -96,6 +98,7 @@ function DecisionCard({ decision, onArchive }: { decision: VenusDecisionRow; onA
 
 export function DecisionsOverview() {
   const [, navigate] = useLocation();
+  const { theme, toggle: toggleTheme } = useVenusTheme();
   const [filter, setFilter] = useState<ViewFilter>('all');
   const isArchivedView = filter === 'archived';
 
@@ -110,16 +113,19 @@ export function DecisionsOverview() {
   const decisions = (data?.decisions ?? []).filter((d) => (isArchivedView ? d.archived : !d.archived));
 
   return (
-    <div className="min-h-screen w-full" style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
+    <div className={`min-h-screen w-full ${theme === 'light' ? 'v7-light' : ''}`} style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
       <div className="max-w-2xl mx-auto px-6 py-8">
-        <button
-          onClick={() => navigate('/venus')}
-          className="flex items-center gap-1.5 text-[13px] font-medium mb-6"
-          style={{ color: 'var(--v7-text-mute)' }}
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Vera
-        </button>
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => navigate('/venus')}
+            className="flex items-center gap-1.5 text-[13px] font-medium"
+            style={{ color: 'var(--v7-text-mute)' }}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Vera
+          </button>
+          <VenusThemeToggle theme={theme} onToggle={toggleTheme} />
+        </div>
 
         <div className="flex items-center gap-2 mb-1">
           <ListChecks className="w-4 h-4" style={{ color: 'var(--v7-cyan)' }} />

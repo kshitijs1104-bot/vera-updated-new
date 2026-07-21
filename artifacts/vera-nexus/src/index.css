@@ -196,6 +196,14 @@
   --v7-cyan-soft: rgba(44,232,214,0.14);
   --v7-cyan-strong: rgba(44,232,214,0.42);
   --v7-pink-soft: rgba(255,122,209,0.14);
+  /* Hero glow + breathing-mark shadow — extracted into variables so light
+     mode (see .v7-light below) can swap the neon halo for something that
+     doesn't look out of place on a white background, without duplicating
+     the gradient/keyframe definitions themselves. */
+  --v7-glow-1: rgba(0,229,176,0.10);
+  --v7-glow-2: rgba(91,79,232,0.06);
+  --v7-glow-shadow-a: rgba(0,229,176,0.35);
+  --v7-glow-shadow-b: rgba(0,229,176,0.55);
   --v7-font-round: 'M PLUS Rounded 1c', sans-serif;
   --v7-font-mono: 'IBM Plex Mono', monospace;
 
@@ -350,6 +358,53 @@
   --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
   --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
 
+}
+
+/* Vera (Venus) light mode — scoped to a `.v7-light` class applied only on
+   the root element of the three Vera routes (Venus.tsx, GoalsOverview.tsx,
+   DecisionsOverview.tsx), never on <html>. The rest of the app never sits
+   inside this class, so it keeps reading the untouched dark values above.
+   Deliberately overrides BOTH token families Vera actually uses: the
+   --v7-* set (sidebar, Goal/Roadmap/Today panels, overview pages) AND the
+   app-wide --bg/--surface/--indigo/--mint set (Venus.tsx's own chat thread
+   and response cards use this second family, not --v7-*) — CSS custom
+   properties cascade from whichever ancestor last defined them, so
+   overriding both here is enough; no component code needs to change what
+   variable it reads.
+   One quiet accent (a deep indigo/violet, two weights) instead of the dark
+   theme's two competing neon hues — kept close to the existing --indigo so
+   it still reads as the same brand, just toned for a light background
+   instead of glowing on black. */
+.v7-light {
+  --v7-bg: #f7f7f9;
+  --v7-bg-raised: #ffffff;
+  --v7-bg-raised-2: #eef0f3;
+  --v7-border: rgba(15,15,25,0.08);
+  --v7-border-strong: rgba(15,15,25,0.16);
+  --v7-text: #16171d;
+  --v7-text-dim: #55586a;
+  --v7-text-mute: #8b8e9c;
+  --v7-cyan: #4338ca;
+  --v7-pink: #6366f1;
+  --v7-cyan-soft: rgba(67,56,202,0.10);
+  --v7-cyan-strong: rgba(67,56,202,0.38);
+  --v7-pink-soft: rgba(99,102,241,0.10);
+  --v7-glow-1: rgba(67,56,202,0.07);
+  --v7-glow-2: rgba(99,102,241,0.05);
+  --v7-glow-shadow-a: rgba(67,56,202,0.16);
+  --v7-glow-shadow-b: rgba(67,56,202,0.26);
+
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --surface2: #eef0f3;
+  --surface3: #e4e6ec;
+  --border2: rgba(15,15,25,0.16);
+  --text: #16171d;
+  --muted-text: #55586a;
+  --dim: #8b8e9c;
+  --indigo: #4338ca;
+  --indigo-light: #6366f1;
+  --mint: #6366f1;
 }
 
 @layer base {
@@ -522,8 +577,8 @@
 
 /* Vera concept v7 — hero mark breathing glow, used on Venus.tsx empty state */
 @keyframes v7-breathe {
-  0%, 100% { box-shadow: 0 0 30px -10px rgba(0,229,176,0.35); }
-  50% { box-shadow: 0 0 40px -8px rgba(0,229,176,0.55); }
+  0%, 100% { box-shadow: 0 0 30px -10px var(--v7-glow-shadow-a); }
+  50% { box-shadow: 0 0 40px -8px var(--v7-glow-shadow-b); }
 }
 .venus-hero-mark {
   animation: v7-breathe 3.4s ease-in-out infinite;

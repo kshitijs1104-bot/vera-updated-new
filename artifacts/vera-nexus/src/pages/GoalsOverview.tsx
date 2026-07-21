@@ -1,6 +1,8 @@
 import { useLocation } from 'wouter';
 import { ArrowLeft, Target, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useGoals, type GoalWithChat } from '../lib/venusApi';
+import { VenusThemeToggle } from './VenusThemeToggle';
+import { useVenusTheme } from '../lib/venusTheme';
 
 // Goals stay scoped 1:1 to a chat by design (see goals.ts on the backend —
 // each chat is its own "project," the way a Claude Project's custom
@@ -75,22 +77,26 @@ function GoalRow({ goal }: { goal: GoalWithChat }) {
 
 export function GoalsOverview() {
   const [, navigate] = useLocation();
+  const { theme, toggle: toggleTheme } = useVenusTheme();
   const { data, isLoading } = useGoals();
   const goals = data?.goals ?? [];
   const active = goals.filter((g) => g.status === 'active');
   const resolved = goals.filter((g) => g.status !== 'active');
 
   return (
-    <div className="min-h-screen w-full" style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
+    <div className={`min-h-screen w-full ${theme === 'light' ? 'v7-light' : ''}`} style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
       <div className="max-w-2xl mx-auto px-6 py-8">
-        <button
-          onClick={() => navigate('/venus')}
-          className="flex items-center gap-1.5 text-[13px] font-medium mb-6"
-          style={{ color: 'var(--v7-text-mute)' }}
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Vera
-        </button>
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => navigate('/venus')}
+            className="flex items-center gap-1.5 text-[13px] font-medium"
+            style={{ color: 'var(--v7-text-mute)' }}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Vera
+          </button>
+          <VenusThemeToggle theme={theme} onToggle={toggleTheme} />
+        </div>
 
         <div className="flex items-center gap-2 mb-1">
           <Target className="w-4 h-4" style={{ color: 'var(--v7-cyan)' }} />
