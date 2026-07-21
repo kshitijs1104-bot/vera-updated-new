@@ -123,6 +123,77 @@ function EvidenceLine({ goal, big }: { goal: GoalWithProgress; big?: boolean }) 
   );
 }
 
+const REMINDER_STORAGE_PREFIX = 've_outcome_reminder_seen_';
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function hasOpenSubTasks(goal: GoalWithProgress): boolean {
+  return goal.subTasks.some((t) => t.status !== 'resolved');
+}
+
+function isReminderDismissedToday(goalId: number): boolean {
+  try {
+    return localStorage.getItem(`${REMINDER_STORAGE_PREFIX}${goalId}`) === todayKey();
+  } catch {
+    return false;
+  }
+}
+
+function dismissReminderForToday(goalId: number) {
+  try {
+    localStorage.setItem(`${REMINDER_STORAGE_PREFIX}${goalId}`, todayKey());
+  } catch {
+    // Best-effort — a private-browsing tab with no localStorage just means
+    // the reminder can show again next render, which is harmless.
+  }
+}
+
+// Non-intrusive nudge to close the loop on an open sub-task. A reported
+// outcome is the ONLY thing that moves the goal's evidence score (see
+// ReportOutcomeForm/goalEvidence.ts) and the only thing that becomes
+// retrievable ground truth for future answers (see retrieveOwnResolvedDecisions
+// in ai.ts) — so a sub-task sitting open isn't just an unchecked box, it's
+// signal Venus never gets to learn from. Gated to once per calendar day per
+// goal via localStorage (same pattern as ve_groq_key/ve_company_reports
+// elsewhere in this app) so it surfaces on the first visit of the day and
+// then gets out of the way, rather than nagging on every render.
+function OutcomeReminderBanner({ goal, onOpen }: { goal: GoalWithProgress; onOpen: () => void }) {
+  const [dismissed, setDismissed] = useState(() => isReminderDismissedToday(goal.id));
+
+  if (dismissed || !hasOpenSubTasks(goal)) return null;
+
+  return (
+    <div
+      className="flex items-center gap-2 mb-2.5 px-3 py-2 rounded-lg text-[11px]"
+      style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-border, rgba(255,255,255,0.08))', color: 'var(--v7-text-mute)' }}
+    >
+      <span className="flex-1 leading-relaxed">
+        Reviews help us personalize your AI over time — Day 90 AI &gt;&gt; Day 1 AI.{' '}
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpen(); }}
+          className="underline underline-offset-2 font-medium"
+          style={{ color: 'var(--v7-cyan)' }}
+        >
+          Report an outcome
+        </button>
+      </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          dismissReminderForToday(goal.id);
+          setDismissed(true);
+        }}
+        aria-label="Dismiss reminder"
+        className="shrink-0"
+      >
+        <X className="w-3 h-3" style={{ color: 'var(--v7-text-mute)' }} />
+      </button>
+    </div>
+  );
+}
+
 // Small inline form for reporting what actually happened with an open
 // subtask. This was the missing piece: the backend (goalEvidence.ts,
 // /ai/decisions/:id/outcome) already knew how to move the goal's
@@ -270,15 +341,23 @@ function SubTaskList({ subTasks, onResolved }: { subTasks: GoalWithProgress['sub
   );
 }
 
-function SetGoalForm({ onSubmit, onCancel, submitting }: {
+function SetGoalForm({ onSubmit, onCancel, submitting, initial }: {
   onSubmit: (input: { title: string; successMetric: string; valueInr: number; deadline: string }) => void;
   onCancel: () => void;
   submitting: boolean;
+  // Present when editing an already-set goal. Pre-fills every field with
+  // its current value so editing one thing (e.g. bumping the value from
+  // 10L to 1Cr) doesn't force retyping the title/metric/deadline too — the
+  // form now always carries the goal's current state forward, and only the
+  // field the founder actually touches changes on submit.
+  initial?: { title: string; successMetric: string; valueInr: number; deadline: string };
 }) {
-  const [title, setTitle] = useState('');
-  const [successMetric, setSuccessMetric] = useState('');
-  const [valueInr, setValueInr] = useState('');
-  const [deadline, setDeadline] = useState('');
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [successMetric, setSuccessMetric] = useState(initial?.successMetric ?? '');
+  const [valueInr, setValueInr] = useState(initial ? String(initial.valueInr) : '');
+  // <input type="date"> needs yyyy-mm-dd; the stored deadline is a full
+  // ISO timestamp, so slice it down rather than reformatting.
+  const [deadline, setDeadline] = useState(initial ? initial.deadline.slice(0, 10) : '');
 
   const canSubmit = title.trim() && successMetric.trim() && valueInr.trim() && deadline.trim();
 
@@ -413,20 +492,25 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
     // panel is open. Clicking anywhere opens the detail view (the popup
     // from the original screenshot).
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full text-left mb-3 p-3.5 rounded-xl block"
-        style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-cyan-strong)' }}
-      >
-        <div className="flex items-center justify-center gap-1.5 mb-0.5">
-          <Target className="w-3.5 h-3.5" style={{ color: 'var(--v7-cyan)' }} />
-          <span className="text-[15px] font-bold text-center" style={{ color: 'var(--v7-text)' }}>{goal.title}</span>
-        </div>
-        <div className="text-[11px] text-center mb-1" style={{ color: 'var(--v7-text-mute)' }}>
-          {formatInr(goal.valueInr)} · due {new Date(goal.deadline).toLocaleDateString()}
-        </div>
-        <EvidenceLine goal={goal} big />
-      </button>
+      <>
+        <OutcomeReminderBanner goal={goal} onOpen={() => setOpen(true)} />
+        <button
+          onClick={() => setOpen(true)}
+          className="w-full text-left mb-2.5 px-3 py-2 rounded-xl block"
+          style={{ background: 'var(--v7-bg-raised)', border: '1px solid var(--v7-cyan-strong)' }}
+        >
+          <div className="flex items-center justify-between gap-3 mb-1">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <Target className="w-3 h-3 shrink-0" style={{ color: 'var(--v7-cyan)' }} />
+              <span className="text-[13px] font-bold truncate" style={{ color: 'var(--v7-text)' }}>{goal.title}</span>
+            </span>
+            <span className="text-[10.5px] shrink-0" style={{ color: 'var(--v7-text-mute)' }}>
+              {formatInr(goal.valueInr)} · due {new Date(goal.deadline).toLocaleDateString()}
+            </span>
+          </div>
+          <EvidenceLine goal={goal} />
+        </button>
+      </>
     );
   }
 
@@ -461,7 +545,12 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
       )}
 
       {editing && (
-        <SetGoalForm onSubmit={handleSubmit} onCancel={() => setEditing(false)} submitting={setGoal.isPending} />
+        <SetGoalForm
+          onSubmit={handleSubmit}
+          onCancel={() => setEditing(false)}
+          submitting={setGoal.isPending}
+          initial={goal ? { title: goal.title, successMetric: goal.successMetric, valueInr: goal.valueInr, deadline: goal.deadline } : undefined}
+        />
       )}
 
       {goal && !editing && (

@@ -290,6 +290,40 @@ export function VenusPage() {
         className="w-[260px] flex flex-col shrink-0 sticky top-0 h-screen"
         style={{ background: 'var(--v7-bg-raised)', borderRight: '1px solid var(--v7-border)', padding: '20px 14px' }}
       >
+        {/* Brand mark — moved here from the chat header so it doesn't eat
+            vertical space above the goal panel. Sits once, above the back
+            link, instead of repeating on every chat. */}
+        <div className="flex items-center justify-between" style={{ padding: '2px 8px 14px' }}>
+          <div className="flex items-center gap-[8px]">
+            <div
+              className="w-6 h-6 flex items-center justify-center shrink-0"
+              style={{ borderRadius: '9px', background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border-strong)' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="w-[14px] h-[14px]">
+                <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.7" strokeLinecap="round"/>
+                <circle cx="6" cy="18" r="1.9" fill="#2ce8d6"/>
+                <circle cx="12" cy="12" r="1.9" fill="#2ce8d6"/>
+                <circle cx="18" cy="6" r="2.5" fill="#ff7ad1"/>
+              </svg>
+            </div>
+            <span className="font-extrabold text-[15px]" style={{ letterSpacing: '-0.01em' }}>Vera</span>
+          </div>
+          <div
+            className="flex items-center gap-[5px] font-medium text-[9px] uppercase"
+            style={{
+              fontFamily: 'var(--v7-font-mono)',
+              letterSpacing: '0.05em',
+              color: 'var(--v7-text-dim)',
+              border: '1px solid var(--v7-border-strong)',
+              borderRadius: '100px',
+              padding: '3px 8px 3px 7px',
+            }}
+          >
+            <span className="w-[4px] h-[4px] rounded-full" style={{ background: 'var(--v7-cyan)', boxShadow: '0 0 6px var(--v7-cyan)' }}></span>
+            Enterprise
+          </div>
+        </div>
+
         {/* Back link */}
         <button
           onClick={() => navigate('/line')}
@@ -439,42 +473,7 @@ export function VenusPage() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex items-center justify-between shrink-0"
-          style={{ padding: '16px 32px', borderBottom: '1px solid var(--v7-border)' }}
-        >
-          <div className="flex items-center gap-[10px]">
-            <div
-              className="w-8 h-8 flex items-center justify-center shrink-0"
-              style={{ borderRadius: '12px', background: 'var(--v7-bg-raised-2)', border: '1px solid var(--v7-border-strong)' }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" className="w-[18px] h-[18px]">
-                <path d="M7.4 16.6L16.6 7.4" stroke="#2ce8d6" strokeWidth="1.7" strokeLinecap="round"/>
-                <circle cx="6" cy="18" r="1.9" fill="#2ce8d6"/>
-                <circle cx="12" cy="12" r="1.9" fill="#2ce8d6"/>
-                <circle cx="18" cy="6" r="2.5" fill="#ff7ad1"/>
-              </svg>
-            </div>
-            <span className="font-extrabold text-[18px]" style={{ letterSpacing: '-0.01em' }}>Vera</span>
-          </div>
-          <div
-            className="flex items-center gap-[6px] font-medium text-[10.5px] uppercase"
-            style={{
-              fontFamily: 'var(--v7-font-mono)',
-              letterSpacing: '0.05em',
-              color: 'var(--v7-text-dim)',
-              border: '1px solid var(--v7-border-strong)',
-              borderRadius: '100px',
-              padding: '5px 11px 5px 9px',
-            }}
-          >
-            <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--v7-cyan)', boxShadow: '0 0 6px var(--v7-cyan)' }}></span>
-            Enterprise
-          </div>
-        </div>
-
-        <div style={{ padding: '10px 32px 0' }}>
+        <div style={{ padding: '14px 32px 0' }}>
           <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />
         </div>
 
