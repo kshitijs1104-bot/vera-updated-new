@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, settingsTable, venusDecisionsTable, goalsTable, type VenusDecision } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
 import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
@@ -10,7 +10,7 @@ import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
 import { classifyDecisionType, archiveStaleOpenDecisions } from "../lib/decisionMemory";
 import { materializeRoadmapFromCard } from "../lib/roadmap";
-import { addCompanyFact } from "../lib/companyMemory";
+import { addCompanyFact, getActiveCompanyFacts, formatCompanyFactsForPrompt } from "../lib/companyMemory";
 
 const router = Router();
 
@@ -41,6 +41,38 @@ async function buildGoalPromptBlock(chatId: number | undefined): Promise<string>
     return `THIS CHAT'S GOAL (set by the founder like a Project's custom instructions — every answer in this chat should be read through this lens, weighing urgency, expected value, and trade-offs against it; this is not a topic restriction, the founder can still ask unrelated things, but when relevant, reason explicitly about how the current question moves toward or away from this goal):\n"${goal.title}"\nSuccess metric (the concrete win condition): ${goal.successMetric}\nValue if hit: ₹${goal.valueInr.toLocaleString("en-IN")}\nDeadline: ${goal.deadline.toISOString().slice(0, 10)} (${deadlineLine})`;
   } catch {
     // Never let a goal-lookup failure break the actual chat response.
+    return "";
+  }
+}
+
+// Cross-chat track record — deliberately separate from buildGoalPromptBlock
+// above, which only ever surfaces the ACTIVE goal for the CURRENT chat.
+// This is the piece that was actually missing for real learning: individual
+// decision outcomes were already retrievable (see retrieveOwnResolvedDecisions),
+// but whether a founder's past GOALS landed or not never fed back into
+// future answers at all — Venus could recommend the same shape of plan that
+// already failed once, with zero memory that it had. Capped at a handful of
+// short lines (not full goal detail) to keep this a cheap, bounded addition
+// rather than another full retrieval pass.
+const GOAL_HISTORY_LIMIT = 5;
+
+async function buildGoalHistoryBlock(userId: string): Promise<string> {
+  try {
+    const rows = await db
+      .select()
+      .from(goalsTable)
+      .where(and(eq(goalsTable.userId, userId), inArray(goalsTable.status, ["completed", "abandoned"])))
+      .orderBy(desc(goalsTable.resolvedAt))
+      .limit(GOAL_HISTORY_LIMIT);
+    if (rows.length === 0) return "";
+
+    const lines = rows.map((g) => {
+      const outcome = g.status === "completed" ? "COMPLETED" : "ABANDONED";
+      return `- [${outcome}] "${g.title}" (target: ${g.successMetric}) — final evidence score ${g.evidenceScore.toFixed(2)}`;
+    });
+    return `THIS FOUNDER'S GOAL TRACK RECORD (across all their chats — use this to avoid proposing a plan shape that already failed, and to recognize an approach that already worked):\n${lines.join("\n")}`;
+  } catch {
+    // Never let a track-record lookup failure break the actual chat response.
     return "";
   }
 }
@@ -829,6 +861,20 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
 
     const goalBlock = await buildGoalPromptBlock(body.data.chatId);
 
+    // Everything stored about this founder that was previously write-only —
+    // company_facts got written on every business-context statement (see
+    // addCompanyFact calls above) but nothing ever read it back into a
+    // prompt; buildGoalHistoryBlock closes the equivalent gap for resolved
+    // goals. Skipped on a narrow query, same reasoning as ownDecisions/
+    // precedents above: a quick follow-up doesn't need the founder's full
+    // track record re-injected.
+    const companyFacts = isNarrowScope ? [] : await getActiveCompanyFacts(sessionId, 8);
+    const companyFactsBlock = companyFacts.length > 0
+      ? `STRUCTURED FACTS VENUS HAS LEARNED ABOUT THIS FOUNDER'S BUSINESS (individually captured and correctable, higher-confidence than the freeform Business Context line below):\n${formatCompanyFactsForPrompt(companyFacts)}`
+      : "";
+    const goalHistoryBlock = isNarrowScope ? "" : await buildGoalHistoryBlock(sessionId);
+    const memoryBlock = `${companyFactsBlock ? `\n\n${companyFactsBlock}` : ""}${goalHistoryBlock ? `\n\n${goalHistoryBlock}` : ""}`;
+
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
 
@@ -871,10 +917,10 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
     const systemPrompt = isNone
-      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
+      ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`
       : effectiveBusinessContext
-        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}`;
+        ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`;
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },

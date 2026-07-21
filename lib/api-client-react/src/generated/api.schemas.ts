@@ -329,6 +329,7 @@ export type SetGoalStatusInputStatus = typeof SetGoalStatusInputStatus[keyof typ
 export const SetGoalStatusInputStatus = {
   completed: 'completed',
   abandoned: 'abandoned',
+  active: 'active',
 } as const;
 
 export interface SetGoalStatusInput {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Target, X, TrendingUp, AlertTriangle, CheckCircle2, ThumbsUp, ThumbsDown, Minus } from 'lucide-react';
+import { Target, X, TrendingUp, AlertTriangle, CheckCircle2, ThumbsUp, ThumbsDown, Minus, RotateCcw } from 'lucide-react';
 import {
   useGetChat,
   useSetChatGoal,
@@ -476,6 +476,15 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
     setStatus.mutate({ id: serverChatId, data: { status: nextStatus } }, { onSuccess: () => chatQuery.refetch() });
   };
 
+  // Undo for an accidental "mark completed"/"mark abandoned" click — a
+  // single misclick previously had no way back short of re-submitting the
+  // whole goal form. Always available (not a time-limited toast) so it
+  // still works even if the founder doesn't notice the mistake right away.
+  const handleReopen = () => {
+    if (!serverChatId) return;
+    setStatus.mutate({ id: serverChatId, data: { status: 'active' } }, { onSuccess: () => chatQuery.refetch() });
+  };
+
   if (!open) {
     // No goal set yet — still a real affordance, just smaller, since there's
     // nothing to show a bar for. Clicking opens the panel to set one.
@@ -591,8 +600,19 @@ export function GoalPanel({ serverChatId, onRequireServerChat }: GoalPanelProps)
           </div>
 
           {goal.status !== 'active' && (
-            <div className="text-[11px] mt-1 font-mono uppercase" style={{ color: 'var(--v7-text-mute)' }}>
-              {goal.status}
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[11px] font-mono uppercase" style={{ color: 'var(--v7-text-mute)' }}>
+                {goal.status}
+              </span>
+              <button
+                onClick={handleReopen}
+                title="Undo — reopen this goal"
+                className="flex items-center gap-1 text-[11px] font-medium underline underline-offset-2"
+                style={{ color: 'var(--v7-cyan)' }}
+              >
+                <RotateCcw className="w-3 h-3" />
+                Undo
+              </button>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-import { useVenusAnalyze, useCreateChat } from '@workspace/api-client-react';
+import { useVenusAnalyze, useCreateChat, useUpdateChat } from '@workspace/api-client-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import {
@@ -7,7 +7,7 @@ import {
   detectAnalysisType, typeLabel, titleFromMessage,
   type ChatSession, type ChatMessage, type SavedAnalysisType,
 } from '../lib/venusHistory';
-import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check, Target, ListChecks, Map as MapIcon } from 'lucide-react';
+import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check, Target, ListChecks, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Pencil } from 'lucide-react';
 import { GoalPanel } from './GoalPanel';
 import { RoadmapTracker } from './RoadmapTracker';
 
@@ -80,13 +80,14 @@ function persistCompanyReportCache(cache: Record<string, CompanyReportState>) {
 // resetting on the next visit.
 const SHOW_GOAL_PANEL_KEY = 've_show_goal_panel';
 const SHOW_ROADMAP_KEY = 've_show_roadmap';
+const SIDEBAR_COLLAPSED_KEY = 've_sidebar_collapsed';
 
-function loadPanelPref(key: string): boolean {
+function loadPanelPref(key: string, defaultValue = true): boolean {
   try {
     const raw = localStorage.getItem(key);
-    return raw === null ? true : raw === 'true';
+    return raw === null ? defaultValue : raw === 'true';
   } catch {
-    return true;
+    return defaultValue;
   }
 }
 
@@ -120,12 +121,16 @@ export function VenusPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showGoalPanel, setShowGoalPanel] = useState(() => loadPanelPref(SHOW_GOAL_PANEL_KEY));
   const [showRoadmap, setShowRoadmap] = useState(() => loadPanelPref(SHOW_ROADMAP_KEY));
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadPanelPref(SIDEBAR_COLLAPSED_KEY, false));
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const [groqKey, setGroqKey] = useState(() => localStorage.getItem('ve_groq_key') || '');
   const [input, setInput] = useState('');
   const [companyReports, setCompanyReports] = useState<Record<string, CompanyReportState>>(loadCompanyReportCache);
   const endRef = useRef<HTMLDivElement | null>(null);
   const analyzeMutation = useVenusAnalyze();
   const createChatMutation = useCreateChat();
+  const updateChatMutation = useUpdateChat();
 
   const messages = currentSession.messages;
 
@@ -162,6 +167,22 @@ export function VenusPage() {
 
   const toggleGoalPanel = () => setShowGoalPanel((v) => { const next = !v; savePanelPref(SHOW_GOAL_PANEL_KEY, next); return next; });
   const toggleRoadmap = () => setShowRoadmap((v) => { const next = !v; savePanelPref(SHOW_ROADMAP_KEY, next); return next; });
+  const toggleSidebar = () => setSidebarCollapsed((v) => { const next = !v; savePanelPref(SIDEBAR_COLLAPSED_KEY, next); return next; });
+
+  const startRename = (s: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingSessionId(s.id);
+    setRenameDraft(s.title);
+  };
+  const commitRename = (s: ChatSession) => {
+    const title = renameDraft.trim();
+    setRenamingSessionId(null);
+    if (!title || title === s.title) return;
+    const updated: ChatSession = { ...s, title };
+    if (currentSession.id === s.id) setCurrentSession(updated);
+    persistSession(updated);
+    if (s.serverChatId) updateChatMutation.mutate({ id: s.serverChatId, data: { title } });
+  };
 
   const handleSelectSession = (s: ChatSession) => {
     setCurrentSession(s);
@@ -321,7 +342,26 @@ export function VenusPage() {
         fontFamily: 'var(--v7-font-round)',
       }}
     >
-      {/* Left Sidebar */}
+      {/* Left Sidebar — collapsible to a thin rail so the chat can go full
+          width. Collapsed state persists (ve_sidebar_collapsed) so it
+          doesn't reset back open on the next visit. */}
+      {sidebarCollapsed ? (
+        <div
+          className="w-[44px] flex flex-col items-center shrink-0 sticky top-0 h-screen"
+          style={{ background: 'var(--v7-bg-raised)', borderRight: '1px solid var(--v7-border)', paddingTop: '20px' }}
+        >
+          <button
+            onClick={toggleSidebar}
+            title="Expand sidebar"
+            className="p-1.5 rounded-lg"
+            style={{ color: 'var(--v7-text-mute)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
       <aside
         className="w-[260px] flex flex-col shrink-0 sticky top-0 h-screen"
         style={{ background: 'var(--v7-bg-raised)', borderRight: '1px solid var(--v7-border)', padding: '20px 14px' }}
@@ -362,17 +402,29 @@ export function VenusPage() {
           </div>
         </div>
 
-        {/* Back link */}
-        <button
-          onClick={() => navigate('/line')}
-          className="flex items-center gap-[7px] text-[13px] font-medium transition-colors"
-          style={{ color: 'var(--v7-text-mute)', padding: '8px 8px 22px' }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
-        >
-          <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5"><path d="M15 5L8 12L15 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          Back to Vera Nexus
-        </button>
+        {/* Back link + sidebar collapse */}
+        <div className="flex items-center justify-between" style={{ padding: '0 0 22px' }}>
+          <button
+            onClick={() => navigate('/line')}
+            className="flex items-center gap-[7px] text-[13px] font-medium transition-colors"
+            style={{ color: 'var(--v7-text-mute)', padding: '8px 8px' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5"><path d="M15 5L8 12L15 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Back to Vera Nexus
+          </button>
+          <button
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+            className="p-1.5 rounded-lg shrink-0"
+            style={{ color: 'var(--v7-text-mute)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--v7-text-dim)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--v7-text-mute)')}
+          >
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {/* New Chat */}
         <button
@@ -436,25 +488,48 @@ export function VenusPage() {
                 Today
               </div>
               {sessions.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => handleSelectSession(s)}
-                  className="w-full group flex items-center justify-between text-left transition-colors text-[13px] font-medium mb-[1px]"
-                  style={{
-                    padding: '9px 12px',
-                    borderRadius: '10px',
-                    color: currentSession.id === s.id ? 'var(--v7-text)' : 'var(--v7-text-dim)',
-                    background: currentSession.id === s.id ? 'var(--v7-bg-raised-2)' : 'transparent',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--v7-bg-raised-2)'; e.currentTarget.style.color = 'var(--v7-text)'; }}
-                  onMouseLeave={e => { if (currentSession.id !== s.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--v7-text-dim)'; } }}
-                >
-                  <span className="truncate flex-1">{s.title}</span>
-                  <Trash2
-                    className="w-3 h-3 shrink-0 ml-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[var(--red)] transition-opacity"
-                    onClick={(e) => handleDeleteSession(s.id, e)}
-                  />
-                </button>
+                renamingSessionId === s.id ? (
+                  <div key={s.id} className="w-full flex items-center" style={{ padding: '9px 12px' }}>
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onBlur={() => commitRename(s)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitRename(s); }
+                        if (e.key === 'Escape') { e.preventDefault(); setRenamingSessionId(null); }
+                      }}
+                      className="flex-1 min-w-0 text-[13px] font-medium bg-transparent outline-none"
+                      style={{ color: 'var(--v7-text)', borderBottom: '1px solid var(--v7-cyan-strong)' }}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    key={s.id}
+                    onClick={() => handleSelectSession(s)}
+                    className="w-full group flex items-center justify-between text-left transition-colors text-[13px] font-medium mb-[1px]"
+                    style={{
+                      padding: '9px 12px',
+                      borderRadius: '10px',
+                      color: currentSession.id === s.id ? 'var(--v7-text)' : 'var(--v7-text-dim)',
+                      background: currentSession.id === s.id ? 'var(--v7-bg-raised-2)' : 'transparent',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--v7-bg-raised-2)'; e.currentTarget.style.color = 'var(--v7-text)'; }}
+                    onMouseLeave={e => { if (currentSession.id !== s.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--v7-text-dim)'; } }}
+                  >
+                    <span className="truncate flex-1">{s.title}</span>
+                    <span className="flex items-center gap-1 shrink-0 ml-1">
+                      <Pencil
+                        className="w-3 h-3 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                        onClick={(e) => startRename(s, e)}
+                      />
+                      <Trash2
+                        className="w-3 h-3 opacity-0 group-hover:opacity-60 hover:!opacity-100 text-[var(--red)] transition-opacity"
+                        onClick={(e) => handleDeleteSession(s.id, e)}
+                      />
+                    </span>
+                  </button>
+                )
               ))}
             </div>
           )}
@@ -561,6 +636,7 @@ export function VenusPage() {
           )}
         </div>
       </aside>
+      )}
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -917,7 +993,7 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
     return (
       <ul className="space-y-1.5 list-disc pl-5">
         {parsed.map((item, index) => (
-          <li key={index} className="text-sm text-[var(--muted)]">
+          <li key={index} className="text-sm text-[var(--text)]/90">
             {renderStructuredValue(item, depth + 1)}
           </li>
         ))}
@@ -931,8 +1007,8 @@ function renderStructuredValue(value: unknown, depth = 0): React.ReactNode {
       <div className="space-y-2">
         {entries.map(([key, entryValue]) => (
           <div key={key} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
-            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{key.replace(/_/g, ' ')}</div>
-            <div className="text-sm text-[var(--muted)]">{renderStructuredValue(entryValue, depth + 1)}</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted)] mb-1">{key.replace(/_/g, ' ')}</div>
+            <div className="text-sm text-[var(--text)]/90">{renderStructuredValue(entryValue, depth + 1)}</div>
           </div>
         ))}
       </div>
@@ -1157,17 +1233,45 @@ function PrecedentEntry({ precedent: p, companyReports, onGenerateCompanyReport 
   );
 }
 
+// Explicit colors for topics that recur often enough to deserve a fixed,
+// predictable meaning (a founder should be able to learn "orange = roadmap"
+// once and have it hold). Everything else previously fell back to a single
+// flat gray/indigo, which is what made every new topic outside this list
+// blur into the same look. NEON_PALETTE + hashCardType below fixes that:
+// an unrecognized type still gets a real, saturated color, just picked
+// deterministically from its own name so the SAME new topic always renders
+// the same color across cards/renders instead of a random one each time.
+const CARD_TYPE_COLORS: Record<string, string> = {
+  analysis: 'var(--indigo-light)',
+  market: 'var(--mint)',
+  risk: 'var(--red)',
+  roadmap: 'var(--amber)',
+  decision: 'var(--green)',
+  precedent: 'var(--mint)',
+  funnel: 'var(--indigo-light)',
+  solution: 'var(--green)',
+  funding: 'var(--green)',
+  fundraising: 'var(--green)',
+  hypothesis: '#c084fc',
+};
+
+const NEON_PALETTE = ['#2ce8d6', '#ff7ad1', '#f6c945', '#5b9df9', '#ff8a5c', '#7cf6a0', '#c084fc', '#38e0c8', '#ffb454'];
+
+function hashCardType(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function getCardColor(type: string): string {
+  const key = (type || '').toLowerCase().trim();
+  if (CARD_TYPE_COLORS[key]) return CARD_TYPE_COLORS[key];
+  return NEON_PALETTE[hashCardType(key) % NEON_PALETTE.length];
+}
+
 function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = '', isPrimary = false, companyReports, onGenerateCompanyReport }: { card: any; index?: number; contextQuery?: string; previousContextQuery?: string; isPrimary?: boolean; companyReports: Record<string, CompanyReportState>; onGenerateCompanyReport: (companyName: string) => Promise<void> }) {
   const [expanded, setExpanded] = useState(isPrimary);
-  const typeColors: Record<string, string> = {
-    analysis: 'var(--indigo-light)',
-    market: 'var(--mint)',
-    risk: 'var(--red)',
-    roadmap: 'var(--amber)',
-    decision: 'var(--green)',
-    precedent: 'var(--mint)',
-  };
-  const color = typeColors[card.type] ?? 'var(--dim)';
+  const color = getCardColor(card.type);
   const content = parseMaybeJson(card.content);
   const normalizedContent: Record<string, any> = isRecord(content) ? content : { value: content };
   const shouldRenderMarket = card.type !== 'market' || isMarketQueryRelevant(contextQuery);
@@ -1211,41 +1315,45 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
       )}
 
       {card.type === 'roadmap' && (
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
           {normalizedContent.horizon && (
             <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">Horizon: {String(normalizedContent.horizon)}</div>
           )}
-          {(normalizedContent.phases ?? normalizedContent.milestones ?? []).map((m: any, i: number) => {
-            // The backend's roadmap schema (see VENUS_SYSTEM_PROMPT's roadmap
-            // card spec) only ever produces { period, title, actions, metric }
-            // — it has never included a "goal" or "description" field. That
-            // means the old fallback chain `m.goal ?? m.description ??
-            // renderStructuredValue(m)` was falling through to
-            // renderStructuredValue(m) on EVERY well-formed phase, dumping
-            // the entire phase object (including actions/metric, which are
-            // also rendered properly just below) as raw stringified JSON
-            // above the real content. renderStructuredValue(m) is still
-            // useful as a genuine last resort for a malformed/unexpected
-            // phase shape (e.g. a truncated or hallucinated object with none
-            // of the expected fields) — it just needs to only fire when the
-            // phase actually has nothing else to show, not whenever
-            // goal/description happen to be absent (which is always, by
-            // design).
+          {(normalizedContent.phases ?? normalizedContent.milestones ?? []).map((rawPhase: any, i: number) => {
+            // FIX: the model doesn't always return every phase at the same
+            // nesting depth — some phases arrive as real objects, others as
+            // a JSON-encoded STRING of the same shape (inconsistent across
+            // a single response, not just across responses). `m.title` on a
+            // string is always undefined, which made hasExpectedFields false
+            // for exactly those phases and dumped them through
+            // renderStructuredValue's generic per-field-box fallback instead
+            // of the real template below — the "some phases look fine, others
+            // are gray boxes with no header" bug. parseMaybeJson normalizes
+            // BOTH shapes to a real object before any field is read, so every
+            // phase (regardless of how the model nested it) renders through
+            // the same styled template.
+            const parsedPhase = parseMaybeJson(rawPhase);
+            const m: Record<string, any> = isRecord(parsedPhase) ? parsedPhase : {};
             const hasExpectedFields = Boolean(m.title) || (Array.isArray(m.actions) && m.actions.length > 0) || Boolean(m.metric);
             const summaryLine = m.goal ?? m.description ?? (hasExpectedFields ? null : renderStructuredValue(m));
+            const metricValue = m.metric != null ? (typeof m.metric === 'string' ? m.metric : JSON.stringify(m.metric)) : null;
             return (
               <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-                  <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Q${i + 1}`}</div>
+                  <div className="font-mono text-[var(--amber)] text-xs">{m.period ?? m.phase ?? `Phase ${i + 1}`}</div>
                   {m.title && <div className="text-sm font-semibold text-white">{m.title}</div>}
                 </div>
-                {summaryLine && <div className="text-sm text-[var(--muted)] mb-2">{summaryLine}</div>}
+                {summaryLine && <div className="text-sm text-[var(--text)]/90 mb-2">{summaryLine}</div>}
                 {m.actions && Array.isArray(m.actions) && m.actions.length > 0 && (
-                  <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--muted)] mt-2">
-                    {m.actions.map((action: string, actionIndex: number) => <li key={actionIndex}>{renderInline(String(action))}</li>)}
+                  <ul className="space-y-1.5 list-disc pl-5 text-sm text-[var(--text)]/90 mt-2">
+                    {m.actions.map((action: unknown, actionIndex: number) => {
+                      const parsedAction = parseMaybeJson(action);
+                      const text = typeof parsedAction === 'string' ? parsedAction : isRecord(parsedAction) ? (parsedAction.text ?? parsedAction.action ?? JSON.stringify(parsedAction)) : String(action);
+                      return <li key={actionIndex}>{renderInline(String(text))}</li>;
+                    })}
                   </ul>
                 )}
-                {m.metric && <div className="mt-2 text-[11px] font-mono text-[var(--mint)]">Metric: {renderInline(String(m.metric))}</div>}
+                {metricValue && <div className="mt-2 text-[11px] font-mono text-[var(--mint)]">Metric: {renderInline(metricValue)}</div>}
               </div>
             );
           })}
@@ -1388,58 +1496,81 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
   );
 }
 
-/* ---- Markdown export ---------------------------------------------------- */
+/* ---- Plain-text export (copy/download) ---------------------------------- */
+// Deliberately NOT markdown — this is read by a human pasting into Slack, a
+// doc, or a plain notes app, not rendered by a markdown engine, so `**bold**`
+// and `- ` bullets just show up as literal asterisks and dashes. Plain
+// indentation, real bullet characters, and a readable JSON fallback for any
+// card type this doesn't have a specific formatter for.
 
-function cardToMarkdown(card: any): string {
+function indentText(depth: number): string {
+  return '  '.repeat(depth);
+}
+
+function formatPlainValue(value: unknown, depth = 0): string {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) {
+    return value.map((item) => `${indentText(depth)}• ${formatPlainValue(item, depth + 1).trim()}`).join('\n');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, entryValue]) => `${indentText(depth)}${key.replace(/_/g, ' ')}: ${formatPlainValue(entryValue, depth + 1).trim()}`)
+      .join('\n');
+  }
+  return String(value);
+}
+
+function cardToText(card: any): string {
   const c = card?.content ?? {};
-  const lines: string[] = [`### ${card.title ?? 'Card'}`];
+  const lines: string[] = [(card.title ?? 'Card').toUpperCase()];
 
   switch (card.type) {
     case 'analysis':
-      (c.points ?? []).forEach((p: any) => lines.push(`- **${p.label}:** ${p.value}`));
+      (c.points ?? []).forEach((p: any) => lines.push(`• ${p.label}: ${p.value}`));
       break;
     case 'risk':
       (c.risks ?? []).forEach((r: any) =>
-        lines.push(`- **${r.name}** (${r.impact}${r.probability != null ? `, ${r.probability}%` : ''}) — ${r.mitigation}`),
+        lines.push(`• ${r.name} (${r.impact}${r.probability != null ? `, ${r.probability}%` : ''}) — ${r.mitigation}`),
       );
       break;
     case 'roadmap':
       (c.milestones ?? c.phases ?? []).forEach((m: any) => {
         const head = m.period ?? m.phase ?? '';
         const title = m.title ? ` — ${m.title}` : '';
-        lines.push(`- **${head}${title}:** ${m.goal ?? m.description ?? ''}`);
-        (m.actions ?? []).forEach((a: string) => lines.push(`  - ${a}`));
-        if (m.metric) lines.push(`  - _Success metric: ${m.metric}_`);
+        const summary = m.goal ?? m.description;
+        lines.push(`• ${head}${title}${summary ? `: ${summary}` : ''}`);
+        (m.actions ?? []).forEach((a: string) => lines.push(`    - ${a}`));
+        if (m.metric) lines.push(`    Success metric: ${m.metric}`);
       });
       break;
     case 'market':
       if (c.tam || c.sam || c.som || c.growth)
-        lines.push(`- TAM ${c.tam ?? '—'} · SAM ${c.sam ?? '—'} · SOM ${c.som ?? '—'} · Growth ${c.growth ?? '—'}`);
-      (c.competitors ?? []).forEach((x: string) => lines.push(`- ${x}`));
-      if (c.whitespace) lines.push(`- **Whitespace:** ${c.whitespace}`);
+        lines.push(`TAM ${c.tam ?? '—'} · SAM ${c.sam ?? '—'} · SOM ${c.som ?? '—'} · Growth ${c.growth ?? '—'}`);
+      (c.competitors ?? []).forEach((x: string) => lines.push(`• ${x}`));
+      if (c.whitespace) lines.push(`Whitespace: ${c.whitespace}`);
       break;
     case 'decision':
-      (c.options ?? []).forEach((o: any) => lines.push(`- **${o.name}:** ${o.verdict ?? ''}`));
-      if (c.recommendation) lines.push(`- **Recommendation:** ${c.recommendation}`);
+      (c.options ?? []).forEach((o: any) => lines.push(`• ${o.name}: ${o.verdict ?? ''}`));
+      if (c.recommendation) lines.push(`Recommendation: ${c.recommendation}`);
       break;
     case 'precedent':
       (c.precedents ?? []).forEach((p: any) =>
-        lines.push(`- **${p.company}** (${p.year}${p.outcome ? `, ${p.outcome}` : ''}): ${p.lesson}`),
+        lines.push(`• ${p.company} (${p.year}${p.outcome ? `, ${p.outcome}` : ''}): ${p.lesson}`),
       );
       break;
     default:
-      lines.push('```json', JSON.stringify(c, null, 2), '```');
+      lines.push(formatPlainValue(c));
   }
   return lines.join('\n');
 }
 
-function messageToMarkdown(msg: ChatMessage): string {
-  const parts: string[] = ['# Vera Analysis', ''];
+function messageToText(msg: ChatMessage): string {
+  const parts: string[] = ['VERA ANALYSIS', ''];
   if (msg.content) parts.push(msg.content, '');
   (msg.cards ?? []).forEach((card: any) => {
-    parts.push(cardToMarkdown(card), '');
+    parts.push(cardToText(card), '');
   });
-  parts.push(`---`, `_Generated by Vera · ${new Date().toLocaleString()}_`);
+  parts.push('—', `Generated by Vera · ${new Date().toLocaleString()}`);
   return parts.join('\n');
 }
 
@@ -1449,7 +1580,7 @@ function VenusResponseActions({ msg, onSave }: { msg: ChatMessage; onSave: () =>
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(messageToMarkdown(msg));
+      await navigator.clipboard.writeText(messageToText(msg));
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -1458,11 +1589,11 @@ function VenusResponseActions({ msg, onSave }: { msg: ChatMessage; onSave: () =>
   };
 
   const handleDownload = () => {
-    const blob = new Blob([messageToMarkdown(msg)], { type: 'text/markdown' });
+    const blob = new Blob([messageToText(msg)], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `venus-analysis-${new Date().toISOString().slice(0, 10)}.md`;
+    a.download = `venus-analysis-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1480,13 +1611,13 @@ function VenusResponseActions({ msg, onSave }: { msg: ChatMessage; onSave: () =>
 
   return (
     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
-      <button onClick={handleCopy} className={btn} title="Copy as Markdown">
+      <button onClick={handleCopy} className={btn} title="Copy">
         {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-        {copied ? 'Copied' : 'Copy MD'}
+        {copied ? 'Copied' : 'Copy'}
       </button>
-      <button onClick={handleDownload} className={btn} title="Download as .md report">
+      <button onClick={handleDownload} className={btn} title="Download">
         <Download className="w-3 h-3" />
-        .md
+        Download
       </button>
       <button onClick={handleSave} className={btn} title="Save to library">
         <Check className={`w-3 h-3 ${saved ? 'text-[var(--mint)]' : ''}`} />

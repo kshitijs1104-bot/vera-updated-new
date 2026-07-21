@@ -928,7 +928,10 @@ components:
       type: object
       required: [status]
       properties:
-        status: { type: string, enum: [completed, abandoned] }
+        # "active" lets a founder undo an accidental completed/abandoned
+        # click — see PATCH /chats/{id}/goal/status, which clears
+        # resolvedAt when reactivating.
+        status: { type: string, enum: [completed, abandoned, active] }
 
     Goal:
       type: object

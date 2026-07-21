@@ -617,7 +617,7 @@ export const SetGoalStatusParams = zod.object({
 })
 
 export const SetGoalStatusBody = zod.object({
-  "status": zod.enum(['completed', 'abandoned'])
+  "status": zod.enum(['completed', 'abandoned', 'active'])
 })
 
 export const setGoalStatusResponseTwoPositionMin = 0;

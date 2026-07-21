@@ -261,16 +261,24 @@ router.patch("/chats/:id/goal/status", requireAuth, async (req, res) => {
   if (!Number.isFinite(chatId)) return res.status(400).json({ error: "Invalid chat id" });
 
   const body = SetGoalStatusBody.safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: "status must be 'completed' or 'abandoned'" });
+  if (!body.success) return res.status(400).json({ error: "status must be 'completed', 'abandoned', or 'active'" });
 
   try {
     const userId = requireUserId(req);
     const chat = await loadOwnedChat(chatId, userId);
     if (!chat) return res.status(404).json({ error: "Chat not found" });
 
+    // "active" is the undo path for an accidental complete/abandon click —
+    // resolvedAt gets cleared (this goal is no longer resolved), everything
+    // else (evidenceScore, evidenceLog) is left exactly as it was, so
+    // reopening never discards real evidence history.
     const [updated] = await db
       .update(goalsTable)
-      .set({ status: body.data.status, resolvedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: body.data.status,
+        resolvedAt: body.data.status === "active" ? null : new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(goalsTable.chatId, chatId))
       .returning();
     if (!updated) return res.status(404).json({ error: "No goal set on this chat" });

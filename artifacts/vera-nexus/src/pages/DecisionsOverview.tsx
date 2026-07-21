@@ -8,11 +8,19 @@ import { useDecisions, useArchiveDecision, type VenusDecisionRow, type DecisionF
 // but the only place they were ever visible was as sub-tasks inside a
 // goaled chat's GoalPanel. This is every decision Venus has logged for the
 // founder, independent of any one chat or goal.
-const STATUS_FILTERS: { value: DecisionFilters['status'] | 'all'; label: string }[] = [
+type ViewFilter = DecisionFilters['status'] | 'all' | 'archived';
+
+// "Archived" sits in the SAME row as the status filters rather than a
+// separate lone toggle off to the side — the original design (a
+// right-aligned "Show archived" button) was easy to miss entirely, which is
+// exactly the "where did my archived decisions even go" confusion this
+// replaces.
+const STATUS_FILTERS: { value: ViewFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'abandoned', label: 'Abandoned' },
+  { value: 'archived', label: 'Archived' },
 ];
 
 function sentimentBadge(sentiment: VenusDecisionRow['outcomeSentiment']) {
@@ -88,12 +96,18 @@ function DecisionCard({ decision, onArchive }: { decision: VenusDecisionRow; onA
 
 export function DecisionsOverview() {
   const [, navigate] = useLocation();
-  const [status, setStatus] = useState<DecisionFilters['status'] | 'all'>('all');
-  const [includeArchived, setIncludeArchived] = useState(false);
+  const [filter, setFilter] = useState<ViewFilter>('all');
+  const isArchivedView = filter === 'archived';
 
-  const { data, isLoading } = useDecisions({ status: status === 'all' ? undefined : status, includeArchived });
+  const { data, isLoading } = useDecisions({
+    status: isArchivedView || filter === 'all' ? undefined : filter,
+    includeArchived: isArchivedView,
+  });
   const archiveMutation = useArchiveDecision();
-  const decisions = data?.decisions ?? [];
+  // The API's includeArchived flag widens the result set rather than
+  // isolating it (archived rows join the normal ones, not replace them) —
+  // this is what actually makes "Archived" a clean, exclusive view.
+  const decisions = (data?.decisions ?? []).filter((d) => (isArchivedView ? d.archived : !d.archived));
 
   return (
     <div className="min-h-screen w-full" style={{ background: 'var(--v7-bg)', color: 'var(--v7-text)', fontFamily: 'var(--v7-font-round)' }}>
@@ -117,11 +131,11 @@ export function DecisionsOverview() {
 
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
           {STATUS_FILTERS.map((f) => {
-            const active = status === f.value;
+            const active = filter === f.value;
             return (
               <button
                 key={f.value}
-                onClick={() => setStatus(f.value)}
+                onClick={() => setFilter(f.value)}
                 className="text-[11px] font-medium px-2.5 py-1 rounded-md"
                 style={{
                   color: active ? 'var(--v7-cyan)' : 'var(--v7-text-mute)',
@@ -133,23 +147,15 @@ export function DecisionsOverview() {
               </button>
             );
           })}
-          <button
-            onClick={() => setIncludeArchived((v) => !v)}
-            className="text-[11px] font-medium px-2.5 py-1 rounded-md ml-auto"
-            style={{
-              color: includeArchived ? 'var(--v7-text)' : 'var(--v7-text-mute)',
-              border: '1px solid var(--v7-border, rgba(255,255,255,0.08))',
-            }}
-          >
-            {includeArchived ? 'Hide archived' : 'Show archived'}
-          </button>
         </div>
 
         {isLoading && <div className="text-[13px] mt-4" style={{ color: 'var(--v7-text-mute)' }}>Loading…</div>}
 
         {!isLoading && decisions.length === 0 && (
           <div className="text-[13px] rounded-xl p-4 mt-4" style={{ background: 'var(--v7-bg-raised)', color: 'var(--v7-text-mute)' }}>
-            Nothing here yet — a decision or roadmap card Venus gives you in any chat gets logged here automatically.
+            {isArchivedView
+              ? "Nothing archived yet — the archive icon on any decision moves it here without deleting it."
+              : 'Nothing here yet — a decision or roadmap card Venus gives you in any chat gets logged here automatically.'}
           </div>
         )}
 
