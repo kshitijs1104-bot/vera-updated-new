@@ -302,8 +302,8 @@ export function TodayCard() {
 
   const { text: greetingText, Icon: GreetingIcon } = greeting();
   const cardStyle = {
-    background: 'linear-gradient(135deg, rgba(255,122,209,0.07), rgba(91,79,232,0.05))',
-    border: '1px solid rgba(255,122,209,0.28)',
+    background: 'linear-gradient(135deg, var(--v7-glow-1), var(--v7-glow-2))',
+    border: '1px solid var(--v7-tint-border)',
   };
 
   if (!open) {
@@ -319,7 +319,7 @@ export function TodayCard() {
         <span className="flex items-center gap-2 min-w-0">
           <span
             className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(255,122,209,0.18)' }}
+            style={{ background: 'var(--v7-pink-soft)' }}
           >
             <GreetingIcon className="w-3 h-3" style={{ color: 'var(--v7-pink)' }} />
           </span>
@@ -338,7 +338,7 @@ export function TodayCard() {
         <span className="flex items-center gap-2 text-[12px] font-bold" style={{ color: 'var(--v7-text)' }}>
           <span
             className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(255,122,209,0.18)' }}
+            style={{ background: 'var(--v7-pink-soft)' }}
           >
             <GreetingIcon className="w-3 h-3" style={{ color: 'var(--v7-pink)' }} />
           </span>
@@ -355,7 +355,7 @@ export function TodayCard() {
       </div>
 
       {checkinStep && (
-        <div className="pb-2.5 mb-2.5" style={{ borderBottom: inboxItems.length > 0 ? '1px solid rgba(255,122,209,0.18)' : 'none' }}>
+        <div className="pb-2.5 mb-2.5" style={{ borderBottom: inboxItems.length > 0 ? '1px solid var(--v7-tint-border)' : 'none' }}>
           {checkinStep.kind === 'subtask' && (
             <SubtaskStep subtaskId={checkinStep.subtaskId} summary={checkinStep.summary} onDone={handleDismiss} />
           )}
@@ -386,7 +386,7 @@ export function TodayCard() {
             >
               <span
                 className="text-[9.5px] font-mono uppercase shrink-0 px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(255,122,209,0.12)', color: 'var(--v7-pink)' }}
+                style={{ background: 'var(--v7-pink-soft)', color: 'var(--v7-pink)' }}
               >
                 {item.label}
               </span>

@@ -445,7 +445,7 @@ export function VenusPage() {
             padding: '11px 15px',
             borderRadius: '14px',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(44,232,214,0.22)'; e.currentTarget.style.boxShadow = '0 0 20px -6px var(--v7-cyan-strong)'; }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--v7-cyan-soft)'; e.currentTarget.style.boxShadow = '0 0 20px -6px var(--v7-cyan-strong)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'var(--v7-cyan-soft)'; e.currentTarget.style.boxShadow = 'none'; }}
         >
           <Plus className="w-3.5 h-3.5" />
@@ -735,9 +735,9 @@ export function VenusPage() {
                   type="submit"
                   disabled={!input.trim() || analyzeMutation.isPending}
                   className="w-[38px] h-[38px] shrink-0 flex items-center justify-center transition-all disabled:opacity-40"
-                  style={{ borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--v7-cyan), #21b8ac)' }}
+                  style={{ borderRadius: '12px', border: 'none', background: 'var(--v7-cyan)' }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0e0f14" strokeWidth="2.3">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--v7-bg)" strokeWidth="2.3">
                     <path d="M7 17L17 7M17 7H9M17 7V15" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
@@ -757,7 +757,7 @@ export function VenusPage() {
                       className="w-[30px] h-[30px] rounded-[10px] flex items-center justify-center shrink-0"
                       style={{ background: 'var(--v7-bg-raised-2)' }}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke={i % 2 === 0 ? '#2ce8d6' : '#ff7ad1'}>
+                      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke={i % 2 === 0 ? 'var(--v7-cyan)' : 'var(--v7-pink)'}>
                         <path d="M4 19V13M10 19V8M16 19V15M21 19V5" strokeWidth="2.2" strokeLinecap="round"/>
                       </svg>
                     </div>
@@ -776,7 +776,7 @@ export function VenusPage() {
               return (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'user' ? (
-                    <div className="max-w-[70%] bg-[var(--indigo)]/20 border border-[var(--indigo)]/30 text-[var(--text)] rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
+                    <div className="max-w-[70%] bg-[var(--v7-tint)] border border-[var(--v7-tint-border)] text-[var(--text)] rounded-2xl rounded-tr-none px-5 py-3.5 text-sm leading-relaxed">
                       {msg.content}
                     </div>
                   ) : (
@@ -1269,7 +1269,7 @@ const CARD_TYPE_COLORS: Record<string, string> = {
   solution: 'var(--green)',
   funding: 'var(--green)',
   fundraising: 'var(--green)',
-  hypothesis: '#c084fc',
+  hypothesis: 'var(--indigo-light)',
 };
 
 const NEON_PALETTE = ['#2ce8d6', '#ff7ad1', '#f6c945', '#5b9df9', '#ff8a5c', '#7cf6a0', '#c084fc', '#38e0c8', '#ffb454'];
@@ -1454,7 +1454,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
           {(normalizedContent.stages ?? normalizedContent.steps ?? []).map((stage: any, stageIndex: number) => (
             <div key={stageIndex} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]/70 p-3">
               <div className="flex items-start gap-2">
-                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--indigo)]/20 text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--v7-tint)] text-[10px] font-mono text-[var(--indigo-light)]">{stageIndex + 1}</div>
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-[var(--text)]">{renderInline(String(stage.stage_title ?? stage.title ?? stage.name ?? 'Stage'))}</div>
                   <div className="mt-1 text-sm text-[var(--muted)] leading-snug">{renderInline(String(stage.stage_detail ?? stage.detail ?? stage.description ?? ''))}</div>
@@ -1485,7 +1485,7 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
   );
 
   return (
-    <div id={`venus-card-${index}`} className={`bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5 overflow-hidden ${primary ? 'ring-1 ring-[var(--indigo)]/20 border-[var(--indigo)]/30' : ''}`}>
+    <div id={`venus-card-${index}`} className={`bg-[var(--surface2)] border border-[var(--border2)] rounded-lg p-5 overflow-hidden ${primary ? 'ring-1 ring-[var(--v7-tint)] border-[var(--v7-tint-border)]' : ''}`}>
       {primary ? (
         <div>
           <div className="flex items-start justify-between gap-3 text-left">

@@ -196,6 +196,16 @@
   --v7-cyan-soft: rgba(44,232,214,0.14);
   --v7-cyan-strong: rgba(44,232,214,0.42);
   --v7-pink-soft: rgba(255,122,209,0.14);
+  /* Solid-in-light, translucent-in-dark tint pair — used for the handful
+     of spots (user chat bubble, card highlight ring, stage-number badge)
+     that reference var(--indigo)/20 or /30 directly in Venus.tsx via
+     Tailwind's opacity-modifier syntax. Dark mode keeps that exact
+     translucent-indigo look by defining the values here as rgba already;
+     light mode (see .v7-light) swaps to a flat solid pastel instead, since
+     a translucent wash over a light page reads as washed-out/muddy rather
+     than a clean tint. */
+  --v7-tint: rgba(91,79,232,0.2);
+  --v7-tint-border: rgba(91,79,232,0.3);
   /* Hero glow + breathing-mark shadow — extracted into variables so light
      mode (see .v7-light below) can swap the neon halo for something that
      doesn't look out of place on a white background, without duplicating
@@ -371,43 +381,48 @@
    properties cascade from whichever ancestor last defined them, so
    overriding both here is enough; no component code needs to change what
    variable it reads.
-   Two real hues (a deep teal + an indigo/violet), not one accent reused
-   for both slots — a first pass tried a single monochrome indigo and it
-   read as everything-the-same-washed-out-lavender ("thought I had color
-   blindness"), because the two token families share the same page and
-   need to stay visually distinguishable from each other, not just from
-   the background. Off-white page background (not stark white) with white
-   raised cards for clear tonal separation between layers. */
+   Third pass on this palette. First was a single indigo accent (read as
+   washed-out/samey). Second was teal+indigo (read as "purple doesn't suit
+   light" — cool blue-gray background plus indigo/violet accent). This one
+   drops purple/indigo entirely: warm beige/off-white base (not cool
+   blue-gray, not stark white) with ONE calm sage-green accent family, two
+   weights, nothing else. "Soft"/tint tokens are flat solid pastel hexes
+   here, not alpha-blended rgba — an alpha wash over a light page reads as
+   a muddy translucent smear (see --v7-tint below, the fix for the actual
+   chat-bubble/badge spots in Venus.tsx that used a raw indigo/20 opacity
+   modifier), where a flat pastel reads as a clean, deliberate tint. */
 .v7-light {
-  --v7-bg: #f6f7fb;
+  --v7-bg: #f8f6f2;
   --v7-bg-raised: #ffffff;
-  --v7-bg-raised-2: #eaecf3;
-  --v7-border: rgba(20,22,40,0.10);
-  --v7-border-strong: rgba(20,22,40,0.20);
-  --v7-text: #14161f;
-  --v7-text-dim: #52566a;
-  --v7-text-mute: #868aa0;
-  --v7-cyan: #0d9488;
-  --v7-pink: #4f46e5;
-  --v7-cyan-soft: rgba(13,148,136,0.12);
-  --v7-cyan-strong: rgba(13,148,136,0.42);
-  --v7-pink-soft: rgba(79,70,229,0.12);
-  --v7-glow-1: rgba(13,148,136,0.08);
-  --v7-glow-2: rgba(79,70,229,0.06);
-  --v7-glow-shadow-a: rgba(13,148,136,0.18);
-  --v7-glow-shadow-b: rgba(13,148,136,0.28);
+  --v7-bg-raised-2: #f0ece4;
+  --v7-border: #e6e0d5;
+  --v7-border-strong: #d9d0c0;
+  --v7-text: #2b2620;
+  --v7-text-dim: #6b6459;
+  --v7-text-mute: #9b9488;
+  --v7-cyan: #3f7860;
+  --v7-pink: #6b9c85;
+  --v7-cyan-soft: #e7f0ea;
+  --v7-cyan-strong: #79a68f;
+  --v7-pink-soft: #edf3ee;
+  --v7-tint: #e7f0ea;
+  --v7-tint-border: #cfe2d7;
+  --v7-glow-1: rgba(63,120,96,0.07);
+  --v7-glow-2: rgba(107,156,133,0.05);
+  --v7-glow-shadow-a: rgba(63,120,96,0.16);
+  --v7-glow-shadow-b: rgba(63,120,96,0.26);
 
-  --bg: #f6f7fb;
+  --bg: #f8f6f2;
   --surface: #ffffff;
-  --surface2: #eaecf3;
-  --surface3: #e1e4ee;
-  --border2: rgba(20,22,40,0.20);
-  --text: #14161f;
-  --muted-text: #52566a;
-  --dim: #868aa0;
-  --indigo: #4f46e5;
-  --indigo-light: #7c74ea;
-  --mint: #0d9488;
+  --surface2: #f0ece4;
+  --surface3: #e6e0d5;
+  --border2: #d9d0c0;
+  --text: #2b2620;
+  --muted-text: #6b6459;
+  --dim: #9b9488;
+  --indigo: #3f7860;
+  --indigo-light: #6b9c85;
+  --mint: #3f7860;
 }
 
 @layer base {
