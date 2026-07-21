@@ -390,39 +390,52 @@
    here, not alpha-blended rgba — an alpha wash over a light page reads as
    a muddy translucent smear (see --v7-tint below, the fix for the actual
    chat-bubble/badge spots in Venus.tsx that used a raw indigo/20 opacity
-   modifier), where a flat pastel reads as a clean, deliberate tint. */
+   modifier), where a flat pastel reads as a clean, deliberate tint.
+   Fourth pass: the sage green from pass three was too desaturated — read
+   as "blueish, plain, colorblind"-ish once every soft/inactive background
+   was tinted with it. Fix is a division of labor, not another hue swap:
+   structural fills (panel/button/pill backgrounds, including the ones
+   that used to carry a pale accent tint) are now plain neutral gray, full
+   stop — the accent color itself got MORE saturated and is reserved for
+   things that are actually the signal (icon, border, text, active state)
+   rather than smeared across every background. That's also the fix for
+   "generic like every AI chatbot" — the structural chrome is gray like
+   everyone else's, but the accent stays a real, confident color instead
+   of disappearing into a pastel wash. Text tokens deepened across the
+   board so nothing depends on bold weight to stay legible against cream,
+   white, or the gray panels alike. */
 .v7-light {
   --v7-bg: #f8f6f2;
   --v7-bg-raised: #ffffff;
-  --v7-bg-raised-2: #f0ece4;
-  --v7-border: #e6e0d5;
-  --v7-border-strong: #d9d0c0;
-  --v7-text: #2b2620;
-  --v7-text-dim: #6b6459;
-  --v7-text-mute: #9b9488;
-  --v7-cyan: #3f7860;
-  --v7-pink: #6b9c85;
-  --v7-cyan-soft: #e7f0ea;
-  --v7-cyan-strong: #79a68f;
-  --v7-pink-soft: #edf3ee;
-  --v7-tint: #e7f0ea;
-  --v7-tint-border: #cfe2d7;
-  --v7-glow-1: rgba(63,120,96,0.07);
-  --v7-glow-2: rgba(107,156,133,0.05);
-  --v7-glow-shadow-a: rgba(63,120,96,0.16);
-  --v7-glow-shadow-b: rgba(63,120,96,0.26);
+  --v7-bg-raised-2: #e9e6e0;
+  --v7-border: #ddd7ca;
+  --v7-border-strong: #c9c1b0;
+  --v7-text: #201c16;
+  --v7-text-dim: #5c554a;
+  --v7-text-mute: #7d7669;
+  --v7-cyan: #157a4d;
+  --v7-pink: #1f9660;
+  --v7-cyan-soft: #e9e6e0;
+  --v7-cyan-strong: #157a4d;
+  --v7-pink-soft: #e9e6e0;
+  --v7-tint: #eaf0ec;
+  --v7-tint-border: #c7d6cc;
+  --v7-glow-1: rgba(21,122,77,0.07);
+  --v7-glow-2: rgba(31,150,96,0.05);
+  --v7-glow-shadow-a: rgba(21,122,77,0.16);
+  --v7-glow-shadow-b: rgba(21,122,77,0.26);
 
   --bg: #f8f6f2;
   --surface: #ffffff;
-  --surface2: #f0ece4;
-  --surface3: #e6e0d5;
-  --border2: #d9d0c0;
-  --text: #2b2620;
-  --muted-text: #6b6459;
-  --dim: #9b9488;
-  --indigo: #3f7860;
-  --indigo-light: #6b9c85;
-  --mint: #3f7860;
+  --surface2: #e9e6e0;
+  --surface3: #ddd7ca;
+  --border2: #c9c1b0;
+  --text: #201c16;
+  --muted-text: #5c554a;
+  --dim: #7d7669;
+  --indigo: #157a4d;
+  --indigo-light: #1f9660;
+  --mint: #157a4d;
 }
 
 @layer base {
