@@ -12,6 +12,7 @@ import chatsRouter from "./chats";
 import goalsRouter from "./goals";
 import companyFactsRouter from "./companyFacts";
 import roadmapsRouter from "./roadmaps";
+import dailyBriefRouter from "./dailyBrief";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(chatsRouter);
 router.use(goalsRouter);
 router.use(companyFactsRouter);
 router.use(roadmapsRouter);
+router.use(dailyBriefRouter);
 
 export default router;

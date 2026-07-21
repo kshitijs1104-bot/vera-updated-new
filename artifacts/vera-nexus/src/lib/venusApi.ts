@@ -158,3 +158,57 @@ export function useCompanyFacts() {
     queryFn: () => apiFetch<{ facts: CompanyFact[] }>('/api/company-facts'),
   });
 }
+
+export function useAddCompanyFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { factText: string; sourceType: 'checkin' | 'manual'; factType?: string }) =>
+      apiFetch<{ fact: CompanyFact }>('/api/company-facts', { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/company-facts'] }),
+  });
+}
+
+// ---- Daily Brief (Decision Inbox rollup) ----
+
+export interface DailyBriefDecision {
+  id: number;
+  chatId: number | null;
+  query: string;
+  recommendationSummary: string;
+  reinforcedCount: number;
+}
+
+export interface DailyBriefRisk {
+  id: number;
+  chatId: number;
+  title: string;
+  risk: 'on_track' | 'at_risk' | 'off_track';
+  deadline: string;
+}
+
+export interface DailyBriefBlockedTask {
+  roadmapId: number;
+  roadmapTitle: string;
+  phasePeriod: string;
+  actionText: string;
+}
+
+export interface DailyBriefAssumptionChange {
+  previousText: string | null;
+  currentText: string;
+  changedAt: string | null;
+}
+
+export interface DailyBrief {
+  topDecision: DailyBriefDecision | null;
+  biggestRisk: DailyBriefRisk | null;
+  blockedTask: DailyBriefBlockedTask | null;
+  assumptionChange: DailyBriefAssumptionChange | null;
+}
+
+export function useDailyBrief() {
+  return useQuery({
+    queryKey: ['/api/daily-brief'],
+    queryFn: () => apiFetch<DailyBrief>('/api/daily-brief'),
+  });
+}

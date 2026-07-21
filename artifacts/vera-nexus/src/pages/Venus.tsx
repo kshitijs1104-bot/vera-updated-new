@@ -10,6 +10,7 @@ import {
 import { Settings, Plus, Trash2, ChevronDown, ChevronRight, Copy, Download, Check, Target, ListChecks, Map as MapIcon, PanelLeftClose, PanelLeftOpen, Pencil } from 'lucide-react';
 import { GoalPanel } from './GoalPanel';
 import { RoadmapTracker } from './RoadmapTracker';
+import { TodayCard } from './TodayCard';
 
 const EXAMPLE_PROMPTS = [
   "Map the causal chain for my business from the most significant market shifts right now",
@@ -641,6 +642,7 @@ export function VenusPage() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div style={{ padding: '14px 32px 0' }}>
+          <TodayCard />
           {showGoalPanel && <GoalPanel serverChatId={currentSession.serverChatId} onRequireServerChat={ensureServerChat} />}
           {showRoadmap && <RoadmapTracker chatId={currentSession.serverChatId} />}
         </div>

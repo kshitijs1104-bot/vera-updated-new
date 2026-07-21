@@ -16,9 +16,9 @@ import type { ChatWithGoal, GoalWithProgress } from '@workspace/api-client-react
 // (see goalEvidence.ts): reporting a subtask's real-world outcome here is
 // what lets the Origin──Target marker actually move, including backward on
 // a reported failure.
-type OutcomeSentiment = 'positive' | 'negative' | 'mixed';
+export type OutcomeSentiment = 'positive' | 'negative' | 'mixed';
 
-async function reportSubTaskOutcome(id: number, outcome: string, sentiment: OutcomeSentiment) {
+export async function reportSubTaskOutcome(id: number, outcome: string, sentiment: OutcomeSentiment) {
   const response = await fetch(`/api/ai/decisions/${id}/outcome`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
