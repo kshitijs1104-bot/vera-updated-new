@@ -646,8 +646,24 @@ function isOversizedPayload(err: any): boolean {
 // "json" keyword Groq's json_object mode requires). Everything after that
 // prefix — the dynamic context appended by the caller — is shrunk exactly
 // like any other message's content.
-function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
-  return messages.map((m) => {
+// Every non-system message is now kept WHOLE or DROPPED WHOLE — never
+// partially truncated. The previous version sliced every message
+// (including the founder's own current turn) to keepFraction of its own
+// length, compounding across retries (0.5 -> 0.25 after 2) — production
+// logs on 2026-07-22 showed exactly that firing on a real request right
+// before it "completed", meaning the model most likely answered from a
+// current message and conversation history each cut to roughly a quarter
+// of their real content, mid-sentence. A model handed a gutted, half
+// -sentence context fills the gap with a generic, self-consistent-but-
+// ungrounded answer — which is exactly the fabricated-scenario, ignored-
+// turn, stale-answer failures reported from testing that day. Losing whole
+// old turns is an honest gap the model can reason around; corrupting
+// recent/current ones is not.
+export function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: number): GroqJsonParams["messages"] {
+  if (messages.length === 0) return messages;
+  const lastIdx = messages.length - 1; // the current turn — never touched, whatever role it has
+
+  const withSystemShrunk = messages.map((m, idx) => {
     if (m.role === "system") {
       const protectedLen = Math.min(VENUS_SYSTEM_PROMPT.length, m.content.length);
       const head = m.content.slice(0, protectedLen);
@@ -657,10 +673,18 @@ function shrinkMessages(messages: GroqJsonParams["messages"], keepFraction: numb
       const shrunkTail = targetLen < dynamicTail.length ? dynamicTail.slice(0, targetLen) : dynamicTail;
       return { ...m, content: head + shrunkTail };
     }
-
-    const targetLen = Math.floor(m.content.length * keepFraction);
-    return targetLen < m.content.length ? { ...m, content: m.content.slice(0, targetLen) } : m;
+    return m; // no other message's content is ever sliced — see the drop pass below
   });
+
+  // History turns (every non-system message except the current/last one)
+  // are dropped OLDEST-first, whole, until roughly keepFraction of them
+  // remain, instead of each being proportionally truncated.
+  const systemIdx = withSystemShrunk.findIndex((m) => m.role === "system");
+  const historyIdxs = withSystemShrunk.map((_, i) => i).filter((i) => i !== systemIdx && i !== lastIdx);
+  const keepCount = Math.max(0, Math.floor(historyIdxs.length * keepFraction));
+  const dropIdxs = new Set(historyIdxs.slice(0, historyIdxs.length - keepCount));
+
+  return withSystemShrunk.filter((_, i) => !dropIdxs.has(i));
 }
 
 // Last-resort structural guarantee: if, for any reason (a future prompt

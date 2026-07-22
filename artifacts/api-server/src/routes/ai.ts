@@ -8,6 +8,9 @@ import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecis
 import { computeConfidence } from "../lib/confidence";
 import { detectFactConflicts, type ExtractedFact } from "../lib/factConflicts";
 import { computeConvergence, withheldReasonFor, generateRecommendationText, type Hypothesis, type Contradiction } from "../lib/evidenceConvergence";
+import { collectResponseStrings } from "../lib/responseText";
+import { checkArithmeticConsistency } from "../lib/arithmeticCheck";
+import { detectUngroundedCurrency } from "../lib/groundedness";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
@@ -935,7 +938,16 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     const EVIDENCE_CONVERGENCE_SAMPLE_RATE = 0.15;
     const includeEvidenceConvergence = !isNarrowScope && Math.random() < EVIDENCE_CONVERGENCE_SAMPLE_RATE;
     const shadowModeInstructions = `${isNarrowScope ? "" : EXTRACTED_FACTS_INSTRUCTION}${includeEvidenceConvergence ? EVIDENCE_CONVERGENCE_INSTRUCTION : ""}`;
-    const venusPromptForTier = `${isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT}${shadowModeInstructions}`;
+    // Deliberately NOT baked into venusPromptForTier (which sits right after
+    // the protected VENUS_PROMPT head) — appended to the very end of the
+    // whole systemPrompt below instead. groq.ts's shrinkMessages keeps the
+    // FRONT of the system message's dynamic tail and cuts from the end on a
+    // 413 retry, so position here is a real priority signal, not cosmetic:
+    // shadowModeInstructions is pure calibration overhead with zero founder
+    // -facing value, so it should be the FIRST thing sacrificed on a shrink
+    // — not sit ahead of historyContext/precedentBlock, which actually
+    // carry the grounding a response needs to be correct.
+    const venusPromptForTier = isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT;
     // Narrow queries get the last 3 turns instead of 8 — enough to resolve
     // "what did you mean by that" without paying for a near-full history
     // reinjection on every short clarification in a long-running chat.
@@ -953,11 +965,12 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       ? `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. This looks like a quick clarification or definition-style question, so no web search was run for it — answer directly from your own general knowledge, staying specific and concrete rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from general knowledge is reasoning, not a "Precedent" card.`
       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
-    const systemPrompt = isNone
+    const systemPrompt = (isNone
       ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${noPrecedentInstruction}\n\n${webSearchBlock}\n\n${historyContext}${effectiveBusinessContext ? `\n\nBusiness Context: ${effectiveBusinessContext}` : ""}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`
       : effectiveBusinessContext
         ? `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\nBusiness Context: ${effectiveBusinessContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`
-        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`;
+        : `${venusPromptForTier}\n\n${followUpInstruction}\n\n${decisionRoutingInstruction}\n\n${historyContext}\n\n${precedentBlock}${ownHistoryBlock ? `\n\n${ownHistoryBlock}` : ""}${openSessionBlock ? `\n\n${openSessionBlock}` : ""}${goalBlock ? `\n\n${goalBlock}` : ""}${memoryBlock}`
+      ) + shadowModeInstructions; // appended LAST — see shrinkMessages: least protected, first cut on a shrink retry
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: systemPrompt },
@@ -1133,6 +1146,41 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       }
 
       const sanitized = sanitizeVenusResponse(parsed);
+
+      // Response-integrity checks — run on every response (pure regex/math,
+      // zero token cost, no reason to gate by query scope). Wrapped in
+      // try/catch for the same reason as the shadow-mode blocks above: a
+      // new post-processing check must never be able to turn an already
+      // -good response into an error.
+      try {
+        const responseStrings = collectResponseStrings(sanitized);
+
+        // Arithmetic-consistency: ships live — pure math, no real false-
+        // positive risk once two same-currency, different-period mentions
+        // are correctly paired (see arithmeticCheck.ts). Catches the
+        // reported case directly: a monthly figure and a mislabeled
+        // "quarterly" one that's actually the ×12 annual figure.
+        const arithmeticIssues = responseStrings.flatMap(checkArithmeticConsistency);
+        if (arithmeticIssues.length > 0) {
+          sanitized.arithmeticIssues = arithmeticIssues;
+        }
+
+        // Currency-groundedness: shadow-mode only — new, unvalidated
+        // heuristic (see groundedness.ts). Logged, never attached to the
+        // response, until a validation period confirms it isn't noisy.
+        const groundingText = [
+          effectiveBusinessContext, historyContext, precedentBlock,
+          ownHistoryBlock, openSessionBlock, goalBlock, memoryBlock,
+          body.data.message,
+        ].filter(Boolean).join(" ");
+        const ungroundedCurrencies = detectUngroundedCurrency(responseStrings, groundingText);
+        if (ungroundedCurrencies.length > 0) {
+          console.error(`[groundedness] session=${sessionId} ungroundedCurrencies=${JSON.stringify(ungroundedCurrencies)} query="${body.data.message.slice(0, 200)}"`);
+        }
+      } catch (integrityErr) {
+        console.error("[responseIntegrity] check failed, continuing without it", integrityErr);
+      }
+
       // Fire-and-forget: don't make the founder wait on this, and never let
       // a logging failure affect the response they actually asked for.
       autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards, body.data.chatId).catch(() => {});
