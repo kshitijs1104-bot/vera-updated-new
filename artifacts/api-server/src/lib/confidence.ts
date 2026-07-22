@@ -70,7 +70,7 @@ const OUTCOME_HISTORY_WEIGHT = 0.15;
 // confidenceFactors have accumulated in production logs.
 const VERIFIED_THRESHOLD = 0.3;
 
-function clamp01(n: number): number {
+export function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
@@ -79,7 +79,7 @@ function clamp01(n: number): number {
 // precedent cards. Anything other than "failed" is treated as a
 // positive/neutral outcome — this only needs to detect genuine disagreement,
 // not classify outcomes precisely.
-function outcomePolarity(status: string): "negative" | "positive" {
+export function outcomePolarity(status: string): "negative" | "positive" {
   return status === "failed" ? "negative" : "positive";
 }
 

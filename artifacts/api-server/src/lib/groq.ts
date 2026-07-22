@@ -921,6 +921,47 @@ export const EXTRACTED_FACTS_INSTRUCTION = `
 
 EXTRACTED FACTS (mechanical bookkeeping, not part of your reasoning voice): scanning the founder's current message AND the conversation history above, if any of these tracked metrics — churn, nps, growth, retention, headcount, revenue, cac, ltv — was given an explicit directional change (up, down, or flat), list each as one entry in the "extractedFacts" array: { "metric": "one of the tracked names above", "direction": "up|down|flat" }. Only include a metric a message actually stated a direction for — never infer, never include a metric nobody mentioned. Empty array if none apply. This field is separate from and never restates the summary/cards content.`;
 
+// Shadow-mode only (see evidenceConvergence.ts and ai.ts's [convergence]
+// logging) — asks the model for competing hypotheses with FACT/INFERENCE/
+// ASSUMPTION-tagged evidence, contradictions between them, and the single
+// highest-value missing unknown. Deliberately does NOT ask for a confidence
+// level, tier, or recommendation — those are computed downstream in code
+// from these structured fields, never asserted by the model (see
+// computeConvergence in evidenceConvergence.ts).
+//
+// Everything nests under one "evidenceConvergence" wrapper key rather than
+// flat top-level fields — a flat top-level "contradictions" field would
+// collide with the field computeConfidence already ships live on every
+// response today (precedent-vs-precedent disagreement, unrelated to this).
+//
+// precedent_ids MUST be the bracketed [Precedent N] position number(s) from
+// the VERIFIED PRECEDENTS block, not a company name or any other
+// identifier — this is what lets evidenceConvergence.ts cross-check a
+// hypothesis's own claimed precedent_match_count/outcome_consistency
+// against what its FACT-tagged citations actually resolve to, instead of
+// trusting those two numbers as self-reported (the same trust problem the
+// whole confidence-computed-in-code design exists to close, just moved one
+// field deeper if left unchecked).
+//
+// Measured cost (chars/4, same heuristic used elsewhere in this file):
+// 2,351 characters ≈ 588 tokens, added to the system prompt on every
+// request this is appended to. Real against the 8,000 TPM ceiling — ai.ts
+// only appends this for non-narrow queries, same gate as
+// EXTRACTED_FACTS_INSTRUCTION, and both together add up to real fixed
+// overhead worth watching in the [callGroqJSON] clamp logs during the
+// shadow period (see the plan this implements).
+export const EVIDENCE_CONVERGENCE_INSTRUCTION = `
+
+EVIDENCE CONVERGENCE (mechanical fields, shadow-mode — populate faithfully, never omit, and never state a confidence level, tier, or recommendation anywhere in this block; that is computed separately downstream, not something you decide): in addition to the JSON shape above, include one wrapper field "evidenceConvergence": { "hypotheses": [...], "contradictions": [...] | "none_identified", "key_missing_info": "..." }.
+
+"hypotheses": 2 to 4 genuinely distinct explanations for the founder's question, even if one seems obviously stronger. Each hypothesis: { "id": "h1" (short stable id), "explanation": "one sentence, a mechanism not a stance", "evidence": [ { "claim": "specific claim used in this hypothesis's reasoning", "tag": "FACT" | "INFERENCE" | "ASSUMPTION", "precedent_ids": ["1"] } ], "precedent_match_count": integer, "outcome_consistency": 0 to 1 }.
+
+Tag every evidence claim at the moment you write it: FACT only if directly attributable to a specific VERIFIED PRECEDENTS entry's decision context, decision taken, causal mechanism, or outcome — when tagging FACT, "precedent_ids" MUST be the bracketed number(s) of that entry as shown, e.g. "1" for [Precedent 1], never a company name or any other identifier. If no VERIFIED PRECEDENTS block appears anywhere in this prompt, every claim is necessarily INFERENCE or ASSUMPTION — never tag anything FACT, and leave precedent_ids empty, since there is nothing to cite. INFERENCE is a pattern reasonably drawn from precedent without a direct citation — leave precedent_ids empty or omit it. ASSUMPTION has no precedent backing at all. Never invent a precedent match or outcome to make a hypothesis look better supported — if you cannot find real precedent for a claim, tag it ASSUMPTION rather than upgrading it. "precedent_match_count" and "outcome_consistency" are your own estimate for reference only — they are not authoritative and are not what determines confidence.
+
+"contradictions": diff every hypothesis against every other one; the literal string "none_identified" if there truly are none — never omit this field. Each real contradiction: { "hypothesis_a_id", "hypothesis_b_id", "description" }.
+
+"key_missing_info": one sentence naming the single unknown that would most change which hypothesis is favored — mandatory even when one hypothesis is clearly strongest.`;
+
 export function buildFallbackVenusResponse(message: string): object {
   return {
     summary: "Vera is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",

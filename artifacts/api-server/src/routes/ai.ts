@@ -3,10 +3,11 @@ import { db, settingsTable, venusDecisionsTable, goalsTable, type VenusDecision 
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, EXTRACTED_FACTS_INSTRUCTION, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, EXTRACTED_FACTS_INSTRUCTION, EVIDENCE_CONVERGENCE_INSTRUCTION, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { computeConfidence } from "../lib/confidence";
 import { detectFactConflicts, type ExtractedFact } from "../lib/factConflicts";
+import { computeConvergence, withheldReasonFor, generateRecommendationText, type Hypothesis, type Contradiction } from "../lib/evidenceConvergence";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
@@ -900,12 +901,16 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     const precedentMatches = isNarrowScope ? retrieval.precedents.slice(0, 1) : retrieval.precedents;
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(precedentMatches)}`;
 
-    // extractedFacts (shadow-mode fact-conflict detection — see
-    // EXTRACTED_FACTS_INSTRUCTION's comment in groq.ts and factConflicts.ts)
-    // is only requested for non-narrow queries: it's a real ~165-token
-    // addition to the system prompt, and narrow follow-ups are exactly
-    // where the TPM budget is already tightest.
-    const venusPromptForTier = `${isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT}${isNarrowScope ? "" : EXTRACTED_FACTS_INSTRUCTION}`;
+    // Both shadow-mode instructions (extractedFacts — fact-conflict
+    // detection, and evidenceConvergence — hypotheses/contradictions) are
+    // only requested for non-narrow queries: together they're a real
+    // ~750-token addition to the system prompt, and narrow follow-ups are
+    // exactly where the TPM budget is already tightest. See groq.ts's
+    // comments on each constant, and the plan this implements, for the
+    // measured cost and why this compounding is flagged for the
+    // calibration review rather than assumed safe.
+    const shadowModeInstructions = isNarrowScope ? "" : `${EXTRACTED_FACTS_INSTRUCTION}${EVIDENCE_CONVERGENCE_INSTRUCTION}`;
+    const venusPromptForTier = `${isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT}${shadowModeInstructions}`;
     // Narrow queries get the last 3 turns instead of 8 — enough to resolve
     // "what did you mean by that" without paying for a near-full history
     // reinjection on every short clarification in a long-running chat.
@@ -1036,6 +1041,70 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
         }
         console.error(`[factConflict] extractedFacts token delta ~${estimateTokens(extractedFactsRaw)} tokens (session=${sessionId})`);
         delete parsed.extractedFacts;
+      }
+
+      // Shadow mode for the evidence-convergence pipeline: evidenceConvergence
+      // is only present when EVIDENCE_CONVERGENCE_INSTRUCTION was appended
+      // (non-narrow queries — see systemPrompt assembly above). Computed and
+      // logged for the upcoming manual calibration review (~15-20 known test
+      // queries, per the plan this implements), never merged into the visible
+      // response and never promoted until that review confirms both the real
+      // token cost and that the convergence gate isn't collapsing into
+      // permanent non-answers or converging too early.
+      if (parsed.evidenceConvergence) {
+        // Everything in this block reads raw LLM JSON that's only
+        // shape-checked at the TypeScript-cast level (no runtime schema
+        // enforcement — see evidenceConvergence.ts's file header). Wrapped
+        // in try/catch/finally as a second, final layer of defense on top
+        // of that file's own internal hardening: a shadow-mode calibration
+        // feature must NEVER be able to turn an already-successful,
+        // already-parsed founder response into buildTransientErrorResponse
+        // just because the model returned an unexpected shape for a field
+        // nobody but this log line reads. The `finally` guarantees
+        // evidenceConvergence is stripped from the response even if
+        // computation throws partway through.
+        try {
+          const hypotheses = Array.isArray(parsed.evidenceConvergence.hypotheses)
+            ? (parsed.evidenceConvergence.hypotheses as Hypothesis[])
+            : [];
+          const evidenceContradictions = (parsed.evidenceConvergence.contradictions ?? "none_identified") as Contradiction[] | "none_identified";
+          const convergence = computeConvergence(hypotheses, evidenceContradictions, retrieval.precedents, retrieval.tier);
+
+          const leading = hypotheses.find((h) => h && h.id === convergence.leading_hypothesis_id) ?? null;
+          const withheld = !(convergence.converged && leading);
+          // Computed (Stage 6 gate) but not shipped — exercising the full
+          // gate logic in shadow mode, including the template function, is
+          // what makes promotion later a one-line diff (stop deleting
+          // evidenceConvergence) instead of a rewrite.
+          const outcomePreview = (!withheld && leading ? generateRecommendationText(leading) : withheldReasonFor(convergence.tier)).slice(0, 160);
+          // Calibration-drift signal: how far the model's own self-reported
+          // precedent_match_count/outcome_consistency diverge from what its
+          // citations actually support once verified in code — see
+          // evidenceConvergence.ts's file header for why these two fields
+          // specifically needed a code-side cross-check.
+          const drift = hypotheses
+            .filter((h): h is Hypothesis => !!h && typeof h.id === "string")
+            .map((h) => ({
+              id: h.id,
+              llmMatchCount: h.precedent_match_count,
+              codeMatchCount: convergence.codeVerifiedMatchCounts[h.id],
+              llmConsistency: h.outcome_consistency,
+              codeConsistency: convergence.codeVerifiedOutcomeConsistency[h.id],
+            }));
+          const rawConvergenceJson = JSON.stringify(parsed.evidenceConvergence);
+          // One consolidated line (not three) — easier to correlate per
+          // request when interleaved with other requests' log output, and
+          // fewer blocking synchronous stderr writes on the response path.
+          console.error(`[convergence] ${JSON.stringify({
+            sessionId, tier: convergence.tier, converged: convergence.converged,
+            gap: convergence.convergence_gap, scores: convergence.scores, withheld,
+            outcomePreview, drift, tokenDelta: estimateTokens(rawConvergenceJson),
+          })}`);
+        } catch (convergenceErr) {
+          console.error("[convergence] shadow-mode computation failed, continuing without it", convergenceErr);
+        } finally {
+          delete parsed.evidenceConvergence;
+        }
       }
 
       const sanitized = sanitizeVenusResponse(parsed);

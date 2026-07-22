@@ -138,6 +138,24 @@ export function VenusPage() {
 
   const messages = currentSession.messages;
 
+  // Always the latest committed ChatSession, kept in sync on every render
+  // (a plain assignment during render, not an effect — effects lag a tick
+  // behind, which is exactly the gap that caused the original bug). Async
+  // handlers below read this instead of closing over `currentSession`
+  // directly, so a network round-trip in between never sees stale state —
+  // without relying on setCurrentSession's functional-updater callback
+  // running synchronously, which React documents as an implementation
+  // detail, not a guarantee (it can be skipped, e.g. when another state
+  // update — like the founder typing into the input — is already pending
+  // on this component when the round-trip resolves).
+  const sessionRef = useRef(currentSession);
+  sessionRef.current = currentSession;
+
+  const persistSession = useCallback((session: ChatSession) => {
+    saveSession(session);
+    setSessions(getSessions());
+  }, []);
+
   // Lazily creates the real server-side `chats` row the first time it's
   // actually needed (first message sent, or the Goal panel is opened before
   // any message exists) rather than on every "New Analysis" click — a
@@ -145,24 +163,27 @@ export function VenusPage() {
   // a goal never leaves an orphan row. Persists the returned id onto the
   // local ChatSession immediately so a second call in the same session
   // reuses it instead of creating a duplicate chat.
-  const ensureServerChat = useCallback(async (): Promise<number> => {
+  //
+  // Merges onto `sessionRef.current` (see above), not the `currentSession`
+  // this closure captured when it was called — this function awaits a real
+  // network round-trip, and during that gap `handleSend` has already
+  // optimistically added the user's message to state; merging against a
+  // stale closure instead of the latest state was overwriting that
+  // optimistic message back to an empty array, which is what made the chat
+  // revert to the new-chat landing page mid-send (see handleSend's
+  // onSuccess for the matching fix).
+  const ensureServerChat = useCallback(async (titleOverride?: string): Promise<number> => {
     if (currentSession.serverChatId) return currentSession.serverChatId;
-    const created = await createChatMutation.mutateAsync({ data: { title: currentSession.title } });
-    const withServerId: ChatSession = { ...currentSession, serverChatId: created.id };
+    const created = await createChatMutation.mutateAsync({ data: { title: titleOverride ?? currentSession.title } });
+    const withServerId: ChatSession = { ...sessionRef.current, serverChatId: created.id };
     setCurrentSession(withServerId);
-    saveSession(withServerId);
-    setSessions(getSessions());
+    persistSession(withServerId);
     return created.id;
-  }, [currentSession, createChatMutation]);
+  }, [currentSession.serverChatId, currentSession.title, createChatMutation, persistSession]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, analyzeMutation.isPending]);
-
-  const persistSession = useCallback((session: ChatSession) => {
-    saveSession(session);
-    setSessions(getSessions());
-  }, []);
 
   const handleNewChat = () => {
     const s = createSession();
@@ -203,6 +224,12 @@ export function VenusPage() {
   const handleSend = async (preset?: string) => {
     const text = (preset || input).trim();
     if (!text) return;
+    // The Enter-key path (unlike the Send button's `disabled` prop) had no
+    // guard against firing while a request is already in flight — two fast
+    // Enter presses on the first message of a new chat could each read the
+    // same not-yet-set `serverChatId` and independently call
+    // ensureServerChat, creating two server-side chat rows for one session.
+    if (analyzeMutation.isPending) return;
     setInput('');
 
     const newMessages: ChatMessage[] = [...messages, { role: 'user', content: text }];
@@ -219,7 +246,7 @@ export function VenusPage() {
     // still answers, it just can't attribute this particular turn.
     let chatId: number | undefined;
     try {
-      chatId = await ensureServerChat();
+      chatId = await ensureServerChat(updatedTitle);
     } catch {
       chatId = currentSession.serverChatId;
     }
@@ -236,7 +263,17 @@ export function VenusPage() {
             confidenceNote: res.confidenceNote,
             contextQuery: text,
           };
-          const withVenus: ChatSession = { ...updated, messages: [...newMessages, venusMsg] };
+          // Merge onto sessionRef.current (see its declaration above), not
+          // `updated` — that's a snapshot from before ensureServerChat's
+          // await, so building the final state from it would silently drop
+          // the serverChatId ensureServerChat may have set in the meantime.
+          // Plain object construction, not a setState updater — persisting
+          // (a real localStorage write) as a side effect inside an updater
+          // callback is unsafe: React documents updaters as pure functions
+          // that may run more than once for one commit (Strict Mode
+          // double-invocation, a preempted/discarded render), which would
+          // have made persistSession fire an extra, wasted time.
+          const withVenus: ChatSession = { ...sessionRef.current, messages: [...sessionRef.current.messages, venusMsg] };
           setCurrentSession(withVenus);
           persistSession(withVenus);
         },
