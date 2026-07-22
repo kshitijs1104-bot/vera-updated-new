@@ -684,6 +684,44 @@ export function isContentPolicyRefusal(err: any): boolean {
   return status === 400 && (code.includes("content") || code.includes("policy") || /content.?polic|flagged|refus/i.test(msg));
 }
 
+// Groq's 429s cover two very different situations: a per-minute burst limit
+// (worth the existing 300ms-1.2s in-request retry below) and a daily/quota
+// exhaustion (the message embeds a wait measured in minutes-to-hours — e.g.
+// "Please try again in 58m31.728s" — which no amount of retrying within this
+// same request can fix). Reads Groq's own stated wait time out of the error
+// body rather than guessing a fixed number, since it varies with how far
+// over budget the account is at the moment of the call.
+function parseRetryAfterMs(err: any): number | null {
+  const msg: string = err?.error?.message || err?.message || "";
+  const match = msg.match(/try again in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+  if (!match) return null;
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const seconds = Number(match[3] ?? 0);
+  const totalMs = ((hours * 60 + minutes) * 60 + seconds) * 1000;
+  return totalMs > 0 ? totalMs : null;
+}
+
+// Once the parsed wait exceeds this, an in-request retry (max backoff is
+// 1200ms on the last attempt) has zero chance of succeeding — fail fast
+// with an honest message instead of burning 2 pointless retries plus their
+// backoff delay on a request the founder is actively waiting on.
+const QUOTA_RETRY_FAIL_FAST_THRESHOLD_MS = 5000;
+
+export function isQuotaExhaustedError(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  if (status !== 429) return false;
+  const retryAfterMs = parseRetryAfterMs(err);
+  return retryAfterMs !== null && retryAfterMs > QUOTA_RETRY_FAIL_FAST_THRESHOLD_MS;
+}
+
+// Exposed so callers (ai.ts's catch block) can surface the real wait time
+// to the founder instead of a generic "try again" — only meaningful once
+// isQuotaExhaustedError(err) is true; returns null otherwise/on parse failure.
+export function quotaRetryAfterMs(err: any): number | null {
+  return parseRetryAfterMs(err);
+}
+
 async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string, attempts = 3) {
   let lastErr: unknown;
   let currentParams = params;
@@ -696,6 +734,14 @@ async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string
       // A content-policy refusal from the provider is never retryable — retrying
       // or shrinking the payload won't change the provider's answer.
       if (isContentPolicyRefusal(err)) throw err;
+      // Same logic: a daily/quota 429 (see isQuotaExhaustedError) has a
+      // real wait measured in minutes-to-hours — retrying inside this
+      // request cannot possibly succeed, so fail fast instead of spending
+      // 2 more attempts' worth of latency on a request that's already lost.
+      if (isQuotaExhaustedError(err)) {
+        console.error(`[callGroqJSON] "${label}" — quota exhausted (status=429), retry-after=${parseRetryAfterMs(err)}ms, failing fast instead of retrying`);
+        throw err;
+      }
       if (isOversizedPayload(err)) {
         // Halve message sizes each retry — generic degradation, not a fix
         // targeted at any specific source of bloat. System messages are
@@ -991,11 +1037,27 @@ export function buildFallbackVenusResponse(message: string): object {
 // is the one honest "something didn't work" message in the whole system —
 // everything else should be handled by retrying, shrinking, or falling
 // through to general/web-search-grounded reasoning instead of erroring.
-export function buildTransientErrorResponse(message: string, kind?: "policy"): object {
+// Rounds a millisecond duration into a founder-readable phrase ("58
+// minutes", "2h 5m") — only ever built from Groq's own stated wait time
+// (see quotaRetryAfterMs), never a hardcoded guess.
+function formatWaitDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60000);
+  if (totalMinutes < 1) return "under a minute";
+  if (totalMinutes === 1) return "1 minute";
+  if (totalMinutes < 60) return `${totalMinutes} minutes`;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return mins === 0 ? `${hours} hour${hours > 1 ? "s" : ""}` : `${hours}h ${mins}m`;
+}
+
+export function buildTransientErrorResponse(message: string, kind?: "policy" | "quota", retryAfterMs?: number | null): object {
+  const summary = kind === "policy"
+    ? "Sorry, Vera can't answer that. Please try a different question."
+    : kind === "quota"
+      ? `Vera's hit today's usage limit.${retryAfterMs ? ` Try again in about ${formatWaitDuration(retryAfterMs)}.` : " Please try again shortly."}`
+      : "Sorry, Vera couldn't answer that right now. Please try again or ask something else.";
   return {
-    summary: kind === "policy"
-      ? "Sorry, Vera can't answer that. Please try a different question."
-      : "Sorry, Vera couldn't answer that right now. Please try again or ask something else.",
+    summary,
     isError: true,
     errorType: "transient",
     cards: [],

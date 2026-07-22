@@ -3,7 +3,7 @@ import { db, settingsTable, venusDecisionsTable, goalsTable, type VenusDecision 
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, EXTRACTED_FACTS_INSTRUCTION, EVIDENCE_CONVERGENCE_INSTRUCTION, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, isQuotaExhaustedError, quotaRetryAfterMs, MODERATE_TIER_PRECEDENT_NOTE, EXTRACTED_FACTS_INSTRUCTION, EVIDENCE_CONVERGENCE_INSTRUCTION, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
 import { computeConfidence } from "../lib/confidence";
 import { detectFactConflicts, type ExtractedFact } from "../lib/factConflicts";
@@ -16,6 +16,17 @@ import { materializeRoadmapFromCard } from "../lib/roadmap";
 import { addCompanyFact, getActiveCompanyFacts, formatCompanyFactsForPrompt } from "../lib/companyMemory";
 
 const router = Router();
+
+// Shared by every route's outer catch block: classifies a caught Groq
+// error into the "kind"/"retryAfterMs" pair buildTransientErrorResponse
+// needs to surface an honest message — a daily-quota 429 gets its real
+// wait time (see isQuotaExhaustedError/quotaRetryAfterMs in groq.ts),
+// never a hardcoded guess.
+function classifyGroqError(err: any): { kind: "policy" | "quota" | undefined; retryAfterMs: number | null } {
+  if (isContentPolicyRefusal(err)) return { kind: "policy", retryAfterMs: null };
+  if (isQuotaExhaustedError(err)) return { kind: "quota", retryAfterMs: quotaRetryAfterMs(err) };
+  return { kind: undefined, retryAfterMs: null };
+}
 
 // Fetches the active goal (if any) for the chat this message belongs to and
 // renders it as the block that goes into the system prompt — the mechanism
@@ -903,13 +914,27 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
 
     // Both shadow-mode instructions (extractedFacts — fact-conflict
     // detection, and evidenceConvergence — hypotheses/contradictions) are
-    // only requested for non-narrow queries: together they're a real
-    // ~750-token addition to the system prompt, and narrow follow-ups are
-    // exactly where the TPM budget is already tightest. See groq.ts's
-    // comments on each constant, and the plan this implements, for the
-    // measured cost and why this compounding is flagged for the
-    // calibration review rather than assumed safe.
-    const shadowModeInstructions = isNarrowScope ? "" : `${EXTRACTED_FACTS_INSTRUCTION}${EVIDENCE_CONVERGENCE_INSTRUCTION}`;
+    // only requested for non-narrow queries — narrow follow-ups are exactly
+    // where the TPM budget is already tightest. See groq.ts's comments on
+    // each constant for their measured cost.
+    //
+    // evidenceConvergence is additionally sampled rather than sent on every
+    // eligible request: real production logs on 2026-07-22 showed a broad-
+    // scope request at ~10,354 estimated prompt tokens — already over the
+    // ~6,800-token real budget before either shadow-mode addition — hitting
+    // clampMaxTokensToTpmBudget's floor and then a 413 shrink/retry loop,
+    // and the org separately hit its 200,000/day Groq quota the same day.
+    // evidenceConvergence (~588 measured tokens, the larger of the two) is
+    // pure calibration overhead with no user-facing value yet, so it's the
+    // right lever to cut first rather than pausing calibration entirely —
+    // a ~15% sample still yields a real, if slower-growing, dataset for the
+    // manual review this was built for. Revisit this rate once that review
+    // happens; if [callGroqJSON] clamp/413 warnings on broad-scope requests
+    // don't drop noticeably, evidenceConvergence wasn't the marginal cause
+    // and this sampling isn't the fix that's needed.
+    const EVIDENCE_CONVERGENCE_SAMPLE_RATE = 0.15;
+    const includeEvidenceConvergence = !isNarrowScope && Math.random() < EVIDENCE_CONVERGENCE_SAMPLE_RATE;
+    const shadowModeInstructions = `${isNarrowScope ? "" : EXTRACTED_FACTS_INSTRUCTION}${includeEvidenceConvergence ? EVIDENCE_CONVERGENCE_INSTRUCTION : ""}`;
     const venusPromptForTier = `${isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT}${shadowModeInstructions}`;
     // Narrow queries get the last 3 turns instead of 8 — enough to resolve
     // "what did you mean by that" without paying for a near-full history
@@ -1122,7 +1147,8 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     return res.json(shortQueryFallback || buildTransientErrorResponse(body.data.message));
   } catch (err: any) {
     req.log.error(err);
-    return res.json(buildTransientErrorResponse(body.data.message, isContentPolicyRefusal(err) ? "policy" : undefined));
+    const { kind, retryAfterMs } = classifyGroqError(err);
+    return res.json(buildTransientErrorResponse(body.data.message, kind, retryAfterMs));
   }
 });
 
@@ -1216,7 +1242,8 @@ router.post("/ai/idea-review", requireAuth, async (req, res) => {
     return res.json(buildTransientErrorResponse(body.data.idea));
   } catch (err: any) {
     req.log.error(err);
-    return res.json(buildTransientErrorResponse(body.data.idea, isContentPolicyRefusal(err) ? "policy" : undefined));
+    const { kind, retryAfterMs } = classifyGroqError(err);
+    return res.json(buildTransientErrorResponse(body.data.idea, kind, retryAfterMs));
   }
 });
 
