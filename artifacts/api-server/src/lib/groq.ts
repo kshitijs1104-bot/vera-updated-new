@@ -891,6 +891,36 @@ export const MODERATE_TIER_PRECEDENT_NOTE = `
 
 IMPORTANT — LIMITED PRECEDENT MODE (moderate confidence): The VERIFIED PRECEDENTS below are real, but there are few of them and/or they come from an adjacent or analogous sector/decision type rather than an exact match to this query. You must still reason ONLY from these real precedents — never invent a company, outcome, or causal mechanism not present in the block below, and explicitly name which precedent(s) you are drawing from and why they are still relevant even though the match is imperfect. Do NOT put any caveat about confidence, precedent coverage, or data limitations as the first sentence of the summary field, and do not use the phrase "exploratory signal" or similar hedging language anywhere in the summary — the summary must open directly with the causal bottleneck and recommendation, exactly as it would for a fully-grounded answer. The lower-confidence signal is communicated separately through the confidenceNote field, not by prefacing or softening the actual answer — a founder reading the summary should get a real, direct, confident-sounding recommendation, not a hedged one, even when the precedent match is imperfect.`;
 
+// Feeds shadow-mode fact-conflict detection (see factConflicts.ts and
+// ai.ts's [factConflict] logging) — a founder can contradict themselves
+// within one conversation ("churn is up but so is our NPS") in a way no
+// amount of precedent-vs-precedent checking can catch, since that lives in
+// freeform text the model reads once and never re-exposes as structured
+// data. This is that structured exposure: nothing more.
+//
+// Measured cost (chars/4, same heuristic estimateTokens uses elsewhere in
+// this file): ~660 characters ≈ 165 tokens, added to the system prompt on
+// every request this is appended to. Real against the 8,000 TPM ceiling —
+// this is why ai.ts only appends it for non-narrow queries, and why the
+// resulting extractedFacts field is logged in shadow mode rather than
+// shipped to the client until real production cost/signal data justifies
+// widening it (see the plan this implements).
+//
+// Scoped to "current message AND the conversation history above" — not
+// just the current message — so a metric mentioned two turns ago and a
+// conflicting one mentioned just now still gets caught, at effectively
+// zero extra token cost (that history is already injected into the prompt
+// for any non-narrow query; this only asks the model to also look there).
+// Deliberately does NOT try to catch obliquely-phrased facts ("we're
+// losing fewer people than before" instead of "churn is down") — inferring
+// intent here would violate the same "never infer, only what's stated"
+// principle VENUS_SYSTEM_PROMPT already enforces, and risks turning this
+// into a false-positive machine. That's a known, accepted recall gap for
+// this pass; revisit only if shadow-mode logs show it's a real, frequent miss.
+export const EXTRACTED_FACTS_INSTRUCTION = `
+
+EXTRACTED FACTS (mechanical bookkeeping, not part of your reasoning voice): scanning the founder's current message AND the conversation history above, if any of these tracked metrics — churn, nps, growth, retention, headcount, revenue, cac, ltv — was given an explicit directional change (up, down, or flat), list each as one entry in the "extractedFacts" array: { "metric": "one of the tracked names above", "direction": "up|down|flat" }. Only include a metric a message actually stated a direction for — never infer, never include a metric nobody mentioned. Empty array if none apply. This field is separate from and never restates the summary/cards content.`;
+
 export function buildFallbackVenusResponse(message: string): object {
   return {
     summary: "Vera is not configured. Please add your Groq API key in Settings to unlock full intelligence. Here's a placeholder response based on your query.",

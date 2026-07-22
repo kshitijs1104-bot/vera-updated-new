@@ -3,8 +3,10 @@ import { db, settingsTable, venusDecisionsTable, goalsTable, type VenusDecision 
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { VenusAnalyzeBody, IdeaReviewBody } from "@workspace/api-zod";
-import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
+import { getGroqClient, VENUS_PROMPT, buildFallbackVenusResponse, buildTransientErrorResponse, callGroqJSON, isContentPolicyRefusal, MODERATE_TIER_PRECEDENT_NOTE, EXTRACTED_FACTS_INSTRUCTION, sanitizeVenusResponse, estimateTokens, tpmLimitForModel, TPM_SAFETY_MARGIN, MIN_USABLE_MAX_TOKENS } from "../lib/groq";
 import { retrievePrecedents, formatPrecedentsForPrompt, retrieveOwnResolvedDecisions, formatOwnDecisionsForPrompt, retrieveOpenSessionDecisions, formatOpenSessionDecisionsForPrompt, type RetrievalResult } from "../lib/retrieval";
+import { computeConfidence } from "../lib/confidence";
+import { detectFactConflicts, type ExtractedFact } from "../lib/factConflicts";
 import { webSearch, formatWebSearchForPrompt } from "../lib/websearch";
 import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
@@ -898,7 +900,12 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     const precedentMatches = isNarrowScope ? retrieval.precedents.slice(0, 1) : retrieval.precedents;
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}, tier: ${retrieval.tier}):\n\n${formatPrecedentsForPrompt(precedentMatches)}`;
 
-    const venusPromptForTier = isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT;
+    // extractedFacts (shadow-mode fact-conflict detection — see
+    // EXTRACTED_FACTS_INSTRUCTION's comment in groq.ts and factConflicts.ts)
+    // is only requested for non-narrow queries: it's a real ~165-token
+    // addition to the system prompt, and narrow follow-ups are exactly
+    // where the TPM budget is already tightest.
+    const venusPromptForTier = `${isModerate ? `${VENUS_PROMPT}${MODERATE_TIER_PRECEDENT_NOTE}` : VENUS_PROMPT}${isNarrowScope ? "" : EXTRACTED_FACTS_INSTRUCTION}`;
     // Narrow queries get the last 3 turns instead of 8 — enough to resolve
     // "what did you mean by that" without paying for a near-full history
     // reinjection on every short clarification in a long-running chat.
@@ -988,16 +995,49 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     );
 
     if (parsed) {
+      // Confidence is computed from the actual evidence assembled for this
+      // response (precedent match quality/verification/contradiction, plus
+      // this founder's own resolved-decision track record) instead of a
+      // blind lookup on retrieval.tier — see confidence.ts for the formula.
+      const confidenceResult = computeConfidence(retrieval, ownDecisions);
       parsed.confidenceTier = retrieval.tier;
-      parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
-      parsed.confidenceNote = retrieval.tier === "none"
+      parsed.confidence = confidenceResult.tier;
+      parsed.confidenceScore = confidenceResult.score;
+      parsed.confidenceFactors = confidenceResult.factors;
+      parsed.evidenceRefs = confidenceResult.evidenceRefs;
+      if (confidenceResult.contradictions.length > 0) {
+        parsed.contradictions = confidenceResult.contradictions;
+      }
+      const contradictionNote = confidenceResult.contradictions.length > 0
+        ? " Precedents disagree on outcome for this pattern — treat as a split signal, not consensus."
+        : "";
+      parsed.confidenceNote = (retrieval.tier === "none"
         ? (webResult && !webResult.empty
             ? "Grounded in a live web search plus general reasoning — no direct match in the curated dataset for this specific question."
             : "Grounded in general strategic reasoning — no direct match in the curated dataset for this specific question.")
         : retrieval.tier === "moderate"
           ? "Grounded in a small or adjacent set of precedents — a slightly thinner evidence base than a direct match."
-          : "Grounded in verified precedent coverage.";
+          : "Grounded in verified precedent coverage.") + contradictionNote;
       applyTierLabel(parsed, retrieval);
+
+      // Shadow mode for fact-level contradiction detection (e.g. "churn is
+      // up but so is NPS" stated in the same conversation): extractedFacts
+      // is only present when the EXTRACTED_FACTS_INSTRUCTION was appended
+      // (non-narrow queries — see systemPrompt assembly above). Detected
+      // conflicts are logged for later review, never merged into the
+      // visible response — see factConflicts.ts for why this stays
+      // log-only until real production data confirms it's signal, not
+      // noise, and confirms the actual marginal token cost.
+      if (Array.isArray(parsed.extractedFacts)) {
+        const extractedFactsRaw = JSON.stringify(parsed.extractedFacts);
+        const factConflicts = detectFactConflicts(parsed.extractedFacts as ExtractedFact[]);
+        for (const conflict of factConflicts) {
+          console.error(`[factConflict] session=${sessionId} rule=${conflict.ruleId} facts=${JSON.stringify(conflict.facts)} query="${body.data.message.slice(0, 200)}"`);
+        }
+        console.error(`[factConflict] extractedFacts token delta ~${estimateTokens(extractedFactsRaw)} tokens (session=${sessionId})`);
+        delete parsed.extractedFacts;
+      }
+
       const sanitized = sanitizeVenusResponse(parsed);
       // Fire-and-forget: don't make the founder wait on this, and never let
       // a logging failure affect the response they actually asked for.
@@ -1080,13 +1120,27 @@ router.post("/ai/idea-review", requireAuth, async (req, res) => {
     );
 
     if (parsed) {
+      // Same computed-confidence approach as /ai/analyze (see confidence.ts).
+      // ownDecisions is intentionally [] here: idea-review evaluates a
+      // hypothetical new idea, not a founder's own resolved decision, so
+      // outcomeHistoryFactor has nothing meaningful to draw from in this route.
+      const confidenceResult = computeConfidence(retrieval, []);
       parsed.confidenceTier = retrieval.tier;
-      parsed.confidence = retrieval.tier === "none" ? "exploratory" : "verified";
-      parsed.confidenceNote = retrieval.tier === "none"
+      parsed.confidence = confidenceResult.tier;
+      parsed.confidenceScore = confidenceResult.score;
+      parsed.confidenceFactors = confidenceResult.factors;
+      parsed.evidenceRefs = confidenceResult.evidenceRefs;
+      if (confidenceResult.contradictions.length > 0) {
+        parsed.contradictions = confidenceResult.contradictions;
+      }
+      const contradictionNote = confidenceResult.contradictions.length > 0
+        ? " Precedents disagree on outcome for this pattern — treat as a split signal, not consensus."
+        : "";
+      parsed.confidenceNote = (retrieval.tier === "none"
         ? "Grounded in general strategic reasoning — no direct match in the curated dataset for this specific question."
         : retrieval.tier === "moderate"
           ? "Grounded in a small or adjacent set of precedents — a slightly thinner evidence base than a direct match."
-          : "Grounded in verified precedent coverage.";
+          : "Grounded in verified precedent coverage.") + contradictionNote;
       applyTierLabel(parsed, retrieval);
       return res.json(sanitizeVenusResponse(parsed));
     }
