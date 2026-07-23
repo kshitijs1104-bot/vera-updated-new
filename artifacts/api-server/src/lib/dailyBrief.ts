@@ -1,4 +1,4 @@
-import { db, goalsTable, venusDecisionsTable, roadmapsTable, companyFactsTable } from "@workspace/db";
+import { db, goalsTable, venusDecisionsTable, roadmapsTable, companyFactsTable, messagesTable } from "@workspace/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { attachGoalProgress } from "../routes/chats";
 import { parsePhases } from "./roadmap";
@@ -175,4 +175,75 @@ export async function getRecentAssumptionChange(userId: string): Promise<Assumpt
     console.error("[dailyBrief] failed to load recent assumption change", err);
     return null;
   }
+}
+
+// ---- Usage stats: the "why should I trust this daily" counter-strip ----
+//
+// Not a new subsystem — just a read-time rollup over rows every other
+// feature already writes (venus_decisions, goals, messages/company_facts as
+// a usage-date proxy). The point isn't the exact numbers, it's giving the
+// founder a concrete, growing "this is compounding" signal every time they
+// open the app, instead of only the passive once-a-day inbox above.
+//
+// valueTrackedInr is deliberately labeled and described as tracked GOAL
+// VALUE, never "profit" or "revenue" — Vera has no accounting integration,
+// so claiming a real financial number would be a fabricated precision this
+// codebase's own prompt rules (NO FAKE PRECISION) explicitly forbid; the
+// only honest number here is the founder's own stated value on goals they
+// marked complete.
+export interface UsageStats {
+  decisionsResolved: number;
+  goalsCompleted: number;
+  goalsActive: number;
+  daysActive: number;
+  valueTrackedInr: number;
+}
+
+function countDistinctDays(dateLists: (Date | null)[][]): number {
+  const days = new Set<string>();
+  for (const list of dateLists) {
+    for (const d of list) {
+      if (d) days.add(new Date(d).toISOString().slice(0, 10));
+    }
+  }
+  return days.size;
+}
+
+export async function getUsageStats(userId: string): Promise<UsageStats> {
+  const [decisionsResolved, goalRows, messageDays, decisionDays, factDays] = await Promise.all([
+    db.select({ id: venusDecisionsTable.id }).from(venusDecisionsTable)
+      .where(and(eq(venusDecisionsTable.sessionId, userId), eq(venusDecisionsTable.status, "resolved")))
+      .then((rows) => rows.length)
+      .catch((err) => { console.error("[dailyBrief] usageStats: decisionsResolved failed", err); return 0; }),
+    db.select({ status: goalsTable.status, valueInr: goalsTable.valueInr }).from(goalsTable)
+      .where(eq(goalsTable.userId, userId))
+      .catch((err) => { console.error("[dailyBrief] usageStats: goals failed", err); return [] as { status: string; valueInr: number }[]; }),
+    // Best-effort — the messages table is the real usage log going forward,
+    // but degrades to empty gracefully (e.g. before its migration has run)
+    // rather than breaking this whole stat strip.
+    db.select({ createdAt: messagesTable.createdAt }).from(messagesTable)
+      .where(eq(messagesTable.userId, userId))
+      .then((rows) => rows.map((r) => r.createdAt))
+      .catch(() => [] as (Date | null)[]),
+    db.select({ createdAt: venusDecisionsTable.createdAt }).from(venusDecisionsTable)
+      .where(eq(venusDecisionsTable.sessionId, userId))
+      .then((rows) => rows.map((r) => r.createdAt))
+      .catch(() => [] as (Date | null)[]),
+    db.select({ createdAt: companyFactsTable.createdAt }).from(companyFactsTable)
+      .where(eq(companyFactsTable.userId, userId))
+      .then((rows) => rows.map((r) => r.createdAt))
+      .catch(() => [] as (Date | null)[]),
+  ]);
+
+  const goalsCompleted = goalRows.filter((g) => g.status === "completed").length;
+  const goalsActive = goalRows.filter((g) => g.status === "active").length;
+  const valueTrackedInr = goalRows
+    .filter((g) => g.status === "completed")
+    .reduce((sum, g) => sum + (g.valueInr ?? 0), 0);
+  // Union across sources so this reads real usage from day one (before the
+  // messages table has real history) and still becomes messages-driven
+  // (the true per-turn log) as that table fills in going forward.
+  const daysActive = countDistinctDays([messageDays, decisionDays, factDays]);
+
+  return { decisionsResolved, goalsCompleted, goalsActive, daysActive, valueTrackedInr };
 }

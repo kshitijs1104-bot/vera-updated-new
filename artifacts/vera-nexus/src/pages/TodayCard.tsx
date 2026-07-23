@@ -7,7 +7,39 @@ import {
   useAddCompanyFact,
   useRoadmap,
   useSetRoadmapActionStatus,
+  type DailyBriefStats,
 } from '../lib/venusApi';
+
+function formatInr(n: number): string {
+  return '₹' + n.toLocaleString('en-IN');
+}
+
+// The "why should I trust this daily" counter strip — read-only, always
+// visible whenever there's at least one non-zero number worth showing (an
+// all-zero row on day one is just noise, not a trust signal yet). Compact by
+// design: this competes for attention against everything else in the
+// founder's day, so it has to be scannable in under a second, not another
+// dashboard to interpret.
+function StatsStrip({ stats }: { stats: DailyBriefStats }) {
+  const items: { label: string; value: string }[] = [];
+  if (stats.decisionsResolved > 0) items.push({ label: stats.decisionsResolved === 1 ? 'decision resolved' : 'decisions resolved', value: String(stats.decisionsResolved) });
+  if (stats.daysActive > 0) items.push({ label: stats.daysActive === 1 ? 'day active' : 'days active', value: String(stats.daysActive) });
+  if (stats.goalsCompleted > 0) items.push({ label: stats.goalsCompleted === 1 ? 'goal hit' : 'goals hit', value: String(stats.goalsCompleted) });
+  if (stats.valueTrackedInr > 0) items.push({ label: 'value tracked', value: formatInr(stats.valueTrackedInr) });
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-2.5 pb-2.5" style={{ borderBottom: '1px solid var(--v7-tint-border)' }}>
+      {items.map((item) => (
+        <span key={item.label} className="flex items-baseline gap-1">
+          <span className="text-[13px] font-bold" style={{ color: 'var(--v7-text)' }}>{item.value}</span>
+          <span className="text-[10.5px]" style={{ color: 'var(--v7-text-mute)' }}>{item.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 import { reportSubTaskOutcome, type OutcomeSentiment } from './GoalPanel';
 
 // Morning Check-In + Decision Inbox — NOT new features, both are views over
@@ -297,8 +329,14 @@ export function TodayCard() {
     setDismissed(true);
   };
 
+  const stats = briefQuery.data?.stats ?? null;
+  const hasStats = !!stats && (stats.decisionsResolved > 0 || stats.daysActive > 0 || stats.goalsCompleted > 0 || stats.valueTrackedInr > 0);
+
   if (dismissed) return null;
-  if (!checkinStep && inboxItems.length === 0) return null;
+  // A stat worth showing is its own reason to keep this card up, even on a
+  // day with no open question and nothing flagged — it's the one thing here
+  // that's purely a "look what's compounding" signal, not a task.
+  if (!checkinStep && inboxItems.length === 0 && !hasStats) return null;
 
   const { text: greetingText, Icon: GreetingIcon } = greeting();
   const cardStyle = {
@@ -310,6 +348,10 @@ export function TodayCard() {
     const parts: string[] = [];
     if (checkinStep) parts.push('1 quick question');
     if (inboxItems.length > 0) parts.push(`${inboxItems.length} flagged`);
+    if (hasStats && stats) {
+      if (stats.decisionsResolved > 0) parts.push(`${stats.decisionsResolved} decision${stats.decisionsResolved === 1 ? '' : 's'} helped`);
+      else if (stats.daysActive > 0) parts.push(`${stats.daysActive} day${stats.daysActive === 1 ? '' : 's'} active`);
+    }
     return (
       <button
         onClick={() => setOpen(true)}
@@ -353,6 +395,8 @@ export function TodayCard() {
           </button>
         </div>
       </div>
+
+      {hasStats && stats && <StatsStrip stats={stats} />}
 
       {checkinStep && (
         <div className="pb-2.5 mb-2.5" style={{ borderBottom: inboxItems.length > 0 ? '1px solid var(--v7-tint-border)' : 'none' }}>

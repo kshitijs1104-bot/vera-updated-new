@@ -5,6 +5,7 @@ import {
   getBiggestRiskGoal,
   getBlockedRoadmapAction,
   getRecentAssumptionChange,
+  getUsageStats,
 } from "../lib/dailyBrief";
 
 const router = Router();
@@ -18,11 +19,12 @@ router.get("/daily-brief", requireAuth, async (req, res) => {
   try {
     const userId = requireUserId(req);
     const [topDecision, biggestRisk] = await Promise.all([getTopOpenDecision(userId), getBiggestRiskGoal(userId)]);
-    const [blockedTask, assumptionChange] = await Promise.all([
+    const [blockedTask, assumptionChange, stats] = await Promise.all([
       getBlockedRoadmapAction(userId, biggestRisk?.chatId ?? null),
       getRecentAssumptionChange(userId),
+      getUsageStats(userId),
     ]);
-    return res.json({ topDecision, biggestRisk, blockedTask, assumptionChange });
+    return res.json({ topDecision, biggestRisk, blockedTask, assumptionChange, stats });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Failed to load daily brief" });

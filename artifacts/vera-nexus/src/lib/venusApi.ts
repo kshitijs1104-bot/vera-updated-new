@@ -199,11 +199,20 @@ export interface DailyBriefAssumptionChange {
   changedAt: string | null;
 }
 
+export interface DailyBriefStats {
+  decisionsResolved: number;
+  goalsCompleted: number;
+  goalsActive: number;
+  daysActive: number;
+  valueTrackedInr: number;
+}
+
 export interface DailyBrief {
   topDecision: DailyBriefDecision | null;
   biggestRisk: DailyBriefRisk | null;
   blockedTask: DailyBriefBlockedTask | null;
   assumptionChange: DailyBriefAssumptionChange | null;
+  stats: DailyBriefStats;
 }
 
 export function useDailyBrief() {

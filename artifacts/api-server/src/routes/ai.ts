@@ -23,6 +23,7 @@ import {
   looksLikeGeneralizablePreference,
   confirmPreferenceWithModel,
   looksLikeExistingPreference,
+  enforceStylePreferences,
 } from "../lib/preferenceDetection";
 import { parseLengthConstraint, verifyLengthConstraint, describeLengthConstraint } from "../lib/lengthConstraint";
 
@@ -298,9 +299,23 @@ function buildShortQueryFallback(message: string) {
   };
 }
 
+// Code-side mirror of groq.ts's DRAFTING MODE trigger ("asking you to draft
+// actual copy... as opposed to asking for strategic advice about content"),
+// so the CONTEXT SUFFICIENCY GATE — a pre-model regex check the prompt has
+// no way to override — never fires on a drafting request the prompt itself
+// promises is exempt from it. Found live: "draft a short email to our
+// landlord" was gated on "our" (personalBusinessReference) and never even
+// reached the model, contradicting the prompt's own stated behavior.
+const DRAFTING_REQUEST = /\b(draft|write|compose)\b.{0,40}\b(email|e-?mail|message|dm|post|caption|tweet|script|reel|talking points|letter|note|reply|response)\b/i;
+
+function looksLikeDraftingRequest(message: string): boolean {
+  return DRAFTING_REQUEST.test(message);
+}
+
 function requiresContext(message: string) {
   const normalized = normalizeQueryText(message);
   if (!normalized) return false;
+  if (looksLikeDraftingRequest(message)) return false;
 
   const contextNeedWords = /(price|pricing|charge|cost|target customer|customer|segment|business model|model|industry|sector|stage|team size|audience|market|competitor|positioning|distribution|channel|go to market|g2m|launch|product|mvp|swot|growth|cac|ltv|unit economics|revenue|profit|margin|raise|funding|roadmap|hire|intern|talent|sales|retention|churn|pitch|deck|offer|subscription|risk|risks|threat|threats|weakness|weaknesses|vulnerability|vulnerabilities|priority|priorities|bottleneck|blocker|blockers|mistake|mistakes|blind spot|moat|differentiation|runway|burn)/i;
 
@@ -1437,6 +1452,16 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       }
 
       let sanitized = sanitizeVenusResponse(parsed);
+
+      // Mechanically enforce any stored literal style preference (no
+      // em-dashes, no emoji) rather than trusting the model followed its own
+      // confirmation — found live: a response that just promised "no
+      // em-dashes going forward" used one in that same sentence. Cheap, pure
+      // string ops, so it runs unconditionally rather than being gated by
+      // query scope.
+      if (typeof sanitized.summary === "string" && preferenceFacts.length > 0) {
+        sanitized.summary = enforceStylePreferences(sanitized.summary, preferenceFacts.map((f) => f.factText));
+      }
 
       // Item 7: quantifiable constraint verification. Models can't reliably
       // count characters/words from tokens, so a stated length constraint

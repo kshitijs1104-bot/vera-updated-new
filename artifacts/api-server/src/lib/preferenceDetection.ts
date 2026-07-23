@@ -56,6 +56,31 @@ export function looksLikeExistingPreference(existingPreferenceTexts: string[], c
   });
 }
 
+// Mechanical enforcement for the small set of stored preferences that are
+// LITERAL, checkable text rules (no em-dashes, no emoji) rather than a style
+// judgment call — same principle as lengthConstraint.ts: a model instruction
+// alone is unreliable (observed live: a response confirming "no em-dashes
+// going forward" used an em-dash in that very sentence), so the mechanically
+// checkable ones get a code-level guarantee instead of relying on the prompt
+// alone. Deliberately narrow — only the two concrete, unambiguous cases below;
+// a subjective preference ("keep it casual") has no mechanical check and
+// stays prompt-only.
+const EM_DASH_PATTERN = /\s*[—–]\s*/g;
+const EMOJI_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu;
+
+export function enforceStylePreferences(text: string, preferenceTexts: string[]): string {
+  if (preferenceTexts.length === 0) return text;
+  const combined = preferenceTexts.join(" ").toLowerCase();
+  let result = text;
+  if (/em-?dash/.test(combined)) {
+    result = result.replace(EM_DASH_PATTERN, ", ");
+  }
+  if (/\bemoji/.test(combined)) {
+    result = result.replace(EMOJI_PATTERN, "");
+  }
+  return result;
+}
+
 export interface PreferenceModelCheck {
   isStandingPreference: boolean;
   preferenceText: string | null;
