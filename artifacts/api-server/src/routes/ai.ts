@@ -16,7 +16,15 @@ import { requireAuth, requireUserId } from "../middlewares/auth";
 import { applyResolvedEvidence } from "../lib/goalEvidence";
 import { classifyDecisionType, archiveStaleOpenDecisions } from "../lib/decisionMemory";
 import { materializeRoadmapFromCard } from "../lib/roadmap";
-import { addCompanyFact, getActiveCompanyFacts, formatCompanyFactsForPrompt } from "../lib/companyMemory";
+import { addCompanyFact, getActiveCompanyFacts, getActivePreferenceFacts, formatCompanyFactsForPrompt, formatPreferenceFactsForPrompt, findPotentialContradiction, supersedeFact } from "../lib/companyMemory";
+import { logMessage, getRelevantMessages } from "../lib/messageLog";
+import {
+  looksLikeCorrection,
+  looksLikeGeneralizablePreference,
+  confirmPreferenceWithModel,
+  looksLikeExistingPreference,
+} from "../lib/preferenceDetection";
+import { parseLengthConstraint, verifyLengthConstraint, describeLengthConstraint } from "../lib/lengthConstraint";
 
 const router = Router();
 
@@ -124,6 +132,20 @@ const BENCHMARKABLE_CATEGORY = /\b(price|pricing|priced|subscription|fee|fees|ch
 // this fix; this is the code-side half that stops the forced instruction
 // from ever reaching the prompt in the first place.
 const DIAGNOSTIC_QUESTION = /\b(why|what'?s (causing|wrong|broken|happening|going on)|whats (causing|wrong|broken|happening|going on)|stalling|stalled|stuck|struggling|isn'?t (working|converting|growing|selling)|not (working|converting|growing|selling)|declin(ing|ed)|dropp(ing|ed)|falling|slipping)\b/i;
+
+// Item 5: a question that's actually asking about something real, current,
+// and externally checkable (a named product/tool/competitor's reputation,
+// reviews, recent news) rather than a strategic call about the founder's own
+// business. Before this existed, the ONLY thing that ever triggered a real
+// web search was `isNone && !isNarrowScope` (see webResult below) — a query
+// like "is Notion good for this" that happens to clear a "moderate"
+// precedent-tier match on generic startup vocabulary (see
+// .agents/memory/retrieval-gating-lexical-overlap.md — exactly the kind of
+// false-positive match that dataset is prone to), or that gets classified
+// narrow, never got a live search and was answered from the model's own
+// stale training knowledge instead. This regex is deliberately narrow/cheap,
+// same style as BENCHMARKABLE_CATEGORY/DIAGNOSTIC_QUESTION above.
+const FACTUAL_EXTERNAL_QUERY = /\b(is\s+\w[\w .]{0,30}\s+(good|bad|worth it|reliable|legit)|reviews?\s+(of|on|for)|what do people think of|who is\b.{0,30}\bcompetitor|competitors? of|how does\b.{0,40}\bcompare to|compare(d)? to|latest (news|update)s? on|opinions? on)\b/i;
 
 function inferDecisionRouting(message: string) {
   const normalized = normalizeQueryText(message);
@@ -430,6 +452,91 @@ function classifyContextConfirmationReply(message: string): "new" | "same" | "un
   if (/^\s*(same|same one|same business|it'?s the same|continuing|still the same)\s*[.!]?\s*$/i.test(normalized)) {
     return "same";
   }
+  return "unclear";
+}
+
+// ---- Pending "should I remember this preference?" confirmation state ----
+// (Item 3: correction detection + lightweight confirmation.) Same pattern as
+// the business-context confirmation above: persisting the fact that a
+// specific question was asked so the very next reply is checked against
+// THAT question before any other classifier runs.
+
+async function getPendingPreferenceText(sessionId: string): Promise<string | null> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    return row?.pendingPreferenceText ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function setPendingPreferenceText(sessionId: string, text: string | null): Promise<void> {
+  try {
+    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    if (existing) {
+      await db.update(settingsTable).set({ pendingPreferenceText: text, updatedAt: new Date() }).where(eq(settingsTable.sessionId, sessionId));
+    } else if (text) {
+      await db.insert(settingsTable).values({ sessionId, pendingPreferenceText: text }).onConflictDoNothing({ target: settingsTable.sessionId });
+    }
+  } catch {
+    // Best-effort — worst case the next reply gets re-gated as a fresh
+    // message instead of read as an answer to this specific question.
+  }
+}
+
+// Deliberately narrow and literal, same shape as classifyContextConfirmationReply
+// above — this only ever runs when pendingPreferenceText is set, so it's
+// answering one specific yes/no question, not parsing arbitrary sentiment.
+function classifyYesNoReply(message: string): "yes" | "no" | "unclear" {
+  const normalized = normalizeQueryText(message);
+  if (/^\s*(yes|yep|yeah|sure|please do|go ahead|do it|correct|right)\s*[.!]?\s*$/i.test(normalized)) return "yes";
+  if (/^\s*(no|nope|nah|don'?t|do not)\s*[.!]?\s*$/i.test(normalized)) return "no";
+  return "unclear";
+}
+
+// ---- Pending fact-contradiction confirmation state ----
+// (Item 4: risk-tiered fact storage.) A new business-context statement that
+// looks like it contradicts an already-stored fact (see
+// companyMemory.findPotentialContradiction) must never be silently
+// overwritten or silently ignored — ask once, same philosophy as the
+// business-pivot confirmation above.
+
+interface PendingFactContradiction {
+  oldFactId: number;
+  newFactText: string;
+  factType: string;
+  sourceType: "onboarding" | "chat" | "checkin" | "decision" | "manual";
+}
+
+async function getPendingFactContradiction(sessionId: string): Promise<PendingFactContradiction | null> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    if (!row?.pendingFactContradiction) return null;
+    return JSON.parse(row.pendingFactContradiction) as PendingFactContradiction;
+  } catch {
+    return null;
+  }
+}
+
+async function setPendingFactContradiction(sessionId: string, value: PendingFactContradiction | null): Promise<void> {
+  try {
+    const encoded = value ? JSON.stringify(value) : null;
+    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.sessionId, sessionId)).limit(1);
+    if (existing) {
+      await db.update(settingsTable).set({ pendingFactContradiction: encoded, updatedAt: new Date() }).where(eq(settingsTable.sessionId, sessionId));
+    } else if (encoded) {
+      await db.insert(settingsTable).values({ sessionId, pendingFactContradiction: encoded }).onConflictDoNothing({ target: settingsTable.sessionId });
+    }
+  } catch {
+    // Best-effort — same degrade-gracefully philosophy as every other
+    // pending-state setter in this file.
+  }
+}
+
+function classifyContradictionResolutionReply(message: string): "update" | "both" | "unclear" {
+  const normalized = normalizeQueryText(message);
+  if (/\b(update|correct|change it|replace|yes update)\b/i.test(normalized)) return "update";
+  if (/\b(both|both true|still true|no both|keep both)\b/i.test(normalized)) return "both";
   return "unclear";
 }
 
@@ -821,6 +928,87 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       }
     }
 
+    // ---- Item 4: pending fact-contradiction confirmation ----
+    // Same priority tier as the business-pivot confirmation above — if the
+    // previous turn asked "you told me X before, now Y — update or both
+    // true?", this message is the answer to THAT question.
+    const pendingContradiction = await getPendingFactContradiction(sessionId);
+    if (pendingContradiction) {
+      const resolution = classifyContradictionResolutionReply(body.data.message);
+      if (resolution === "update") {
+        await setPendingFactContradiction(sessionId, null);
+        await supersedeFact(pendingContradiction.oldFactId, {
+          userId: sessionId,
+          factText: pendingContradiction.newFactText,
+          factType: pendingContradiction.factType,
+          sourceType: pendingContradiction.sourceType,
+        });
+        return res.json({ summary: "Got it — updated.", cards: [], contextAcknowledged: true });
+      }
+      if (resolution === "both") {
+        await setPendingFactContradiction(sessionId, null);
+        await addCompanyFact({
+          userId: sessionId,
+          factText: pendingContradiction.newFactText,
+          factType: pendingContradiction.factType,
+          sourceType: pendingContradiction.sourceType,
+        });
+        return res.json({ summary: "Got it — I'll keep both as true.", cards: [], contextAcknowledged: true });
+      }
+      // Unclear — re-ask rather than guessing which one to keep.
+      return res.json({
+        summary: "Just to be sure — did that replace what you told me before, or are both still true?",
+        cards: [],
+        requiresClarification: true,
+      });
+    }
+
+    // ---- Item 3: pending "should I remember this preference?" confirmation ----
+    const pendingPreference = await getPendingPreferenceText(sessionId);
+    if (pendingPreference) {
+      const reply = classifyYesNoReply(body.data.message);
+      if (reply === "yes") {
+        await setPendingPreferenceText(sessionId, null);
+        await addCompanyFact({ userId: sessionId, factText: pendingPreference, entryKind: "preference", claimType: "style_preference", sourceType: "chat" });
+        return res.json({ summary: "Got it — I'll remember that.", cards: [], contextAcknowledged: true });
+      }
+      if (reply === "no") {
+        await setPendingPreferenceText(sessionId, null);
+        // Exactly one follow-up question, then move on — never re-ask this
+        // same thing again on the next message.
+        return res.json({ summary: "Got it — what should I do instead?", cards: [], requiresClarification: true });
+      }
+      return res.json({
+        summary: `Got it — should I remember "${pendingPreference}" going forward?`,
+        cards: [],
+        requiresPreferenceConfirmation: true,
+      });
+    }
+
+    // ---- Item 3: correction detection ----
+    // Cheap regex pre-filter (looksLikeCorrection + looksLikeGeneralizablePreference)
+    // decides whether it's even worth spending a model call; only when BOTH
+    // fire does this ask the model itself to judge whether the message is a
+    // genuine standing preference (vs. a one-off correction specific to this
+    // instance) — see preferenceDetection.ts for why this is a 3-layer check
+    // rather than a hardcoded keyword rule. Skipped entirely (zero extra
+    // cost) on the far more common case where the regex pre-filter doesn't fire.
+    const priorAssistantMessage = [...(body.data.sessionHistory ?? [])].reverse().find((h) => h.role === "assistant")?.content ?? "";
+    if (priorAssistantMessage && looksLikeCorrection(body.data.message, priorAssistantMessage) && looksLikeGeneralizablePreference(body.data.message)) {
+      const existingPreferences = await getActivePreferenceFacts(sessionId, 20);
+      if (!looksLikeExistingPreference(existingPreferences.map((f) => f.factText), body.data.message)) {
+        const modelCheck = await confirmPreferenceWithModel(groq, body.data.message, priorAssistantMessage);
+        if (modelCheck?.isStandingPreference && modelCheck.preferenceText) {
+          await setPendingPreferenceText(sessionId, modelCheck.preferenceText);
+          return res.json({
+            summary: `Got it — should I remember "${modelCheck.preferenceText}" going forward?`,
+            cards: [],
+            requiresPreferenceConfirmation: true,
+          });
+        }
+      }
+    }
+
     const effectiveBusinessContext = body.data.businessContext || sessionHistoryContext || storedContext;
 
     const pureContextStatement = isPureContextStatement(body.data.message);
@@ -844,6 +1032,23 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
         ? `${storedContext} | ${body.data.message}`
         : body.data.message;
       await saveStoredBusinessContext(sessionId, combinedContext);
+
+      // Before logging this as a new structured fact, check whether it
+      // contradicts an already-stored one (see companyMemory.findPotentialContradiction)
+      // — a genuine conflict must be surfaced and confirmed, never silently
+      // overwritten or silently duplicated. This IS blocking (one cheap DB
+      // read), unlike the fire-and-forget log below, because the founder
+      // needs an answer this turn if there's a real conflict to resolve.
+      const conflict = await findPotentialContradiction(sessionId, "general", body.data.message);
+      if (conflict) {
+        await setPendingFactContradiction(sessionId, { oldFactId: conflict.id, newFactText: body.data.message, factType: "general", sourceType: "chat" });
+        return res.json({
+          summary: `You told me before: "${conflict.factText}" — this sounds different: "${body.data.message}". Did that change, or are both true?`,
+          cards: [],
+          requiresClarification: true,
+        });
+      }
+
       // Also log the atomic new statement (not the whole growing blob) as
       // its own structured fact — see companyMemory.ts for why this exists
       // alongside the blob rather than replacing it. Fire-and-forget:
@@ -874,6 +1079,37 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // already-oversized request after the fact.
     const queryScope = classifyQueryScope(body.data.message, body.data.sessionHistory);
     const isNarrowScope = queryScope === "narrow";
+
+    // Fire-and-forget: persist this user turn to the permanent raw log (see
+    // messageLog.ts / lib/db/src/schema/messages.ts) — the RAW LOG layer.
+    // Keyed on userId regardless of chatId, so it's queryable across all of
+    // this founder's chats later, never just this one thread.
+    logMessage({ userId: sessionId, chatId: body.data.chatId, role: "user", content: body.data.message }).catch(() => {});
+
+    // SESSION-SCOPED WORKING CONTEXT, sourced from the durable raw log
+    // instead of the client-sent sessionHistory whenever a real chatId
+    // exists. This is the actual fix for cross-topic bleed (e.g. an earlier
+    // "draft a mail" turn leaking into a later, unrelated question):
+    // getRelevantMessages keeps the most recent turns for coherence PLUS
+    // only the older turns that are topically relevant to THIS message,
+    // instead of dumping every recent turn regardless of topic. Falls back
+    // to the client-sent sessionHistory when there's no chatId (e.g. an
+    // anonymous/legacy call) so nothing regresses for that case.
+    let serverHistory: { role?: string; content?: string }[] | undefined;
+    if (body.data.chatId) {
+      try {
+        const relevant = await getRelevantMessages(sessionId, body.data.chatId, body.data.message, {
+          keepRecent: isNarrowScope ? 3 : 8,
+          topKRelevant: isNarrowScope ? 2 : 6,
+        });
+        if (relevant.length > 0) {
+          serverHistory = relevant.map((m) => ({ role: m.role, content: m.content }));
+        }
+      } catch {
+        // fall through to client-sent sessionHistory below
+      }
+    }
+    const effectiveSessionHistory = serverHistory ?? body.data.sessionHistory;
 
     const retrieval = await retrievePrecedents(body.data.message, { businessContext: effectiveBusinessContext });
 
@@ -911,13 +1147,31 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // track record re-injected.
     const companyFacts = isNarrowScope ? [] : await getActiveCompanyFacts(sessionId, 8);
     const companyFactsBlock = companyFacts.length > 0
-      ? `STRUCTURED FACTS VENUS HAS LEARNED ABOUT THIS FOUNDER'S BUSINESS (individually captured and correctable, higher-confidence than the freeform Business Context line below):\n${formatCompanyFactsForPrompt(companyFacts)}`
+      ? `STRUCTURED FACTS VENUS HAS LEARNED ABOUT THIS FOUNDER'S BUSINESS (individually captured and correctable, higher-confidence than the freeform Business Context line below; facts tagged "user-reported" are the founder's own claim — reason from them but never restate them back as independently established fact):\n${formatCompanyFactsForPrompt(companyFacts)}`
+      : "";
+    // Standing preferences ("no em-dashes," "keep answers short") are pulled
+    // regardless of isNarrowScope/topic — unlike business facts above, a
+    // style rule must apply to every future task, not just a topically
+    // similar one (see companyMemory.getActivePreferenceFacts).
+    const preferenceFacts = await getActivePreferenceFacts(sessionId, 10);
+    const preferenceFactsBlock = preferenceFacts.length > 0
+      ? `STANDING PREFERENCES THIS FOUNDER HAS ASKED VENUS TO ALWAYS FOLLOW (apply to every response below, regardless of topic):\n${formatPreferenceFactsForPrompt(preferenceFacts)}`
       : "";
     const goalHistoryBlock = isNarrowScope ? "" : await buildGoalHistoryBlock(sessionId);
-    const memoryBlock = `${companyFactsBlock ? `\n\n${companyFactsBlock}` : ""}${goalHistoryBlock ? `\n\n${goalHistoryBlock}` : ""}`;
+    const memoryBlock = `${companyFactsBlock ? `\n\n${companyFactsBlock}` : ""}${preferenceFactsBlock ? `\n\n${preferenceFactsBlock}` : ""}${goalHistoryBlock ? `\n\n${goalHistoryBlock}` : ""}`;
 
     const isModerate = retrieval.tier === "moderate";
     const isNone = retrieval.tier === "none";
+
+    // Item 5: a query that reads as a factual/external lookup (see
+    // FACTUAL_EXTERNAL_QUERY above) deserves a real search even when it
+    // would otherwise be skipped — either because it accidentally cleared a
+    // "moderate" precedent-tier match on generic vocabulary (a likely
+    // false-positive per .agents/memory/retrieval-gating-lexical-overlap.md,
+    // not genuine relevance to a product-review-style question), or because
+    // it got classified narrow. Never overrides "strong" tier — a direct
+    // curated-dataset match stays authoritative there.
+    const isFactualExternal = FACTUAL_EXTERNAL_QUERY.test(body.data.message);
 
     // No verified precedent in the curated dataset doesn't mean "give up" — it
     // means go find real information instead. This is fully generic: whatever
@@ -928,8 +1182,14 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // web search — it needs the term explained or the prior context
     // clarified, both of which the model can do from general knowledge and
     // the (still-included) recent history. This also removes a real network
-    // round-trip from the narrow-query path, not just tokens.
-    const webResult = isNone && !isNarrowScope ? await webSearch(body.data.message) : null;
+    // round-trip from the narrow-query path, not just tokens. EXCEPT when
+    // isFactualExternal fires — a genuine external-fact question overrides
+    // both the "moderate tier is good enough" and "narrow skips search"
+    // defaults, since answering it from stale model memory instead of a live
+    // source is exactly the failure this item exists to close.
+    const webResult = ((isNone || (isModerate && isFactualExternal)) && (!isNarrowScope || isFactualExternal))
+      ? await webSearch(body.data.message)
+      : null;
     const webSearchBlock = webResult ? formatWebSearchForPrompt(webResult) : "";
 
     // Narrow queries keep at most the single strongest precedent instead of
@@ -976,16 +1236,18 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // "what did you mean by that" without paying for a near-full history
     // reinjection on every short clarification in a long-running chat.
     const historyTurnCount = isNarrowScope ? 3 : 8;
-    const historyContext = body.data.sessionHistory && body.data.sessionHistory.length > 0
-      ? `Conversation context so far:\n${body.data.sessionHistory.slice(-historyTurnCount).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
+    const historyContext = effectiveSessionHistory && effectiveSessionHistory.length > 0
+      ? `Conversation context so far:\n${effectiveSessionHistory.slice(-historyTurnCount).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
       : "Conversation context so far: none.";
     const followUpInstruction = `Conversation routing: narrow follow-up → answer directly and narrowly, at most one supporting card. Broad question → full template, cards only for facets that genuinely need one (not a default 2+). Either way, "Conversation context so far" is background only — never treat an earlier turn's request, including a past draft, as pending action this turn unless the current message asks for it.`;
     const decisionRoutingInstruction = buildDecisionRoutingInstruction(body.data.message);
-    // isNarrowScope note: webResult is intentionally null for a narrow query
-    // (see webResult assignment above) — the instruction text below must not
-    // claim a search ran when it didn't, or the model may reference a
-    // "WEB SEARCH RESULTS" section that isn't actually present in the prompt.
-    const noPrecedentInstruction = isNarrowScope
+    // Keyed on whether webResult actually ran, not on isNarrowScope directly
+    // — Item 5's isFactualExternal override means a narrow query can still
+    // get a real search (see webResult assignment above), and the
+    // instruction text below must not claim a search ran when it didn't, or
+    // claim none ran when one actually did (either way, the model might
+    // reference a "WEB SEARCH RESULTS" section incorrectly).
+    const noPrecedentInstruction = !webResult
       ? `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. This looks like a quick clarification or definition-style question, so no web search was run for it — answer directly from your own general knowledge, staying specific and concrete rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from general knowledge is reasoning, not a "Precedent" card.`
       : `NO VERIFIED PRECEDENT MATCH IN CURATED DATASET: This request doesn't match anything in the verified precedent dataset — that's fine, it just means you can't cite a dataset company/outcome as verified precedent. It does NOT mean you should refuse, hedge into an error, or ask the user to rephrase. A live web search was run for this query (see WEB SEARCH RESULTS below); use whatever real information it surfaced — names, facts, figures, how something actually works — to give a direct, specific, useful answer. If the web search came back empty, answer from your own general knowledge instead; still be direct and specific rather than vague. The confidence badge already shown elsewhere in the UI marks this response as exploratory/unverified, so you do NOT need to repeat a big warning inside your answer — a brief natural mention that this isn't from the verified dataset is enough, stated plainly rather than as a disclaimer wall. Never fabricate a precedent-style company outcome as if it came from the curated dataset — anything you use from web search or general knowledge is reasoning, not a "Precedent" card.`;
 
@@ -1005,8 +1267,8 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // historyContext does, for the same reason: a narrow follow-up doesn't
     // need 10 prior turns replayed as messages to be answered correctly.
     const messageHistoryTurnCount = isNarrowScope ? 4 : 10;
-    if (body.data.sessionHistory && body.data.sessionHistory.length > 0) {
-      for (const h of body.data.sessionHistory.slice(-messageHistoryTurnCount)) {
+    if (effectiveSessionHistory && effectiveSessionHistory.length > 0) {
+      for (const h of effectiveSessionHistory.slice(-messageHistoryTurnCount)) {
         if (h.content) {
           const role = h.role === "user" ? "user" : "assistant";
           messages.push({ role, content: h.content });
@@ -1169,7 +1431,52 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
         }
       }
 
-      const sanitized = sanitizeVenusResponse(parsed);
+      let sanitized = sanitizeVenusResponse(parsed);
+
+      // Item 7: quantifiable constraint verification. Models can't reliably
+      // count characters/words from tokens, so a stated length constraint
+      // ("exactly 50 words") is self-reported and unreliable if left to the
+      // model alone. This is a LIVE, blocking check (unlike the shadow-mode
+      // arithmetic/groundedness checks below) — bounded retries actually
+      // revise the draft against the real, code-counted number until it
+      // genuinely satisfies the constraint, per the explicit ask for this
+      // item. Only ever runs when the founder's own message stated a
+      // constraint (see lengthConstraint.ts) — never fires on an ordinary
+      // request with no stated count.
+      const lengthConstraint = parseLengthConstraint(body.data.message);
+      if (lengthConstraint && typeof sanitized.summary === "string") {
+        const MAX_LENGTH_REVISION_ATTEMPTS = 3;
+        let attempt = 1;
+        let revisionMessages = messages;
+        let check = verifyLengthConstraint(sanitized.summary, lengthConstraint);
+
+        while (!check.ok && attempt < MAX_LENGTH_REVISION_ATTEMPTS) {
+          attempt++;
+          revisionMessages = [
+            ...revisionMessages,
+            { role: "assistant", content: JSON.stringify(sanitized) },
+            {
+              role: "user",
+              content: `Your draft's "summary" field is actually ${check.actual} ${lengthConstraint.unit} (counted exactly, in code) — I asked for ${describeLengthConstraint(lengthConstraint)}. Revise ONLY the summary field's text so it genuinely hits that target. Return the same full JSON shape, just with a corrected summary.`,
+            },
+          ];
+          const revision = await callGroqJSON(
+            groq,
+            { model: "openai/gpt-oss-120b", messages: revisionMessages, temperature: 0.4, max_tokens: requestedMaxTokens },
+            `ai/analyze (length-constraint revision ${attempt})`,
+          );
+          if (!revision.parsed) break; // couldn't get a usable revision — ship the best attempt so far, flagged below
+          sanitized = sanitizeVenusResponse(revision.parsed);
+          check = typeof sanitized.summary === "string" ? verifyLengthConstraint(sanitized.summary, lengthConstraint) : check;
+        }
+
+        if (!check.ok) {
+          // Bounded retries exhausted — ship the closest attempt, but never
+          // silently claim compliance: an honest note beats a false one.
+          console.error(`[lengthConstraint] session=${sessionId} could not converge after ${attempt} attempt(s): requested ${describeLengthConstraint(lengthConstraint)}, actual=${check.actual}`);
+          sanitized.lengthConstraintNote = `Requested ${describeLengthConstraint(lengthConstraint)} — actual count is ${check.actual} ${lengthConstraint.unit}.`;
+        }
+      }
 
       // Response-integrity checks — run on every response (pure regex/math,
       // zero token cost, no reason to gate by query scope). Wrapped in
@@ -1208,6 +1515,12 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       // Fire-and-forget: don't make the founder wait on this, and never let
       // a logging failure affect the response they actually asked for.
       autoLogDecisionCards(sessionId, body.data.message, effectiveBusinessContext, sanitized.cards, body.data.chatId).catch(() => {});
+      // Completes the RAW LOG for this turn (see logMessage call for the
+      // user's message above) — logged as the plain summary text, which is
+      // the actual readable reply a founder saw, not the full cards JSON.
+      if (typeof sanitized.summary === "string") {
+        logMessage({ userId: sessionId, chatId: body.data.chatId, role: "assistant", content: sanitized.summary }).catch(() => {});
+      }
       return res.json(sanitized);
     }
 

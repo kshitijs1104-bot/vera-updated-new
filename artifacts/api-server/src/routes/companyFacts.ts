@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod/v4";
 import { requireAuth, requireUserId } from "../middlewares/auth";
-import { getActiveCompanyFacts, addCompanyFact } from "../lib/companyMemory";
+import { getActiveCompanyFacts, addCompanyFact, deleteCompanyFact } from "../lib/companyMemory";
 
 const router = Router();
 
@@ -43,6 +43,24 @@ router.post("/company-facts", requireAuth, async (req, res) => {
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Failed to save fact" });
+  }
+});
+
+// The "delete" half of "What Vera has learned" (list view is the GET above)
+// — soft-deletes via deletedAt (see companyMemory.deleteCompanyFact), scoped
+// to the authed founder so nobody can delete another user's fact.
+router.delete("/company-facts/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid fact id" });
+
+  try {
+    const userId = requireUserId(req);
+    const deleted = await deleteCompanyFact(userId, id);
+    if (!deleted) return res.status(404).json({ error: "Fact not found" });
+    return res.json({ deleted: true });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Failed to delete fact" });
   }
 });
 

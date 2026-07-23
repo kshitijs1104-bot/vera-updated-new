@@ -34,6 +34,26 @@ export const companyFactsTable = pgTable(
     // untagged one — null would force every reader to handle a third state).
     factType: text("fact_type").notNull().default("general"), // general | constraint | milestone | market | team | metric
 
+    // What KIND of memory this row is, not what it's ABOUT (factType above).
+    // "business_fact" is the original/default use of this table (a claim
+    // about the founder's company); "preference" is a standing style/behavior
+    // rule the founder wants applied to every future response, regardless of
+    // topic (see preferenceDetection.ts); "decision_note" is reserved for a
+    // future direct link to Decision Memory, unused for now. This is what
+    // lets ai.ts always include preferences (never topically filtered) while
+    // still topically filtering business facts.
+    entryKind: text("entry_kind").notNull().default("business_fact"), // business_fact | preference | decision_note
+
+    // Risk tier for how this claim should be REASONED FROM, not just where it
+    // came from (sourceType, below). "style_preference" is safe to store and
+    // apply directly. "user_reported_belief" is the founder's own claim about
+    // themselves or their business — Venus should reason from it as stated
+    // input, never restate it back as independently verified truth.
+    // "verified" is reserved for a claim actually checked against an outside
+    // source; nothing in this system does that verification today, so this
+    // tier stays unused rather than being misapplied to an unverified claim.
+    claimType: text("claim_type").notNull().default("user_reported_belief"), // style_preference | user_reported_belief | verified
+
     // Where this fact came from — lets retrieval/UI weight or filter by
     // provenance (e.g. trust an onboarding-form answer differently than a
     // loosely-classified chat aside).
@@ -50,6 +70,13 @@ export const companyFactsTable = pgTable(
     // filter to `supersededBy IS NULL` and never surface a stale claim
     // alongside the correction that replaced it.
     supersededBy: integer("superseded_by"),
+
+    // Explicit user-initiated removal — deliberately separate from
+    // supersededBy, which means "replaced by a newer statement" (both rows
+    // stay real history). deletedAt means the founder asked for this row to
+    // stop being used/shown at all (the "What Vera has learned" delete
+    // action). Null = not deleted.
+    deletedAt: timestamp("deleted_at"),
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),

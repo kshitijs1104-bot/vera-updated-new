@@ -10,3 +10,4 @@ export * from "./chats";
 export * from "./goals";
 export * from "./company_facts";
 export * from "./roadmaps";
+export * from "./messages";

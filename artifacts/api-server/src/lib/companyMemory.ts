@@ -1,10 +1,12 @@
 import { db, companyFactsTable, type CompanyFact } from "@workspace/db";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { tokenize } from "./retrieval";
 
 // Service layer for the structured Company Memory table (see
 // lib/db/src/schema/company_facts.ts for why this exists alongside
-// settings.venusBusinessContext rather than replacing it outright). Every
-// function here is best-effort: a failure must never break the chat
+// settings.venusBusinessContext rather than replacing it outright, and for
+// the entryKind/claimType/deletedAt columns this file now reads/writes).
+// Every function here is best-effort: a failure must never break the chat
 // response it's attached to, mirroring the try/catch philosophy already
 // established in retrieval.ts and autoLogDecisionCards.
 
@@ -12,6 +14,8 @@ export interface AddCompanyFactInput {
   userId: string;
   factText: string;
   factType?: string; // general | constraint | milestone | market | team | metric
+  entryKind?: "business_fact" | "preference" | "decision_note";
+  claimType?: "style_preference" | "user_reported_belief" | "verified";
   sourceType: "onboarding" | "chat" | "checkin" | "decision" | "manual";
   confidence?: number;
 }
@@ -26,6 +30,8 @@ export async function addCompanyFact(input: AddCompanyFactInput): Promise<Compan
         userId: input.userId,
         factText: trimmed,
         factType: input.factType || "general",
+        entryKind: input.entryKind || "business_fact",
+        claimType: input.claimType || "user_reported_belief",
         sourceType: input.sourceType,
         confidence: input.confidence ?? null,
       })
@@ -37,19 +43,51 @@ export async function addCompanyFact(input: AddCompanyFactInput): Promise<Compan
   }
 }
 
-// Active = not yet superseded by a later, corrected statement. Ordered most
-// recent first so a prompt-context caller taking a top-N slice gets the
-// freshest facts rather than an arbitrary insertion-order slice.
+// Active = not yet superseded by a later, corrected statement, and not
+// explicitly deleted by the founder. Ordered most recent first so a
+// prompt-context caller taking a top-N slice gets the freshest facts rather
+// than an arbitrary insertion-order slice.
 export async function getActiveCompanyFacts(userId: string, limit = 20): Promise<CompanyFact[]> {
   try {
     return await db
       .select()
       .from(companyFactsTable)
-      .where(and(eq(companyFactsTable.userId, userId), isNull(companyFactsTable.supersededBy)))
+      .where(and(
+        eq(companyFactsTable.userId, userId),
+        isNull(companyFactsTable.supersededBy),
+        isNull(companyFactsTable.deletedAt),
+        eq(companyFactsTable.entryKind, "business_fact"),
+      ))
       .orderBy(desc(companyFactsTable.createdAt))
       .limit(limit);
   } catch (err) {
     console.error("[companyMemory] failed to load active facts, degrading to empty", err);
+    return [];
+  }
+}
+
+// Standing preferences ("no em-dashes", "keep answers short") are a SEPARATE
+// pull from ordinary business facts above: a style rule must apply to every
+// future task regardless of topic, so this is never subject to the
+// topic-relevance filtering ai.ts applies to the business-fact block (see
+// getRelevantMessages in messageLog.ts for that filtering, which deliberately
+// does NOT apply here). Capped at a small number since a founder should only
+// ever have a handful of live standing preferences, not dozens.
+export async function getActivePreferenceFacts(userId: string, limit = 10): Promise<CompanyFact[]> {
+  try {
+    return await db
+      .select()
+      .from(companyFactsTable)
+      .where(and(
+        eq(companyFactsTable.userId, userId),
+        isNull(companyFactsTable.supersededBy),
+        isNull(companyFactsTable.deletedAt),
+        eq(companyFactsTable.entryKind, "preference"),
+      ))
+      .orderBy(desc(companyFactsTable.createdAt))
+      .limit(limit);
+  } catch (err) {
+    console.error("[companyMemory] failed to load active preference facts, degrading to empty", err);
     return [];
   }
 }
@@ -77,7 +115,117 @@ export async function supersedeFact(
   }
 }
 
+// Explicit founder-initiated removal (the "What Vera has learned" delete
+// action) — soft delete via deletedAt, scoped to userId so one founder can
+// never delete another's row. Idempotent: deleting an already-deleted row is
+// a no-op success (still returns true), not an error.
+export async function deleteCompanyFact(userId: string, factId: number): Promise<boolean> {
+  try {
+    const [existing] = await db
+      .select({ id: companyFactsTable.id })
+      .from(companyFactsTable)
+      .where(and(eq(companyFactsTable.id, factId), eq(companyFactsTable.userId, userId)))
+      .limit(1);
+    if (!existing) return false;
+    await db
+      .update(companyFactsTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(companyFactsTable.id, factId));
+    return true;
+  } catch (err) {
+    console.error("[companyMemory] failed to delete fact", err);
+    return false;
+  }
+}
+
+// Cheap negation/contradiction markers checked between the new statement and
+// an existing fact that already shares real subject-matter overlap with it
+// (see findPotentialContradiction below) — deliberately narrow rather than a
+// general sentiment/entailment model, same philosophy as every other
+// regex-based classifier in this codebase (isPureContextStatement,
+// looksLikeDifferentBusiness, etc.).
+const NEGATION_MARKERS = /\b(not|no longer|isn'?t|aren'?t|stopped|pivoted away|instead of|rather than|actually we|used to|previously)\b/i;
+// A bare number (with optional currency/percent) — used to catch "we do
+// $10K MRR" vs a later "we do $40K MRR" even with no explicit negation word.
+const NUMERIC_CLAIM = /[\$₹€£]?\s?\d[\d,]*(\.\d+)?\s?%?/g;
+
+function extractNumbers(text: string): string[] {
+  return (text.match(NUMERIC_CLAIM) ?? []).map((s) => s.replace(/\s+/g, ""));
+}
+
+// Looks for an ACTIVE fact of the same factType whose subject clearly
+// overlaps the new statement (shares ≥2 real non-stopword tokens — same
+// floor as retrieval.ts's MIN_RAW_OVERLAP) but whose actual content differs
+// in a way that reads as a correction rather than an elaboration: either an
+// explicit negation/change marker relative to the stored text, or a
+// different stated number where the old fact also had one. Returns the
+// closest such fact, or null if nothing looks like a genuine contradiction —
+// this is a conservative pre-filter (false negatives just mean the founder
+// isn't asked and the fact is added normally; the cost of over-triggering
+// this on ordinary elaboration would be worse, since it would nag the
+// founder on every new detail about the same subject).
+export async function findPotentialContradiction(
+  userId: string,
+  factType: string,
+  newFactText: string,
+): Promise<CompanyFact | null> {
+  try {
+    const candidates = await db
+      .select()
+      .from(companyFactsTable)
+      .where(and(
+        eq(companyFactsTable.userId, userId),
+        eq(companyFactsTable.factType, factType),
+        eq(companyFactsTable.entryKind, "business_fact"),
+        isNull(companyFactsTable.supersededBy),
+        isNull(companyFactsTable.deletedAt),
+      ))
+      .orderBy(desc(companyFactsTable.createdAt))
+      .limit(20);
+
+    if (candidates.length === 0) return null;
+
+    const newTokens = new Set(tokenize(newFactText));
+    const newNumbers = new Set(extractNumbers(newFactText));
+    const hasNegation = NEGATION_MARKERS.test(newFactText);
+
+    for (const fact of candidates) {
+      const oldTokens = new Set(tokenize(fact.factText));
+      let overlap = 0;
+      newTokens.forEach((t) => { if (oldTokens.has(t)) overlap++; });
+      if (overlap < 2) continue; // not even the same subject — not a contradiction candidate
+
+      const oldNumbers = extractNumbers(fact.factText);
+      const numbersDiffer = oldNumbers.length > 0 && newNumbers.size > 0
+        && !oldNumbers.some((n) => newNumbers.has(n));
+
+      if (hasNegation || numbersDiffer) {
+        return fact;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error("[companyMemory] failed to check for contradiction, skipping check", err);
+    return null;
+  }
+}
+
 export function formatCompanyFactsForPrompt(facts: CompanyFact[]): string {
   if (facts.length === 0) return "";
-  return facts.map((f) => `- [${f.factType}] ${f.factText}`).join("\n");
+  // A user_reported_belief fact is the founder's own claim about themselves —
+  // reasoned from, never restated back as independently established truth
+  // (see the matching instruction line in groq.ts's VENUS_SYSTEM_PROMPT).
+  // "verified" is unused today (nothing in this system verifies a claim
+  // against an outside source yet) but rendered plainly if it's ever set.
+  return facts
+    .map((f) => {
+      const tierLabel = f.claimType === "verified" ? "verified" : "user-reported";
+      return `- [${f.factType}, ${tierLabel}] ${f.factText}`;
+    })
+    .join("\n");
+}
+
+export function formatPreferenceFactsForPrompt(facts: CompanyFact[]): string {
+  if (facts.length === 0) return "";
+  return facts.map((f) => `- ${f.factText}`).join("\n");
 }

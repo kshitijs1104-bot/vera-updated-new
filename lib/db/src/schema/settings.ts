@@ -30,6 +30,22 @@ export const settingsTable = pgTable("settings", {
   // unrecognized and reach the LLM with stale or empty context. Cleared as
   // soon as the pending confirmation is resolved, one way or the other.
   pendingContextConfirmation: boolean("pending_context_confirmation").notNull().default(false),
+  // Mirrors pendingContextConfirmation's pattern for a different question: set
+  // when a message looked like a standing preference/correction (see
+  // preferenceDetection.ts) and Venus asked "should I remember this going
+  // forward?" — holds the model's own cleaned-up candidate text (not the raw
+  // message) so the very next reply is checked against THIS specific
+  // question before any other classifier runs. Null = no confirmation
+  // pending. Cleared as soon as the founder answers either way.
+  pendingPreferenceText: text("pending_preference_text"),
+  // Same pending-confirmation pattern again, for a third specific question:
+  // set when a new business-context statement looks like it contradicts an
+  // already-stored company_facts row (see companyMemory.findPotentialContradiction)
+  // and Venus asked "you told me X before, now Y — update it, or both true?"
+  // JSON-encoded { oldFactId, newFactText, factType, sourceType } so the next
+  // reply can be resolved (supersedeFact vs. add-as-new) without re-deriving
+  // any of it. Null = no contradiction pending.
+  pendingFactContradiction: text("pending_fact_contradiction"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

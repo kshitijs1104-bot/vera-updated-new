@@ -30,7 +30,11 @@ const STOPWORDS = new Set([
   "revenue", "growth", "grow", "growing", "customer", "customers", "year", "years",
 ]);
 
-function tokenize(text: string): string[] {
+// Exported so other retrieval-shaped consumers (see messageLog.ts's
+// getRelevantMessages, which scores raw chat history the same way this file
+// scores precedents) can reuse the exact same tokenize/stopword logic
+// instead of drifting out of sync with a second copy.
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
