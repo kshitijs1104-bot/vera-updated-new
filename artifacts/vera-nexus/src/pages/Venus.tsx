@@ -1483,30 +1483,41 @@ function VenusCard({ card, index = 0, contextQuery = '', previousContextQuery = 
 
       {card.type === 'decision' && (
         <div className="space-y-3">
-          {(normalizedContent.options ?? []).map((option: any, i: number) => (
-            <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <div className="font-semibold text-[var(--text)]">{option.name ?? `Option ${i + 1}`}</div>
-                {option.verdict && <div className="text-sm text-[var(--muted-text)]">{renderInline(String(option.verdict))}</div>}
-              </div>
-              {option.scores && isRecord(option.scores) && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {Object.entries(option.scores).map(([scoreKey, scoreValue]) => (
-                    <div key={scoreKey} className="rounded border border-[var(--border)] bg-[var(--surface)]/70 p-2.5">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)] mb-1">{scoreKey.replace(/_/g, ' ')}</div>
-                      <div className="text-sm font-mono text-[var(--text)]">{String(scoreValue)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
           {normalizedContent.recommendation && (
             <div className="rounded border border-[var(--v7-tint-border)] bg-[var(--v7-tint)] p-3">
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] mb-1">Recommendation</div>
               <div className="text-sm text-[var(--muted-text)]">{renderInline(String(normalizedContent.recommendation))}</div>
             </div>
           )}
+          {(normalizedContent.options ?? []).map((option: any, i: number) => {
+            // "reasoning" is the current schema field (prose, primary content);
+            // "verdict" is kept as a fallback for any response still on the
+            // older one-line schema so existing/cached responses still render.
+            const reasoningText = option.reasoning ?? option.verdict;
+            return (
+              <div key={i} className="rounded border border-[var(--border)] bg-[var(--surface)]/60 p-3">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <div className="font-semibold text-[var(--text)]">{option.name ?? `Option ${i + 1}`}</div>
+                  {option.chosen === true && (
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--mint)] rounded border border-[var(--v7-tint-border)] bg-[var(--v7-tint)] px-1.5 py-0.5">Recommended</span>
+                  )}
+                </div>
+                {reasoningText && (
+                  <div className="text-sm text-[var(--text)] leading-relaxed">{renderInline(String(reasoningText))}</div>
+                )}
+                {option.scores && isRecord(option.scores) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 pt-2 border-t border-[var(--border)]/60">
+                    {Object.entries(option.scores).map(([scoreKey, scoreValue]) => (
+                      <div key={scoreKey} className="flex items-baseline gap-1">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--dim)]">{scoreKey.replace(/_/g, ' ')}</span>
+                        <span className="text-xs font-mono text-[var(--dim)]">{String(scoreValue)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -109,6 +109,22 @@ function normalizeQueryText(message: string) {
 // happened to type rather than comparing it to anything.
 const BENCHMARKABLE_CATEGORY = /\b(price|pricing|priced|subscription|fee|fees|charge|charges|equity|valuation|dilution|vc|investor|investors|funding|raise|cap ?table|budget|allocation|split|spend|invest|salary|payout)\b/;
 
+// A question asking WHY something is happening, or naming a problem to
+// diagnose, is not a request to pick between options — even when it also
+// contains an incidental decision-ish verb ("should I be worried my churn is
+// climbing" reads as decision-ish on "should" alone, but it's a diagnosis
+// question) or a number/benchmarkable word ("why did my $500 ad spend not
+// convert" hits both hasNumericValue and BENCHMARKABLE_CATEGORY on "spend").
+// Before this exclusion, both of those forced single-value-benchmark or
+// binary decision routing — instructing the model to generate benchmark
+// alternatives and score them, or to lead with a verdict word — on a
+// question that has nothing to compare, which is exactly what was producing
+// comparison-style cards on plain diagnostic questions. See groq.ts's "IS
+// THIS ACTUALLY A COMPARISON?" prompt section for the model-side half of
+// this fix; this is the code-side half that stops the forced instruction
+// from ever reaching the prompt in the first place.
+const DIAGNOSTIC_QUESTION = /\b(why|what'?s (causing|wrong|broken|happening|going on)|whats (causing|wrong|broken|happening|going on)|stalling|stalled|stuck|struggling|isn'?t (working|converting|growing|selling)|not (working|converting|growing|selling)|declin(ing|ed)|dropp(ing|ed)|falling|slipping)\b/i;
+
 function inferDecisionRouting(message: string) {
   const normalized = normalizeQueryText(message);
   if (!normalized) return null;
@@ -117,10 +133,18 @@ function inferDecisionRouting(message: string) {
   const hasAlternatives = /\b(or|vs|versus|instead|rather|either)\b/.test(normalized) || normalized.includes(" or ");
   const hasNumericValue = /\d/.test(normalized);
   const isBenchmarkable = BENCHMARKABLE_CATEGORY.test(normalized);
+  const isDiagnostic = DIAGNOSTIC_QUESTION.test(normalized);
 
+  // Explicit alternatives ("A or B") are a real comparison regardless of
+  // diagnostic-sounding phrasing elsewhere in the message — this check stays
+  // first and always wins.
   if (hasAlternatives) {
     return { mode: "decision" as const, subtype: "multi-option" as const };
   }
+  // No explicit alternatives AND it reads as a "why"/diagnosis question →
+  // there's nothing to compare yet; let it fall through to normal
+  // evidence-first reasoning instead of forcing decision-card framing.
+  if (isDiagnostic) return null;
   if (hasNumericValue && isBenchmarkable) {
     return { mode: "decision" as const, subtype: "single-value-benchmark" as const };
   }
@@ -137,11 +161,11 @@ function buildDecisionRoutingInstruction(message: string) {
   if (!routing) return "";
 
   if (routing.subtype === "single-value-benchmark") {
-    return `Query routing: The founder proposed one specific number (a price, equity stake, valuation, budget split, or similar) and is asking whether it's right. Do NOT just validate the number they stated. Before answering, silently generate 2 realistic benchmark alternatives for this exact decision (e.g. a lower and a higher price point; a smaller and larger raise/equity ask; a different budget split), grounded in the founder's stated stage and context — then score the founder's number against those alternatives using the decision card format, with all options scored including the founder's own. The recommendation must be a function of that comparison, never an independent judgment reached before the scoring. If your honest comparison still lands on the founder's number, say so and say specifically why it beat the alternatives — agreement is never the default, it has to be earned by the comparison, exactly as it would if you'd recommended a different number entirely.`;
+    return `Query routing: The founder proposed one specific number (a price, equity stake, valuation, budget split, or similar) and is asking whether it's right. Do NOT just validate the number they stated. Before answering, silently generate 2 realistic benchmark alternatives for this exact decision (e.g. a lower and a higher price point; a smaller and larger raise/equity ask; a different budget split), grounded in the founder's stated stage and context — then compare the founder's number against those alternatives in prose in "summary" first (which wins and the specific reason why), and only then, if a structured view adds anything, reflect that same comparison in a decision card with real per-option reasoning (scores optional, secondary). The recommendation must be a function of that comparison, never an independent judgment reached before it. If your honest comparison still lands on the founder's number, say so and say specifically why it beat the alternatives — agreement is never the default, it has to be earned by the comparison, exactly as it would if you'd recommended a different number entirely.`;
   }
 
   const noun = routing.subtype === "multi-option" ? "multi-option decision question" : "single-path decision question";
-  return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request and answer it directly with a decision-oriented response, a clear verdict, and no fallback to rephrasing guidance.`;
+  return `Query routing: This appears to be a ${noun} even if it is short, informal, or fragmentary. Treat it as a complete strategic request — open with the root-cause synthesis as always, then answer directly with a clear verdict stated in prose with the reasoning behind it, no fallback to rephrasing guidance. Add a decision card only if there are genuinely multiple viable paths worth comparing; a single-path or binary call needs no card at all.`;
 }
 
 // ---- Query scope classification (prompt-size routing) ----
@@ -240,8 +264,8 @@ function buildShortQueryFallback(message: string) {
           options: [
             {
               name: "Primary path",
+              reasoning: "The request should be handled as a direct decision question.",
               scores: { viability: 6, speed: 7, defensibility: 6, capital_efficiency: 6 },
-              verdict: "The request should be handled as a direct decision question.",
             },
           ],
           recommendation,
@@ -955,7 +979,7 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     const historyContext = body.data.sessionHistory && body.data.sessionHistory.length > 0
       ? `Conversation context so far:\n${body.data.sessionHistory.slice(-historyTurnCount).map((h: { role?: string; content?: string }) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content ?? ""}`).join("\n")}`
       : "Conversation context so far: none.";
-    const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template with at least 2 cards.`;
+    const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template, with cards only for the facets that genuinely need a structured view (see IS THIS ACTUALLY A COMPARISON? and the cards guidance above — this is not a mandate to always attach 2+ cards). Either way, "Conversation context so far" is background for understanding the founder's situation only — never treat an earlier turn's topic, question, or request (including a past drafting request) as something still pending action on THIS turn unless the current message itself asks for it.`;
     const decisionRoutingInstruction = buildDecisionRoutingInstruction(body.data.message);
     // isNarrowScope note: webResult is intentionally null for a narrow query
     // (see webResult assignment above) — the instruction text below must not
@@ -1227,7 +1251,7 @@ router.post("/ai/idea-review", requireAuth, async (req, res) => {
     const isNone = retrieval.tier === "none";
 
     const precedentBlock = `VERIFIED PRECEDENTS (retrieved from curated dataset, confidence ${retrieval.confidence}):\n\n${formatPrecedentsForPrompt(retrieval.precedents)}`;
-    const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template with at least 2 cards.`;
+    const followUpInstruction = `Conversation routing: If the current message is a narrow follow-up or clarification that refers to the earlier conversation context, answer it directly and narrowly without re-running the full broad-template sections. Keep it concise and focused on the new detail or constraint raised, and use at most one directly relevant supporting card. If the current message is a new broad strategic question, use the full structured template, with cards only for the facets that genuinely need a structured view (see IS THIS ACTUALLY A COMPARISON? and the cards guidance above — this is not a mandate to always attach 2+ cards). Either way, "Conversation context so far" is background for understanding the founder's situation only — never treat an earlier turn's topic, question, or request (including a past drafting request) as something still pending action on THIS turn unless the current message itself asks for it.`;
     const noPrecedentInstruction = `NO VERIFIED PRECEDENT MATCH: There are no verified precedents for this request. You must not invent company names or fabricate specific precedent-based causal claims. Respond with general strategic reasoning only, clearly labeled as unverified and not derived from Venus AI's dataset.`;
 
     const ideaSystemPrompt = isNone
