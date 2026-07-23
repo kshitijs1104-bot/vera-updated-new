@@ -993,7 +993,12 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
     // instance) — see preferenceDetection.ts for why this is a 3-layer check
     // rather than a hardcoded keyword rule. Skipped entirely (zero extra
     // cost) on the far more common case where the regex pre-filter doesn't fire.
-    const priorAssistantMessage = [...(body.data.sessionHistory ?? [])].reverse().find((h) => h.role === "assistant")?.content ?? "";
+    // Not `=== "assistant"` — the frontend's ChatMessage role for Vera's own
+    // turns is "venus" (see vera-nexus/src/pages/Venus.tsx), not "assistant".
+    // Matches the same tolerant convention already used elsewhere in this
+    // file (messageHistoryTurnCount's push loop, historyContext's label):
+    // anything that isn't "user" is treated as the assistant/Vera turn.
+    const priorAssistantMessage = [...(body.data.sessionHistory ?? [])].reverse().find((h) => h.role && h.role !== "user")?.content ?? "";
     if (priorAssistantMessage && looksLikeCorrection(body.data.message, priorAssistantMessage) && looksLikeGeneralizablePreference(body.data.message)) {
       const existingPreferences = await getActivePreferenceFacts(sessionId, 20);
       if (!looksLikeExistingPreference(existingPreferences.map((f) => f.factText), body.data.message)) {
