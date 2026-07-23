@@ -219,6 +219,55 @@ export function repairTruncatedCardsArray(content: string): string | null {
   }
 }
 
+/**
+ * Repairs a specific malformation observed from Groq's gpt-oss models on
+ * nested array-of-objects fields (e.g. a roadmap card's "phases", a decision
+ * card's "options"): the model occasionally emits one stray extra "}" right
+ * after an object's last value, before the "," or "]" that should follow —
+ * e.g. `...,"metric":"School signs pilot agreement"}},{"period":...` where
+ * only one "}" should close that phase object. It tends to repeat the same
+ * mistake for every entry in the array (every phase, every option), not just
+ * once. This is severe enough that Groq's own json_object mode rejects the
+ * generation outright (400 json_validate_failed) rather than returning it as
+ * a normal completion, so the content never reaches the usual
+ * JSON.parse-failure repair path below — it has to be recovered from the
+ * error body itself (see isJsonValidateFailedError).
+ *
+ * Deliberately narrow and deterministic, same philosophy as
+ * repairTruncatedCardsArray above: each pass only ever REMOVES a single
+ * stray "}" found near where JSON.parse actually reported the failure, then
+ * re-parses to see if another one remains further along. Never invents or
+ * alters real content — if a bounded number of passes still doesn't produce
+ * valid JSON, gives up and returns null (caller retries a fresh generation
+ * instead) rather than shipping a guess that isn't actually verified.
+ */
+export function attemptBraceRepair(content: string): string | null {
+  let current = content;
+  for (let pass = 0; pass < 8; pass++) {
+    try {
+      JSON.parse(current);
+      return current; // fully valid — done (first pass: was already fine)
+    } catch (e: any) {
+      const match = /position (\d+)/.exec(e?.message ?? "");
+      if (!match) return null;
+      const pos = Number(match[1]);
+      // Search backwards a short window from the reported failure position
+      // for the nearest "}" — that's the stray brace in every observed case
+      // — and strip exactly that one character before trying again.
+      let fixed: string | null = null;
+      for (let i = pos; i >= 0 && i > pos - 20; i--) {
+        if (current[i] === "}") {
+          fixed = current.slice(0, i) + current.slice(i + 1);
+          break;
+        }
+      }
+      if (fixed === null) return null;
+      current = fixed;
+    }
+  }
+  return null;
+}
+
 // The model returns valid JSON (enforced by Groq's json_object response mode),
 // but "valid JSON" only guarantees the outer structure parses — it does not
 // guarantee the *string values inside* are clean. In practice the model
@@ -733,6 +782,23 @@ export function isContentPolicyRefusal(err: any): boolean {
   return status === 400 && (code.includes("content") || code.includes("policy") || /content.?polic|flagged|refus/i.test(msg));
 }
 
+// Groq's json_object mode validates the model's own generation and rejects
+// it as a 400 rather than returning it as a normal completion when the JSON
+// is malformed enough (see attemptBraceRepair above for the specific pattern
+// observed). The model's attempted output still exists — Groq includes it as
+// "failed_generation" in the error body — it's just never handed back as a
+// completion, so it has to be pulled out of the error itself.
+function isJsonValidateFailedError(err: any): boolean {
+  const status = err?.status ?? err?.response?.status;
+  const code = (err?.code || err?.error?.code || "").toLowerCase();
+  return status === 400 && code === "json_validate_failed";
+}
+
+function extractFailedGeneration(err: any): string | null {
+  const gen = err?.failed_generation ?? err?.error?.failed_generation;
+  return typeof gen === "string" ? gen : null;
+}
+
 // Groq's 429s cover two very different situations: a per-minute burst limit
 // (worth the existing 300ms-1.2s in-request retry below) and a daily/quota
 // exhaustion (the message embeds a wait measured in minutes-to-hours — e.g.
@@ -815,6 +881,21 @@ async function createWithRetry(groq: Groq, params: GroqJsonParams, label: string
         };
         if (i === attempts - 1) throw err;
         continue;
+      }
+      if (isJsonValidateFailedError(err)) {
+        const failedGeneration = extractFailedGeneration(err);
+        const repaired = failedGeneration ? attemptBraceRepair(failedGeneration) : null;
+        if (repaired) {
+          console.error(`[callGroqJSON] "${label}" — Groq rejected its own generation as invalid JSON (json_validate_failed), repaired a stray brace locally and recovered it without a retry`);
+          // Synthesize a completion-shaped result so the normal parse path in
+          // callGroqJSON handles it exactly like any other successful call —
+          // only the two fields it actually reads (content, finish_reason)
+          // need to exist.
+          return { choices: [{ message: { content: repaired }, finish_reason: "stop" }] } as any;
+        }
+        console.error(`[callGroqJSON] "${label}" — Groq rejected its own generation as invalid JSON (json_validate_failed) and local repair failed, retrying a fresh generation (${i + 1}/${attempts - 1})`);
+        if (i === attempts - 1) throw err;
+        continue; // same params — a fresh sample, not a shrink; this isn't a size problem
       }
       if (!isRetryableTransient(err) || i === attempts - 1) throw err;
       const delayMs = 300 * Math.pow(2, i); // 300ms, 600ms, 1200ms
