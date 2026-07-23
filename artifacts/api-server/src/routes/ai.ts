@@ -1447,17 +1447,27 @@ router.post("/ai/analyze", requireAuth, async (req, res) => {
       if (lengthConstraint && typeof sanitized.summary === "string") {
         const MAX_LENGTH_REVISION_ATTEMPTS = 3;
         let attempt = 1;
-        let revisionMessages = messages;
         let check = verifyLengthConstraint(sanitized.summary, lengthConstraint);
 
+        // IMPORTANT: each retry starts fresh from the ORIGINAL `messages`
+        // array (system prompt + history + the founder's message) plus ONE
+        // small extra instruction — it deliberately does NOT accumulate the
+        // prior JSON.stringify(sanitized) response onto the message list.
+        // Echoing the full previous response back in was the actual cause
+        // of a real production hang found during testing: re-injecting a
+        // whole card-laden JSON object on top of an already-tight ~7000-
+        // token system prompt (see the 413-storm this file's own comments
+        // document) triggered createWithRetry's shrink-and-backoff loop on
+        // EVERY retry attempt, compounding latency into minutes instead of
+        // seconds. The target count alone is all the model needs — it
+        // doesn't need its own prior draft replayed to revise it.
         while (!check.ok && attempt < MAX_LENGTH_REVISION_ATTEMPTS) {
           attempt++;
-          revisionMessages = [
-            ...revisionMessages,
-            { role: "assistant", content: JSON.stringify(sanitized) },
+          const revisionMessages = [
+            ...messages,
             {
-              role: "user",
-              content: `Your draft's "summary" field is actually ${check.actual} ${lengthConstraint.unit} (counted exactly, in code) — I asked for ${describeLengthConstraint(lengthConstraint)}. Revise ONLY the summary field's text so it genuinely hits that target. Return the same full JSON shape, just with a corrected summary.`,
+              role: "user" as const,
+              content: `Your draft's "summary" field is actually ${check.actual} ${lengthConstraint.unit} (counted exactly, in code) — I asked for ${describeLengthConstraint(lengthConstraint)}. Return the same full JSON shape again, with the summary rewritten to genuinely hit that target.`,
             },
           ];
           const revision = await callGroqJSON(
